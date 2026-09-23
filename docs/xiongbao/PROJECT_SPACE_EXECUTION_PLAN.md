@@ -2,10 +2,13 @@
 
 以 [PROJECT_SPACE_SPEC.md](PROJECT_SPACE_SPEC.md) 为合同，将熊宝-Agent 项目空间做成真实的多人协作域，逐项达到 WorkBuddy 5.5.6 已观察和官方记录的项目行为；完成可验证的服务端授权、前端旅程、独立只读审查和持续推送。
 
-# Decisions and guardrails
+# Decisions and assumptions
 
 - Codex 总指挥；`claude-bailian/qwen3.8-max` 是后端主实现；`opencode-bailian/bailian-token-plan-personal/deepseek-v4.1-flash` 是互不重叠的前端并行实现；`qwen-code-review/glm-5.3` 只读审查。每位实施者在独立 worktree 工作，不创建子代理，不提交/推送/部署/改凭据/清理用户数据。
 - 首片仅做真实项目 CRUD、owner 成员记录和 ACL。表格/看板、资产、项目任务与配置在有实际数据源前保持诚实的待建设状态；绝不用专家团 `teams`、RAG 资料库或 Agent 工作区伪装项目空间。
+
+# Constraints and guardrails
+
 - 项目成员资格不授予任何私密任务正文或本地文件权限。所有服务端入口做成员/资源授权，包括搜索、下载、深链、事件与 WebSocket。首片 API 和角色见规格文档。
 - 共享接线文件 `api/app.py`、`infra/db/services.py`、`dashboard/src/routes/index.tsx`、`dashboard/src/layouts/sidebarNav.tsx` 分属各片明示的唯一所有者；主仓库只由 Codex 整合。新迁移从 018 起编号，待当前 004 的目录架构修订后重新分配其编号，避免冲突。
 - 先写行为测试再实现，SQLite/PostgreSQL 都验证；不能将 UI 展示、源码存在、单测、实机旅程或 1:1 验收混为一谈。外部登录/邮件/云任务等没有真实授权的环节以可控本地样例验证，保留真实验收缺口。
@@ -21,6 +24,10 @@
 - [ ] 007 · OpenCode 并行线：项目资产库与版本、添加到任务、容量和权限；从独立真实存储模型起步，不复用未授权的本地路径。依赖 004/006，必要时拆片。
 - [ ] 008 · Codex + GLM：本地/云端模式、动态/审计、双用户与非成员 E2E、1280×768 逐页 UI 对照、定向/全量测试、Windows 构建、差距矩阵核销、批次推送。依赖各已实施片。
 
-# Validation and completion
+# Validation strategy
 
-每个实施片由 Codex 检查完整 diff 与路径白名单、独立重跑定向测试、类型/lint/构建；根目录 `make all` 是最终 ship bar。首次安全批次验收用 owner、member、outsider 三身份分别验证列表、详情、改名和成员页，刷新后数据一致。后续逐项跑 [PROJECT_SPACE_SPEC.md](PROJECT_SPACE_SPEC.md) 的 PS-01–09。GLM 只读审查不能替代 Codex 复测。每批已接受变更推送用户仓库后记录远端 SHA；全部旅程和视觉证据齐全或明确保留项后才可声明项目空间对齐。
+每个实施片由 Codex 检查完整 diff 与路径白名单、独立重跑定向测试、类型/lint/构建；根目录 `make all` 是最终 ship bar。首次安全批次验收用 owner、member、outsider 三身份分别验证列表、详情、改名和成员页，刷新后数据一致。后续逐项跑 [PROJECT_SPACE_SPEC.md](PROJECT_SPACE_SPEC.md) 的 PS-01–09。GLM 只读审查不能替代 Codex 复测。
+
+# Completion criteria
+
+每批已接受变更推送用户仓库后记录远端 SHA；全部旅程和视觉证据齐全或明确保留项后才可声明项目空间对齐。
