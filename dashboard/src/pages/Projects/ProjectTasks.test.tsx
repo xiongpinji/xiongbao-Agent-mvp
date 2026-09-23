@@ -349,6 +349,33 @@ describe("ProjectTasks first-slice behavior", () => {
     );
   });
 
+  it("keeps the picker open when an unrelated 409 is returned", async () => {
+    const user = userEvent.setup();
+    link.mockRejectedValue(
+      new Error(
+        '409 - {"error":{"code":"SOME_OTHER_CONFLICT","message":"other write conflict"}}',
+      ),
+    );
+    renderTasks("p1");
+    await screen.findByText("写周报");
+    const callsBefore = list.mock.calls.length;
+
+    await user.click(screen.getByRole("button", { name: "关联我的任务" }));
+    await screen.findByText("周报草稿");
+    await user.click(screen.getByRole("button", { name: "关联到项目" }));
+
+    expect(await screen.findByText("other write conflict")).toBeInTheDocument();
+    expect(
+      screen.getByRole("dialog", { name: "关联我的任务" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "这条任务已关联到其他项目或状态冲突。已刷新项目任务列表，请检查后重试。",
+      ),
+    ).toBeNull();
+    expect(list.mock.calls.length).toBe(callsBefore);
+  });
+
   it("detaches a task from the project without deleting the conversation", async () => {
     const user = userEvent.setup();
     renderTasks("p1");
@@ -363,6 +390,28 @@ describe("ProjectTasks first-slice behavior", () => {
     expect(message.success).toHaveBeenCalledWith(
       "已从项目移除，原对话与历史仍保留。",
     );
+  });
+
+  it("refreshes a stale unlinked card when DELETE says the link is gone", async () => {
+    const user = userEvent.setup();
+    list
+      .mockResolvedValueOnce(page([taskOpen]))
+      .mockResolvedValueOnce(page([]));
+    unlink.mockRejectedValue(
+      new Error(
+        '404 - {"error":{"code":"NOT_FOUND","message":"project task not found"}}',
+      ),
+    );
+    renderTasks("p1");
+    await screen.findByText("写周报");
+
+    await user.click(screen.getByRole("button", { name: "取消关联：写周报" }));
+    await user.click(await screen.findByRole("button", { name: "确认移除" }));
+
+    expect(await screen.findByText("还没有关联任务")).toBeInTheDocument();
+    expect(screen.queryByText("项目不存在或你无权访问")).toBeNull();
+    expect(threadsDelete).not.toHaveBeenCalled();
+    expect(list).toHaveBeenCalledTimes(2);
   });
 
   it("clears stale task rows when the project route turns into a 404", async () => {

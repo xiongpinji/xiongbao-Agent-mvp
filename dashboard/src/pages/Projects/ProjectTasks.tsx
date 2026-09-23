@@ -76,9 +76,7 @@ export function isDashboardDmCandidate(thread: OctopThread): boolean {
 }
 
 function isConflictApiError(error: unknown): boolean {
-  if (parseApiError(error)?.code === "PROJECT_TASK_LINK_CONFLICT") return true;
-  const raw = error instanceof Error ? error.message : String(error ?? "");
-  return /\b409\b/.test(raw);
+  return parseApiError(error)?.code === "PROJECT_TASK_LINK_CONFLICT";
 }
 
 function mergeUniqueTasks(
@@ -296,9 +294,13 @@ export default function ProjectTasks({ projectId }: Props) {
     } catch (err: unknown) {
       if (projectId !== currentProjectId.current) return;
       if (isNotFoundApiError(err)) {
-        setTasks([]);
-        setHasMore(false);
-        setListError(err);
+        // A 404 may mean this one link was already removed while the project
+        // remains accessible. Reload the authoritative list; that request
+        // separately decides whether the project itself was revoked.
+        setTasks((previous) =>
+          previous.filter((item) => item.thread_id !== task.thread_id),
+        );
+        reload();
       } else {
         setActionError(
           apiErrorMessage(
