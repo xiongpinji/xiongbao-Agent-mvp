@@ -102,11 +102,11 @@ describe("ChatDockPanel add-tab menu", () => {
     const addBtn = within(title).getByRole("button", { name: "添加面板" });
     await user.click(addBtn);
 
-    await user.click(await screen.findByText("工作区"));
+    await user.click(await screen.findByText("工作空间文件"));
     expect(onOpenWorkspace).toHaveBeenCalledTimes(1);
 
     await user.click(addBtn);
-    await user.click(await screen.findByText("文件变更"));
+    await user.click(await screen.findByText("已发现文件"));
     expect(onOpenFiles).toHaveBeenCalledTimes(1);
 
     await user.click(addBtn);
@@ -195,7 +195,7 @@ describe("ChatDockPanel add-tab menu", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "添加面板" }));
-    const item = await screen.findByText("工作区");
+    const item = await screen.findByText("工作空间文件");
     await user.click(item);
     expect(onOpenWorkspace).not.toHaveBeenCalled();
   });

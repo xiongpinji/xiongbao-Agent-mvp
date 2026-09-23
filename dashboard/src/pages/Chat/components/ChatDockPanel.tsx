@@ -132,7 +132,7 @@ const DockAddTabButton: React.FC<{
     if (addTab.onOpenWorkspace) {
       next.push({
         key: "workspace",
-        label: t("chat.openWorkspace", "工作区"),
+        label: t("chat.dockWorkspaceFiles", "工作空间文件"),
         icon: <FolderOpen size={14} />,
         disabled: addTab.workspaceDisabled,
         title: addTab.workspaceDisabled
@@ -144,7 +144,7 @@ const DockAddTabButton: React.FC<{
     if (addTab.onOpenFiles) {
       next.push({
         key: "files",
-        label: t("chat.dockFileList", "文件变更"),
+        label: t("chat.dockDetectedFiles", "已发现文件"),
         icon: <FilePen size={14} />,
         extra: check("files"),
       });
@@ -427,12 +427,12 @@ const ChatDockPanel: React.FC<ChatDockPanelProps> = ({
             ) : tab.kind === "files" ? (
               <>
                 <FolderOpen size={16} strokeWidth={2} aria-hidden />
-                <span>{t("chat.dockFileList", "文件变更")}</span>
+                <span>{t("chat.dockDetectedFiles", "已发现文件")}</span>
               </>
             ) : tab.kind === "workspace" ? (
               <>
                 <FolderOpen size={16} strokeWidth={2} aria-hidden />
-                <span>{t("chat.openWorkspace", "工作区")}</span>
+                <span>{t("chat.dockWorkspaceFiles", "工作空间文件")}</span>
               </>
             ) : tab.kind === "browser" ? (
               <>
