@@ -11,6 +11,7 @@ import {
   Terminal,
   FolderOpen,
   Activity,
+  LayoutDashboard,
 } from "lucide-react";
 import { Alert, Button, Tooltip } from "antd";
 import { message as antMessage } from "@/utils/antdMessage";
@@ -390,6 +391,8 @@ function ChatPageInner() {
     handleResizeStart: dockHandleResizeStart,
     handleClose: handleDockClose,
     handleModeChange: handleDockModeChange,
+    openOverviewTab,
+    openArtifactsTab,
     openFileList,
     openFileAt,
     openKnowledgeCitation,
@@ -451,8 +454,10 @@ function ChatPageInner() {
   const dockAddTab = useMemo((): ChatDockAddTabHandlers => {
     const handlers: ChatDockAddTabHandlers = {
       onOpenBrowser: handleOpenBrowserTab,
+      onOpenOverview: openOverviewTab,
     };
     if (!sharedExpertViewer) {
+      handlers.onOpenArtifacts = openArtifactsTab;
       handlers.onOpenWorkspace = openWorkspaceTab;
       handlers.workspaceDisabled = !agentChatReady;
       handlers.workspaceDisabledHint = t("workspace.requiresRunning");
@@ -466,7 +471,9 @@ function ChatPageInner() {
     agentChatReady,
     canTerminal,
     handleOpenBrowserTab,
+    openArtifactsTab,
     openFileList,
+    openOverviewTab,
     openTerminalTab,
     openWorkspaceTab,
     sharedExpertViewer,
@@ -491,6 +498,13 @@ function ChatPageInner() {
   const composerSession = useMemo(
     () => sessions.find((session) => session.id === activeThreadId) ?? null,
     [sessions, activeThreadId],
+  );
+
+  // Artifacts belong to the active thread only — an empty/loading thread
+  // yields no rows instead of the previous thread's deliverables.
+  const threadArtifacts = useMemo(
+    () => composerSession?.artifacts ?? [],
+    [composerSession?.artifacts],
   );
 
   const panelFilePaths = useMemo(() => {
@@ -1353,6 +1367,22 @@ function ChatPageInner() {
                 <div className={styles.chatFloatActions}>
                   {/* PWA install first when available — same column as browser / experts. */}
                   <PwaInstallPrompt appearance="chatFloat" />
+                  <Tooltip
+                    title={t("chat.dockOverviewTitle", "任务概览")}
+                    mouseEnterDelay={0.35}
+                    placement="left"
+                  >
+                    <span className={styles.chatFloatBtnWrap}>
+                      <button
+                        type="button"
+                        className={styles.chatFloatBtn}
+                        onClick={openOverviewTab}
+                        aria-label={t("chat.dockOverviewTitle", "任务概览")}
+                      >
+                        <LayoutDashboard size={20} strokeWidth={2.1} />
+                      </button>
+                    </span>
+                  </Tooltip>
                   {resolvedAgentId && !sharedExpertViewer && (
                     <>
                       <Tooltip
@@ -1624,6 +1654,9 @@ function ChatPageInner() {
             panelSizes={dockPanelSizes}
             agentId={resolvedAgentId ?? ""}
             filePaths={sharedExpertViewer ? [] : panelFilePaths}
+            artifacts={sharedExpertViewer ? [] : threadArtifacts}
+            agentName={activeAgent?.name ?? null}
+            threadTitle={activeSessionTitle ?? null}
             openTabs={openTabs}
             activeTabId={activeTabId}
             onSelectTab={setDockActiveTab}

@@ -3,10 +3,10 @@ import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { THEME_STORAGE_KEY } from "./themePalettes";
 
-const INDEX_HTML = readFileSync(
-  resolve(__dirname, "../../index.html"),
-  "utf8",
-);
+const INDEX_HTML = readFileSync(resolve(__dirname, "../../index.html"), "utf8");
+const MANIFEST = JSON.parse(
+  readFileSync(resolve(__dirname, "../../public/manifest.json"), "utf8"),
+) as { name: string; short_name: string; icons: { src: string }[] };
 
 function bootThemeScript(): string {
   const match = INDEX_HTML.match(
@@ -53,11 +53,24 @@ describe("index.html boot theme", () => {
     );
   });
 
-  it("uses the white vertical mark in dark mode", () => {
-    expect(INDEX_HTML).toContain('src="/logo_vertical_white.svg"');
+  it("uses the supplied Xiongbao logo for the splash in both themes", () => {
+    expect(INDEX_HTML).toContain('src="/xiongbao-logo.png"');
     expect(INDEX_HTML).toContain(
-      'html[data-theme="dark"] .octop-boot-logo--dark',
+      'rel="icon" type="image/png" href="/xiongbao-logo.png"',
     );
+    expect(INDEX_HTML).toContain(
+      'rel="apple-touch-icon" href="/xiongbao-logo.png"',
+    );
+    expect(INDEX_HTML).not.toContain('src="/logo_vertical_white.svg"');
+    expect(INDEX_HTML).not.toContain('src="/logo_vertical_dark.svg"');
+  });
+
+  it("uses the Xiongbao name and icon for installed app metadata", () => {
+    expect(MANIFEST.name).toBe("熊宝-Agent");
+    expect(MANIFEST.short_name).toBe("熊宝");
+    expect(
+      MANIFEST.icons.every((icon) => icon.src === "/xiongbao-logo.png"),
+    ).toBe(true);
   });
 
   it("keeps a stored light preference over OS dark", () => {
@@ -79,7 +92,8 @@ describe("index.html boot theme", () => {
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
   });
 
-  it("follows the OS when preference is system or missing", () => {
+  it("follows the OS when the stored preference is system", () => {
+    localStorage.setItem(THEME_STORAGE_KEY, "system");
     eval(bootThemeScript());
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
 
@@ -87,6 +101,12 @@ describe("index.html boot theme", () => {
     stubMatchMedia(false);
     eval(bootThemeScript());
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+  });
+
+  it("defaults to dark when no preference is stored, even on a light OS", () => {
+    stubMatchMedia(false);
+    eval(bootThemeScript());
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
   });
 
   it("migrates a legacy plain theme string", () => {

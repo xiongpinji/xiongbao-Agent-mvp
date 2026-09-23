@@ -3,10 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import AvatarDropdown from "../components/AvatarDropdown";
-import AppVersionBadge from "../components/AppVersionBadge";
-import CurrentVersionBadge from "../components/CurrentVersionBadge";
 import { ArrowRightLeft, X, ChevronDown } from "lucide-react";
-import { useTheme } from "../context/ThemeContext";
 import { useLayoutMode } from "../context/LayoutModeContext";
 import { useUserRole } from "../hooks/useUserRole";
 import { useCurrentUser, useSetCurrentUser } from "../hooks/useCurrentUser";
@@ -24,6 +21,7 @@ import type { MinimalNavPane } from "./layoutModeStorage";
 import MinimalRecordsHost from "./MinimalRecordsHost";
 import SidebarCollapsedIconNav from "./SidebarCollapsedIconNav";
 import SidebarMinimalPaneToggle from "./SidebarMinimalPaneToggle";
+import SidebarBrand from "./SidebarBrand";
 import {
   COLLAPSED_WIDTH,
   EXPANDED_WIDTH,
@@ -377,7 +375,6 @@ export default function Sidebar({
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation();
-  const { isDark } = useTheme();
   const role = useUserRole();
   const user = useCurrentUser();
   const setUser = useSetCurrentUser();
@@ -395,9 +392,6 @@ export default function Sidebar({
   const showChatRailExpand = !isMinimal && !chatSidebarOpen;
 
   const isRailCollapsed = collapsed && !isMobile;
-  const wordmarkSrc = isDark
-    ? "/logo_horizontal_white.png"
-    : "/logo_horizontal_dark.png";
 
   const selectMinimalPane = useCallback(
     (pane: MinimalNavPane, opts?: { expand?: boolean }) => {
@@ -457,27 +451,15 @@ export default function Sidebar({
   ]);
 
   const brandInner = (
-    <>
-      <img
-        src={isRailCollapsed ? "/pwa-192.png" : wordmarkSrc}
-        alt="Octop"
-        style={{
-          height: isRailCollapsed ? 32 : isMobile ? 38 : 36,
-          width: isRailCollapsed ? 32 : "auto",
-          maxWidth: isRailCollapsed ? 32 : isMobile ? 190 : 160,
-          objectFit: "contain",
-          display: "block",
-          flexShrink: 0,
-          borderRadius: isRailCollapsed ? 8 : undefined,
-        }}
-      />
-      {!isRailCollapsed && !isMobile && (
-        <>
-          <CurrentVersionBadge isMobile={isMobile} />
-          <AppVersionBadge isMobile={isMobile} />
-        </>
-      )}
-    </>
+    <SidebarBrand
+      name={t("app.brandName")}
+      collapsed={isRailCollapsed}
+      isMobile={Boolean(isMobile)}
+      onClick={() => {
+        navigate("/chat");
+        if (isMobile) onToggle();
+      }}
+    />
   );
 
   const userFooter = (

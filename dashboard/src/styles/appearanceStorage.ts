@@ -1,6 +1,5 @@
 import {
   DEFAULT_CUSTOM_COLOR,
-  DEFAULT_PALETTE,
   LEGACY_PALETTE_STORAGE_KEY,
   THEME_STORAGE_KEY,
   VALID_PALETTES,
@@ -19,6 +18,10 @@ export type StoredAppearance = {
 
 const VALID_PREFERENCES: ThemePreference[] = ["system", "light", "dark"];
 
+/** First-run presentation: warm-gold dark (Xiongbao brand default). */
+const NEW_USER_PREFERENCE: ThemePreference = "dark";
+const NEW_USER_PALETTE: ThemePalette = "amber";
+
 function isPreference(value: unknown): value is ThemePreference {
   return (
     typeof value === "string" && (VALID_PREFERENCES as string[]).includes(value)
@@ -35,7 +38,7 @@ function isPalette(value: unknown): value is ThemePalette {
 function readLegacyPalette(): ThemePalette {
   const stored = localStorage.getItem(LEGACY_PALETTE_STORAGE_KEY);
   if (isPalette(stored)) return stored;
-  return DEFAULT_PALETTE;
+  return NEW_USER_PALETTE;
 }
 
 /**
@@ -46,7 +49,7 @@ export function readStoredAppearance(): StoredAppearance {
   const raw = localStorage.getItem(THEME_STORAGE_KEY);
   if (!raw) {
     return {
-      preference: "system",
+      preference: NEW_USER_PREFERENCE,
       palette: readLegacyPalette(),
       customColor: DEFAULT_CUSTOM_COLOR,
     };
@@ -67,7 +70,7 @@ export function readStoredAppearance(): StoredAppearance {
       const obj = parsed as Record<string, unknown>;
       const preference = isPreference(obj.preference)
         ? obj.preference
-        : "system";
+        : NEW_USER_PREFERENCE;
       const palette = isPalette(obj.palette)
         ? obj.palette
         : readLegacyPalette();
@@ -80,7 +83,7 @@ export function readStoredAppearance(): StoredAppearance {
   }
 
   return {
-    preference: "system",
+    preference: NEW_USER_PREFERENCE,
     palette: readLegacyPalette(),
     customColor: DEFAULT_CUSTOM_COLOR,
   };

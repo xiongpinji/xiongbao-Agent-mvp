@@ -10,7 +10,6 @@ import { authApi, type OauthProviderStatus } from "../../api/modules/auth";
 import { apiErrorMessage } from "../../utils/apiError";
 import { refreshServerLabels } from "../../i18n";
 import { applyUserLocale, applyGuestLocale } from "../../utils/locale";
-import { useTheme } from "../../context/ThemeContext";
 import {
   isSsoPopup,
   isSsoPopupMessage,
@@ -66,7 +65,6 @@ function providerIcon(provider: OauthProviderStatus): ReactNode {
 
 export default function LoginPage() {
   const { t } = useTranslation();
-  const { isDark } = useTheme();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [username, setUsername] = useState("");
@@ -249,19 +247,22 @@ export default function LoginPage() {
           margin: "0 16px",
         }}
       >
-        <img
-          src={
-            isDark ? "/logo_horizontal_white.png" : "/logo_horizontal_dark.png"
-          }
-          alt="Octop"
-          style={{
-            height: 48,
-            width: "auto",
-            maxWidth: 260,
-            objectFit: "contain",
-            display: "block",
-          }}
-        />
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <img
+            src="/xiongbao-logo.png"
+            alt=""
+            style={{
+              height: 48,
+              width: 48,
+              objectFit: "contain",
+              display: "block",
+              borderRadius: 12,
+            }}
+          />
+          <strong style={{ fontSize: 21, color: "var(--fn-text-primary)" }}>
+            {t("app.brandName")}
+          </strong>
+        </div>
 
         <h2
           style={{

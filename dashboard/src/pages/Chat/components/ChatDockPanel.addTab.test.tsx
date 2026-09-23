@@ -38,6 +38,16 @@ vi.mock("./ChatDockFileList", () => ({
   default: () => <div data-testid="file-list" />,
 }));
 
+vi.mock("./ChatArtifactList", () => ({
+  default: ({ artifacts }: { artifacts: string[] }) => (
+    <div data-testid="artifact-list" data-artifacts={artifacts.join(",")} />
+  ),
+}));
+
+vi.mock("./ChatDockOverview", () => ({
+  default: () => <div data-testid="dock-overview" />,
+}));
+
 vi.mock("./FilePanelContent", () => ({
   default: () => <div data-testid="file-panel" />,
 }));
@@ -60,6 +70,7 @@ const baseProps = {
   onClose: vi.fn(),
   agentId: "agent-a",
   filePaths: [] as string[],
+  artifacts: [] as string[],
   openTabs: [{ id: "terminal" as const, kind: "terminal" as const }],
   activeTabId: "terminal" as const,
   onSelectTab: vi.fn(),
@@ -107,6 +118,60 @@ describe("ChatDockPanel add-tab menu", () => {
     const terminalItems = await screen.findAllByText("终端");
     await user.click(terminalItems[terminalItems.length - 1]!);
     expect(onOpenTerminal).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens overview and artifacts from the + menu", async () => {
+    const user = userEvent.setup();
+    const onOpenOverview = vi.fn();
+    const onOpenArtifacts = vi.fn();
+
+    render(
+      <ChatDockPanel
+        {...baseProps}
+        addTab={{ onOpenOverview, onOpenArtifacts }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "添加面板" }));
+    await user.click(await screen.findByText("任务概览"));
+    expect(onOpenOverview).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: "添加面板" }));
+    await user.click(await screen.findByText("产物"));
+    expect(onOpenArtifacts).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders overview and artifacts as distinct dock tabs", () => {
+    render(
+      <ChatDockPanel
+        {...baseProps}
+        openTabs={[
+          { id: "overview", kind: "overview" },
+          { id: "artifacts", kind: "artifacts" },
+        ]}
+        activeTabId="overview"
+      />,
+    );
+    const title = screen.getByTestId("dock-title");
+    expect(within(title).getByText("任务概览")).toBeTruthy();
+    expect(within(title).getByText("产物")).toBeTruthy();
+    expect(screen.getByTestId("dock-overview")).toBeTruthy();
+    expect(screen.getByTestId("artifact-list")).toBeTruthy();
+  });
+
+  it("lists only thread artifacts in the artifacts tab, not opened files", () => {
+    render(
+      <ChatDockPanel
+        {...baseProps}
+        filePaths={["outbound/opened-only.txt", "outbound/artifact.pdf"]}
+        artifacts={["outbound/artifact.pdf"]}
+        openTabs={[{ id: "artifacts", kind: "artifacts" }]}
+        activeTabId="artifacts"
+      />,
+    );
+    expect(
+      screen.getByTestId("artifact-list").getAttribute("data-artifacts"),
+    ).toBe("outbound/artifact.pdf");
   });
 
   it("hides the + control when no add-tab handlers are provided", () => {

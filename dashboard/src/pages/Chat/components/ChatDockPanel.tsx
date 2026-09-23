@@ -16,6 +16,8 @@ import {
   FilePen,
   FolderOpen,
   Globe,
+  LayoutDashboard,
+  Package,
   Plus,
   Puzzle,
   RefreshCw,
@@ -36,7 +38,9 @@ import type { DockTab, DockTabId } from "../hooks/useChatDockPanel";
 import { dockFileBasename } from "../utils/dockFilePath";
 import styles from "../index.module.less";
 import WorkspaceDrawer from "../../Agent/Workspace/components/WorkspaceDrawer";
+import ChatArtifactList from "./ChatArtifactList";
 import ChatDockFileList from "./ChatDockFileList";
+import ChatDockOverview from "./ChatDockOverview";
 import FilePanelContent from "./FilePanelContent";
 import KnowledgeCitationPanelContent from "./KnowledgeCitationPanelContent";
 import ChatDockToolUiContent from "./ChatDockToolUiContent";
@@ -44,6 +48,8 @@ import ChatDockToolUiContent from "./ChatDockToolUiContent";
 const TerminalPage = lazy(() => import("../../Control/Terminal"));
 
 export type ChatDockAddTabHandlers = {
+  onOpenOverview?: () => void;
+  onOpenArtifacts?: () => void;
   onOpenWorkspace?: () => void;
   onOpenBrowser?: () => void;
   onOpenTerminal?: () => void;
@@ -52,7 +58,13 @@ export type ChatDockAddTabHandlers = {
   workspaceDisabledHint?: string;
 };
 
-type AddTabKey = "workspace" | "files" | "browser" | "terminal";
+type AddTabKey =
+  | "overview"
+  | "artifacts"
+  | "workspace"
+  | "files"
+  | "browser"
+  | "terminal";
 
 interface ChatDockPanelProps {
   mode: PanelMode;
@@ -61,6 +73,10 @@ interface ChatDockPanelProps {
   style?: React.CSSProperties;
   agentId: string;
   filePaths: string[];
+  /** Recorded artifacts of the active thread (separate from opened file tabs). */
+  artifacts: string[];
+  agentName?: string | null;
+  threadTitle?: string | null;
   openTabs: DockTab[];
   activeTabId: DockTabId | null;
   onSelectTab: (id: DockTabId) => void;
@@ -97,6 +113,22 @@ const DockAddTabButton: React.FC<{
     const check = (kind: DockTab["kind"]) =>
       hasOpenKind(openTabs, kind) ? <Check size={14} /> : undefined;
     const next: NonNullable<MenuProps["items"]> = [];
+    if (addTab.onOpenOverview) {
+      next.push({
+        key: "overview",
+        label: t("chat.dockOverviewTitle", "任务概览"),
+        icon: <LayoutDashboard size={14} />,
+        extra: check("overview"),
+      });
+    }
+    if (addTab.onOpenArtifacts) {
+      next.push({
+        key: "artifacts",
+        label: t("chat.dockArtifactsTitle", "产物"),
+        icon: <Package size={14} />,
+        extra: check("artifacts"),
+      });
+    }
     if (addTab.onOpenWorkspace) {
       next.push({
         key: "workspace",
@@ -139,6 +171,8 @@ const DockAddTabButton: React.FC<{
   const onClick = useCallback<NonNullable<MenuProps["onClick"]>>(
     ({ key }) => {
       const openers: Record<AddTabKey, (() => void) | undefined> = {
+        overview: addTab.onOpenOverview,
+        artifacts: addTab.onOpenArtifacts,
         workspace: addTab.onOpenWorkspace,
         files: addTab.onOpenFiles,
         browser: addTab.onOpenBrowser,
@@ -192,6 +226,9 @@ const ChatDockPanel: React.FC<ChatDockPanelProps> = ({
   style,
   agentId,
   filePaths,
+  artifacts,
+  agentName = null,
+  threadTitle = null,
   openTabs,
   activeTabId,
   onSelectTab,
@@ -377,7 +414,17 @@ const ChatDockPanel: React.FC<ChatDockPanelProps> = ({
         {openTabs.map((tab) => {
           const selected = tab.id === (activeTab?.id ?? null);
           const label =
-            tab.kind === "files" ? (
+            tab.kind === "overview" ? (
+              <>
+                <LayoutDashboard size={16} strokeWidth={2} aria-hidden />
+                <span>{t("chat.dockOverviewTitle", "任务概览")}</span>
+              </>
+            ) : tab.kind === "artifacts" ? (
+              <>
+                <Package size={16} strokeWidth={2} aria-hidden />
+                <span>{t("chat.dockArtifactsTitle", "产物")}</span>
+              </>
+            ) : tab.kind === "files" ? (
               <>
                 <FolderOpen size={16} strokeWidth={2} aria-hidden />
                 <span>{t("chat.dockFileList", "文件变更")}</span>
@@ -497,6 +544,42 @@ const ChatDockPanel: React.FC<ChatDockPanelProps> = ({
       overlayMenuOpen={addTabMenuOpen}
     >
       <div className={styles.dockTabBodies}>
+        {openTabs.some((tab) => tab.kind === "overview") && (
+          <div
+            className={styles.dockTabBody}
+            hidden={activeTab?.kind !== "overview"}
+            style={{
+              display: activeTab?.kind === "overview" ? "flex" : "none",
+            }}
+          >
+            <ChatDockOverview
+              agentId={agentId}
+              agentName={agentName}
+              threadTitle={threadTitle}
+              isStreaming={isStreamingTurn}
+              artifacts={artifacts}
+              onOpenArtifacts={addTab?.onOpenArtifacts}
+              onOpenFile={onOpenFile}
+            />
+          </div>
+        )}
+
+        {openTabs.some((tab) => tab.kind === "artifacts") && (
+          <div
+            className={styles.dockTabBody}
+            hidden={activeTab?.kind !== "artifacts"}
+            style={{
+              display: activeTab?.kind === "artifacts" ? "flex" : "none",
+            }}
+          >
+            <ChatArtifactList
+              agentId={agentId}
+              artifacts={artifacts}
+              onOpenFile={onOpenFile}
+            />
+          </div>
+        )}
+
         {openTabs.some((tab) => tab.kind === "files") && (
           <div
             className={styles.dockTabBody}

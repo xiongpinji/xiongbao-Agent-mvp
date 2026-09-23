@@ -5,6 +5,36 @@ import { dockKnowledgeTabId } from "../utils/dockKnowledgeTabId";
 import { ensureNoTrajectoryTab, useChatDockPanel } from "./useChatDockPanel";
 
 describe("useChatDockPanel tabs", () => {
+  it("opens a closable overview tab on a fresh desktop chat", () => {
+    const { result } = renderHook(() => useChatDockPanel(false));
+    expect(result.current.dockOpen).toBe(true);
+    expect(result.current.activeTabId).toBe("overview");
+    expect(result.current.openTabs).toEqual([
+      { id: "overview", kind: "overview" },
+    ]);
+
+    act(() => {
+      result.current.handleClose();
+    });
+    expect(result.current.dockOpen).toBe(false);
+    // Keep-alive: the overview tab stays for reopening.
+    expect(result.current.openTabs.map((t) => t.id)).toEqual(["overview"]);
+
+    act(() => {
+      result.current.openOverviewTab();
+    });
+    expect(result.current.dockOpen).toBe(true);
+    expect(result.current.activeTabId).toBe("overview");
+    expect(result.current.openTabs.map((t) => t.id)).toEqual(["overview"]);
+  });
+
+  it("starts collapsed with no tabs on mobile", () => {
+    const { result } = renderHook(() => useChatDockPanel(true));
+    expect(result.current.dockOpen).toBe(false);
+    expect(result.current.openTabs).toEqual([]);
+    expect(result.current.activeTabId).toBeNull();
+  });
+
   it("openFileList focuses the pinned files tab", () => {
     const { result } = renderHook(() => useChatDockPanel(false));
     act(() => {
@@ -12,7 +42,10 @@ describe("useChatDockPanel tabs", () => {
     });
     expect(result.current.dockOpen).toBe(true);
     expect(result.current.activeTabId).toBe("files");
-    expect(result.current.openTabs.map((t) => t.id)).toEqual(["files"]);
+    expect(result.current.openTabs.map((t) => t.id)).toEqual([
+      "files",
+      "overview",
+    ]);
   });
 
   it("openFileAt dedupes by normalized path and focuses the file tab", () => {
@@ -30,7 +63,29 @@ describe("useChatDockPanel tabs", () => {
       result.current.openTabs.filter((t) => t.kind === "file"),
     ).toHaveLength(1);
     expect(result.current.activeTabId).toBe(fileId);
-    expect(result.current.openTabs.map((t) => t.id)).toEqual([fileId]);
+    expect(result.current.openTabs.map((t) => t.id)).toEqual([
+      "overview",
+      fileId,
+    ]);
+  });
+
+  it("openArtifactsTab opens a distinct artifacts tab without duplicates", () => {
+    const { result } = renderHook(() => useChatDockPanel(false));
+    act(() => {
+      result.current.openArtifactsTab();
+    });
+    expect(result.current.dockOpen).toBe(true);
+    expect(result.current.activeTabId).toBe("artifacts");
+    expect(result.current.openTabs.map((t) => t.id)).toEqual([
+      "overview",
+      "artifacts",
+    ]);
+    act(() => {
+      result.current.openArtifactsTab();
+    });
+    expect(
+      result.current.openTabs.filter((t) => t.kind === "artifacts"),
+    ).toHaveLength(1);
   });
 
   it("openKnowledgeCitation opens a dock tab and dedupes by kb/doc id", () => {
@@ -69,7 +124,10 @@ describe("useChatDockPanel tabs", () => {
     });
     expect(result.current.dockOpen).toBe(true);
     expect(result.current.activeTabId).toBe("workspace");
-    expect(result.current.openTabs.map((t) => t.id)).toEqual(["workspace"]);
+    expect(result.current.openTabs.map((t) => t.id)).toEqual([
+      "overview",
+      "workspace",
+    ]);
     act(() => {
       result.current.toggleWorkspacePanel();
     });
@@ -96,13 +154,19 @@ describe("useChatDockPanel tabs", () => {
     });
     expect(result.current.dockOpen).toBe(true);
     expect(result.current.activeTabId).toBe("terminal");
-    expect(result.current.openTabs.map((t) => t.id)).toEqual(["terminal"]);
+    expect(result.current.openTabs.map((t) => t.id)).toEqual([
+      "overview",
+      "terminal",
+    ]);
     act(() => {
       result.current.toggleTerminalPanel();
     });
     expect(result.current.dockOpen).toBe(false);
     // Closing the float button only hides the dock — tab stays for keep-alive.
-    expect(result.current.openTabs.map((t) => t.id)).toEqual(["terminal"]);
+    expect(result.current.openTabs.map((t) => t.id)).toEqual([
+      "overview",
+      "terminal",
+    ]);
   });
 
   it("ensureNoTrajectoryTab strips leftover trajectory tabs", () => {
@@ -130,7 +194,10 @@ describe("useChatDockPanel tabs", () => {
       result.current.toggleTerminalPanel();
     });
     expect(result.current.dockOpen).toBe(true);
-    expect(result.current.openTabs.map((t) => t.id)).toEqual(["terminal"]);
+    expect(result.current.openTabs.map((t) => t.id)).toEqual([
+      "overview",
+      "terminal",
+    ]);
   });
 
   it("openTerminalTab adds and focuses the terminal tab", () => {
@@ -141,6 +208,7 @@ describe("useChatDockPanel tabs", () => {
     });
     expect(result.current.activeTabId).toBe("terminal");
     expect(result.current.openTabs.map((t) => t.id)).toEqual([
+      "overview",
       "browser",
       "terminal",
     ]);
@@ -155,21 +223,22 @@ describe("useChatDockPanel tabs", () => {
     act(() => {
       result.current.closeTab("files");
     });
-    expect(result.current.openTabs.map((t) => t.id)).toEqual(["browser"]);
+    expect(result.current.openTabs.map((t) => t.id)).toEqual([
+      "overview",
+      "browser",
+    ]);
     expect(result.current.activeTabId).toBe("browser");
     expect(result.current.dockOpen).toBe(true);
   });
 
-  it("closeTab falls back to files and closes dock when empty", () => {
+  it("closeTab closes the dock when the last tab is closed", () => {
     const { result } = renderHook(() => useChatDockPanel(false));
     act(() => {
-      result.current.openBrowserTab();
-    });
-    act(() => {
-      result.current.closeTab("browser");
+      result.current.closeTab("overview");
     });
     expect(result.current.openTabs).toEqual([]);
     expect(result.current.dockOpen).toBe(false);
+    expect(result.current.activeTabId).toBeNull();
   });
 
   it("openToolUiTab dedupes by callId and focuses the tool tab", () => {
@@ -192,7 +261,9 @@ describe("useChatDockPanel tabs", () => {
       result.current.openTabs.filter((t) => t.kind === "toolUi"),
     ).toHaveLength(1);
     expect(result.current.activeTabId).toBe("toolUi:call-1");
-    expect(result.current.openTabs[0]).toMatchObject({
+    expect(
+      result.current.openTabs.find((t) => t.kind === "toolUi"),
+    ).toMatchObject({
       kind: "toolUi",
       callId: "call-1",
       title: "Demo card",
@@ -227,7 +298,10 @@ describe("useChatDockPanel tabs", () => {
       result.current.handleClose();
     });
     expect(result.current.dockOpen).toBe(false);
-    expect(result.current.openTabs.map((t) => t.id)).toEqual(["browser"]);
+    expect(result.current.openTabs.map((t) => t.id)).toEqual([
+      "overview",
+      "browser",
+    ]);
   });
 
   it("does not expose deprecated dismiss / kind aliases", () => {
@@ -240,15 +314,38 @@ describe("useChatDockPanel tabs", () => {
     expect(result.current).not.toHaveProperty("toggleTrajectoryPanel");
   });
 
-  it("closes the dock and clears tabs when agentId changes", () => {
+  it("resets to the new agent overview and drops stale tabs on agent switch", () => {
     const { result, rerender } = renderHook(
       ({ agentId }: { agentId: string | null }) =>
         useChatDockPanel(false, agentId),
       { initialProps: { agentId: "agent-a" as string | null } },
     );
     act(() => {
-      result.current.openFileList();
+      result.current.openFileAt("outbound/old-agent-a.txt");
+      result.current.openArtifactsTab();
       result.current.openBrowserTab();
+    });
+    expect(result.current.dockOpen).toBe(true);
+    expect(result.current.openTabs.some((t) => t.kind === "file")).toBe(true);
+
+    rerender({ agentId: "agent-b" });
+
+    expect(result.current.dockOpen).toBe(true);
+    expect(result.current.openTabs).toEqual([
+      { id: "overview", kind: "overview" },
+    ]);
+    expect(result.current.activeTabId).toBe("overview");
+  });
+
+  it("clears stale tabs and stays closed on agent switch in mobile", () => {
+    const { result, rerender } = renderHook(
+      ({ agentId }: { agentId: string | null }) =>
+        useChatDockPanel(true, agentId),
+      { initialProps: { agentId: "agent-a" as string | null } },
+    );
+    act(() => {
+      result.current.openFileAt("outbound/old-agent-a.txt");
+      result.current.openArtifactsTab();
     });
     expect(result.current.dockOpen).toBe(true);
     expect(result.current.openTabs.length).toBeGreaterThan(0);

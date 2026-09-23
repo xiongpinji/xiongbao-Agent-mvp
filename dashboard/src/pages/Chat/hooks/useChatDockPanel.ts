@@ -20,6 +20,8 @@ const LEGACY_FILE_SIZE_KEY = "octop:file-panel:size";
 const LEGACY_BROWSER_SIZE_KEY = "octop:browser-panel:size";
 
 export type DockTab =
+  | { id: "overview"; kind: "overview" }
+  | { id: "artifacts"; kind: "artifacts" }
   | { id: "files"; kind: "files" }
   | { id: "workspace"; kind: "workspace" }
   | { id: "browser"; kind: "browser" }
@@ -109,30 +111,42 @@ function fallbackActiveId(
   return tabs[tabs.length - 1]?.id ?? null;
 }
 
+/** Fresh desktop state: the right overview rail is visible, mobile stays collapsed. */
+function initialDockTabs(isMobile: boolean): DockTab[] {
+  return isMobile ? [] : [{ id: "overview", kind: "overview" }];
+}
+
 /**
- * Shared chat dock with tabbed file list / file viewers / browser / terminal.
+ * Shared chat dock with tabbed overview / artifacts / file list / file viewers /
+ * browser / terminal.
  */
 export function useChatDockPanel(isMobile: boolean, agentId?: string | null) {
-  const [dockOpen, setDockOpen] = useState(false);
+  const [dockOpen, setDockOpen] = useState(() => !isMobile);
   const [dockMode, setDockMode] = useState<PanelMode>(loadPanelMode);
-  const [openTabs, setOpenTabs] = useState<DockTab[]>([]);
-  const [activeTabId, setActiveTabId] = useState<DockTabId | null>(null);
+  const [openTabs, setOpenTabs] = useState<DockTab[]>(() =>
+    initialDockTabs(isMobile),
+  );
+  const [activeTabId, setActiveTabId] = useState<DockTabId | null>(() =>
+    isMobile ? null : "overview",
+  );
   const { panelSizes, isResizing, handleResizeStart } = usePanelResize(
     loadPanelSizes(),
     persistPanelSizes,
   );
 
-  // File paths and browser sessions are agent-scoped. Only wipe tabs when
-  // switching between two real agents (ignore null ↔ id first-paint races).
+  // File paths, browser sessions and thread artifacts are agent-scoped. Only
+  // reset when switching between two real agents (ignore null ↔ id first-paint
+  // races): drop every tab from the previous agent, then show the new agent's
+  // overview on desktop. Mobile clears and stays collapsed.
   const prevAgentIdRef = useRef(agentId);
   useEffect(() => {
     const prev = prevAgentIdRef.current;
     prevAgentIdRef.current = agentId;
     if (prev == null || agentId == null || prev === agentId) return;
-    setDockOpen(false);
-    setOpenTabs([]);
-    setActiveTabId(null);
-  }, [agentId]);
+    setOpenTabs(initialDockTabs(isMobile));
+    setActiveTabId(isMobile ? null : "overview");
+    setDockOpen(!isMobile);
+  }, [agentId, isMobile]);
 
   const openDock = useCallback(() => {
     setDockOpen(true);
@@ -154,6 +168,24 @@ export function useChatDockPanel(isMobile: boolean, agentId?: string | null) {
       return next;
     });
   }, []);
+
+  const openOverviewTab = useCallback(() => {
+    setOpenTabs((prev) => {
+      if (prev.some((t) => t.id === "overview")) return prev;
+      return [{ id: "overview", kind: "overview" }, ...prev];
+    });
+    setActiveTabId("overview");
+    openDock();
+  }, [openDock]);
+
+  const openArtifactsTab = useCallback(() => {
+    setOpenTabs((prev) => {
+      if (prev.some((t) => t.id === "artifacts")) return prev;
+      return [...prev, { id: "artifacts", kind: "artifacts" }];
+    });
+    setActiveTabId("artifacts");
+    openDock();
+  }, [openDock]);
 
   const openFileList = useCallback(() => {
     setOpenTabs((prev) => ensureFilesTab(prev));
@@ -356,6 +388,8 @@ export function useChatDockPanel(isMobile: boolean, agentId?: string | null) {
     handleResizeStart,
     handleClose,
     handleModeChange,
+    openOverviewTab,
+    openArtifactsTab,
     openFileAt,
     openFileList,
     openKnowledgeCitation,

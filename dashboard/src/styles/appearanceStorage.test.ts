@@ -6,7 +6,6 @@ import {
 } from "./appearanceStorage";
 import {
   DEFAULT_CUSTOM_COLOR,
-  DEFAULT_PALETTE,
   LEGACY_PALETTE_STORAGE_KEY,
   THEME_STORAGE_KEY,
 } from "./themePalettes";
@@ -17,9 +16,33 @@ afterEach(() => {
 });
 
 describe("appearanceStorage", () => {
-  it("defaults to system preference and rose palette", () => {
-    expect(readStoredAppearance().preference).toBe("system");
-    expect(readStoredAppearance().palette).toBe(DEFAULT_PALETTE);
+  it("defaults new users to dark with the warm-gold amber palette", () => {
+    expect(readStoredAppearance().preference).toBe("dark");
+    expect(readStoredAppearance().palette).toBe("amber");
+  });
+
+  it("keeps a stored light preference authoritative", () => {
+    localStorage.setItem(
+      THEME_STORAGE_KEY,
+      JSON.stringify({ preference: "light", palette: "rose" }),
+    );
+
+    const appearance = readStoredAppearance();
+    expect(appearance.preference).toBe("light");
+    expect(appearance.palette).toBe("rose");
+  });
+
+  it("migrates a legacy plain light string without forcing dark", () => {
+    localStorage.setItem(THEME_STORAGE_KEY, "light");
+    expect(readStoredAppearance().preference).toBe("light");
+  });
+
+  it("honors a legacy palette key while defaulting the preference to dark", () => {
+    localStorage.setItem(LEGACY_PALETTE_STORAGE_KEY, "teal");
+
+    const appearance = readStoredAppearance();
+    expect(appearance.preference).toBe("dark");
+    expect(appearance.palette).toBe("teal");
   });
 
   it("migrates legacy plain theme string + palette key", () => {
@@ -103,16 +126,16 @@ describe("appearanceStorage", () => {
     });
   });
 
-  it("falls back safely on invalid JSON or unknown values", () => {
+  it("falls back to the new-user dark default on invalid JSON or unknown values", () => {
     localStorage.setItem(THEME_STORAGE_KEY, "{not-json");
-    expect(readStoredAppearance().preference).toBe("system");
-    expect(readStoredAppearance().palette).toBe(DEFAULT_PALETTE);
+    expect(readStoredAppearance().preference).toBe("dark");
+    expect(readStoredAppearance().palette).toBe("amber");
 
     localStorage.setItem(
       THEME_STORAGE_KEY,
       JSON.stringify({ preference: "neon", palette: "pink" }),
     );
-    expect(readStoredAppearance().preference).toBe("system");
-    expect(readStoredAppearance().palette).toBe(DEFAULT_PALETTE);
+    expect(readStoredAppearance().preference).toBe("dark");
+    expect(readStoredAppearance().palette).toBe("amber");
   });
 });

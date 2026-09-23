@@ -27,6 +27,17 @@ vi.mock("./CaptchaField", () => ({
 import LoginPage from "./index";
 
 describe("Login forgot-password hint", () => {
+  it("shows the Xiongbao logo on the login page", () => {
+    const { container } = render(
+      <MemoryRouter>
+        <LoginPage />
+      </MemoryRouter>,
+    );
+    expect(
+      container.querySelector('img[src="/xiongbao-logo.png"]'),
+    ).toHaveAttribute("src", "/xiongbao-logo.png");
+  });
+
   it("opens a dialog with the CLI reset tip when asked", async () => {
     const user = userEvent.setup();
     render(

@@ -1,9 +1,9 @@
 import { Layout } from "antd";
 import { Menu as MenuIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import PwaInstallPrompt from "../components/PwaInstallPrompt";
 import AppVersionBadge from "../components/AppVersionBadge";
 import CurrentVersionBadge from "../components/CurrentVersionBadge";
-import { useTheme } from "../context/ThemeContext";
 import { typeSize } from "../utils/mobileTypeScale";
 
 const { Header: AntHeader } = Layout;
@@ -20,8 +20,7 @@ interface HeaderProps {
  * Desktop GitHub / theme controls moved into the account popover.
  */
 export default function Header({ onToggle, isMobile }: HeaderProps) {
-  const { isDark } = useTheme();
-  const mobileLogoSrc = isDark ? "/logo_horizontal_white.png" : "/logo_horizontal_dark.png";
+  const { t } = useTranslation();
 
   if (!isMobile) return null;
 
@@ -76,17 +75,26 @@ export default function Header({ onToggle, isMobile }: HeaderProps) {
           </button>
         )}
         <img
-          src={mobileLogoSrc}
-          alt="octop"
+          src="/xiongbao-logo.png"
+          alt=""
           style={{
             height: 36,
-            width: "auto",
-            maxWidth: 160,
+            width: 36,
             objectFit: "contain",
             flexShrink: 0,
             display: "block",
+            borderRadius: 9,
           }}
         />
+        <strong
+          style={{
+            fontSize: typeSize(14, true),
+            color: "var(--fn-text-primary)",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {t("app.brandName")}
+        </strong>
         <div
           style={{
             display: "flex",

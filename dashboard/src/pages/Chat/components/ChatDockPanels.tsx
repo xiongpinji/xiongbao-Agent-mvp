@@ -12,6 +12,10 @@ interface ChatDockPanelsProps {
   panelSizes: { rightWidth: number; bottomHeight: number };
   agentId: string;
   filePaths: string[];
+  /** Recorded artifacts of the active thread (separate from opened file tabs). */
+  artifacts: string[];
+  agentName?: string | null;
+  threadTitle?: string | null;
   openTabs: DockTab[];
   activeTabId: DockTabId | null;
   onSelectTab: (id: DockTabId) => void;
@@ -47,6 +51,9 @@ export default function ChatDockPanels({
   panelSizes,
   agentId,
   filePaths,
+  artifacts,
+  agentName = null,
+  threadTitle = null,
   openTabs,
   activeTabId,
   onSelectTab,
@@ -84,6 +91,9 @@ export default function ChatDockPanels({
       }
       agentId={agentId}
       filePaths={filePaths}
+      artifacts={artifacts}
+      agentName={agentName}
+      threadTitle={threadTitle}
       openTabs={openTabs}
       activeTabId={activeTabId}
       onSelectTab={onSelectTab}

@@ -27,6 +27,14 @@ describe("Header", () => {
     expect(header.style.padding).toContain("safe-area-inset-top");
   });
 
+  it("shows the Xiongbao logo in the mobile header", () => {
+    render(<Header isMobile />);
+    expect(screen.getByRole("banner").querySelector("img")).toHaveAttribute(
+      "src",
+      "/xiongbao-logo.png",
+    );
+  });
+
   it("keeps the status-bar inset opaque so iOS does not frost page content", () => {
     render(<Header isMobile onToggle={() => undefined} />);
     const header = screen.getByRole("banner");
