@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore, useState } from "react";
 import { createPortal } from "react-dom";
 import { Tooltip } from "antd";
+import { useTranslation } from "react-i18next";
 import { Download, MonitorDown, Share, X } from "lucide-react";
 import {
   subscribePwaPrompt,
@@ -33,6 +34,7 @@ function isStandalone(): boolean {
 // ─── iOS guide sheet ──────────────────────────────────────────────────────────
 
 export function IosGuide({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation();
   return createPortal(
     <div
       className={styles.iosOverlay}
@@ -52,7 +54,9 @@ export function IosGuide({ onClose }: { onClose: () => void }) {
           <X size={18} />
         </button>
         <div className={styles.guideTitle}>添加到主屏幕</div>
-        <p className={styles.guideDesc}>将 Octop 安装为 App，随时一键打开。</p>
+        <p className={styles.guideDesc}>
+          将 {t("app.brandName")} 安装为 App，随时一键打开。
+        </p>
         <ol className={styles.guideList}>
           <li>
             <span className={styles.guideStep}>1</span>
@@ -80,6 +84,7 @@ export function IosGuide({ onClose }: { onClose: () => void }) {
 // ─── Desktop / Android guide (when beforeinstallprompt is not yet available) ──
 
 export function DesktopInstallGuide({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation();
   const isEdge = /edg/i.test(navigator.userAgent);
   return createPortal(
     <div
@@ -116,8 +121,8 @@ export function DesktopInstallGuide({ onClose }: { onClose: () => void }) {
           <li>
             <span className={styles.guideStep}>2</span>
             <span>
-              或打开浏览器菜单，选择「{isEdge ? "应用" : "安装"} Octop」/
-              Install Octop
+              或打开浏览器菜单，选择「{isEdge ? "应用" : "安装"}{" "}
+              {t("app.brandName")}」
             </span>
           </li>
           <li>

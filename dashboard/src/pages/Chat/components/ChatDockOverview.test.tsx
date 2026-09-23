@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import ChatDockOverview from "./ChatDockOverview";
@@ -54,5 +54,21 @@ describe("ChatDockOverview", () => {
       />,
     );
     expect(screen.getByText("暂无产物")).toBeTruthy();
+  });
+
+  it("keeps a Xiongbao fallback when the logo cannot load", () => {
+    const { container } = render(
+      <ChatDockOverview
+        agentId="main"
+        artifacts={[]}
+        onOpenArtifacts={vi.fn()}
+        onOpenFile={vi.fn()}
+      />,
+    );
+    const logo = container.querySelector('img[src="/xiongbao-logo.png"]');
+    expect(logo).not.toBeNull();
+    fireEvent.error(logo!);
+    expect(screen.getByText("熊")).toBeInTheDocument();
+    expect(container.querySelector('img[src="/pwa-192.png"]')).toBeNull();
   });
 });

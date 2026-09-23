@@ -47,12 +47,21 @@ export default function ChatDockOverview({
   return (
     <div className={styles.dockOverview}>
       <div className={styles.dockOverviewHeader}>
-        <img
-          className={styles.dockOverviewLogo}
-          src={logoFallback ? "/pwa-192.png" : "/xiongbao-logo.png"}
-          alt=""
-          onError={() => setLogoFallback(true)}
-        />
+        {logoFallback ? (
+          <span
+            className={`${styles.dockOverviewLogo} ${styles.dockOverviewLogoFallback}`}
+            aria-hidden="true"
+          >
+            熊
+          </span>
+        ) : (
+          <img
+            className={styles.dockOverviewLogo}
+            src="/xiongbao-logo.png"
+            alt=""
+            onError={() => setLogoFallback(true)}
+          />
+        )}
         <div className={styles.dockOverviewHeadings}>
           <h3 className={styles.dockOverviewGreeting}>
             {name

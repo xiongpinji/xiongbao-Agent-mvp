@@ -2,6 +2,8 @@
 
 基于第一阶段已实现的熊宝工作台继续对标 WorkBuddy。以下是计划，不表示功能已完成；具体文件在进入任务前以当前源码重新核对。
 
+进入两条工作线前，先清理主聊天流动画 `ThinkingBubble.tsx`、Agent 未就绪空态 `AgentNotReadyScreen.tsx` 的 Octop 吉祥物，并检查输入框死回退文案和仍随包分发的旧图标；以真实任务窗口确认用户可见位置只使用熊宝素材。PWA 图标尺寸、安装判定和 Windows 安装器另做平台验收，不能以 Web 构建通过代替。
+
 ## 工作线 A：任务和工作空间
 
 **执行路由：** `claude-bailian / qwen3.8-max`。先检查该路由的文件范围和运行状态；若被守卫停止，Codex 按当前已授权的路由池重新分配。
@@ -22,4 +24,6 @@
 
 `qwen-code-review / glm-5.3` 仅做只读 diff、权限、会话隔离、i18n 和测试证据审查。Codex 负责分离文件所有权、处理共享的路由/locale、独立运行测试、审查审查意见、提交和及时推送。每条线都先写可失败的行为测试，再实现并跑定向测试；整合时运行前端类型检查、lint、构建以及仓库质量门。真实桌面用户旅程和固定视窗视觉对照单独记录，不能用源码存在代替。
 
-第二阶段结束后，按[对标矩阵](熊宝-Agent-WorkBuddy-差距与路线图.md)继续专家市场、连接器/资料库/自动化、办公文件交付和 Windows 安装等阶段。涉及第三方账号授权、付费模型生成或发布部署时，另行按实际对象和成本决策。
+共享接线文件 `dashboard/src/pages/Chat/index.tsx`、`dashboard/src/pages/Chat/hooks/useSessions.ts`、`dashboard/src/pages/Chat/index.module.less` 和 `dashboard/src/locales/{zh,en}.json` 默认由 Codex 在整合时独占修改。A/B 两条实施线只改各自明确列出的组件、API 和测试；确需触碰共享文件时，先在任务包中指定唯一所有者与接线契约，再派工，避免并行覆盖。
+
+第二阶段结束后，按[对标矩阵](WORKBUDDY_PARITY.md)继续专家市场、连接器/资料库/自动化、办公文件交付和 Windows 安装等阶段。涉及第三方账号授权、付费模型生成或发布部署时，另行按实际对象和成本决策。

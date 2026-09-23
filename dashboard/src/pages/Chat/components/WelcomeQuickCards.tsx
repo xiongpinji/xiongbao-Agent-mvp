@@ -47,7 +47,7 @@ export default function WelcomeQuickCards({
                   card.expertName
                     ? withExpertMention(card.prompt, card.expertName)
                     : card.prompt,
-                  { prefill: Boolean(card.expertName) },
+                  { prefill: true },
                 )
               }
             >
