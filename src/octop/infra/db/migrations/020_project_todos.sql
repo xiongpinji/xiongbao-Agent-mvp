@@ -1,0 +1,30 @@
+-- Schema v20 (SQLite): project todos — PS-04 planning items for project spaces.
+-- Soft delete via deleted_at; optimistic concurrency via version (starts at 1).
+-- Timestamps are integer Unix seconds, matching project_spaces/project_members.
+
+CREATE TABLE IF NOT EXISTS project_todos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  todo_id TEXT NOT NULL UNIQUE,
+  project_id TEXT NOT NULL REFERENCES project_spaces(project_id) ON DELETE CASCADE,
+  creator_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  assignee_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'todo' CHECK (status IN ('todo', 'in_progress', 'done')),
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  deleted_at INTEGER
+);
+
+-- Default listing order inside a project: updated_at DESC, todo_id DESC.
+CREATE INDEX IF NOT EXISTS idx_project_todos_project_list
+  ON project_todos(project_id, updated_at DESC, todo_id DESC);
+
+-- Board column / filter queries.
+CREATE INDEX IF NOT EXISTS idx_project_todos_status
+  ON project_todos(project_id, status);
+CREATE INDEX IF NOT EXISTS idx_project_todos_assignee
+  ON project_todos(project_id, assignee_user_id);
+
+UPDATE _schema_version SET version = 20;

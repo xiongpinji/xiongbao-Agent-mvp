@@ -1,6 +1,6 @@
 # 熊宝-Agent 项目计划待办合同（PS-04）
 
-状态：实施前合同，**不代表接口或界面已经可用**。依赖 018 项目基座和 019 成员权限；数据库迁移使用 020 的 SQLite/PostgreSQL 成对脚本。WorkBuddy 5.5.6 实机观察到计划页的表格/看板、搜索、筛选、视图设置、添加，以及标题、状态、处理人字段；以下状态机和权限细节是熊宝的产品决定，不推断 WorkBuddy 的内部实现。
+状态：020 代码候选已实现，定向测试和隔离浏览器关键链路通过；**PostgreSQL 实库运行、全路径 UI 与 WorkBuddy 1:1 视觉仍未验收**。依赖 018 项目基座和 019 成员权限；数据库迁移使用 020 的 SQLite/PostgreSQL 成对脚本。WorkBuddy 5.5.6 实机观察到计划页的表格/看板、搜索、筛选、视图设置、添加，以及标题、状态、处理人字段；以下状态机和权限细节是熊宝的产品决定，不推断 WorkBuddy 的内部实现。
 
 ## 数据和不变量
 
@@ -18,9 +18,9 @@
 | `GET /` | `q`、`status`、`assignee_user_id`、`limit`、`offset` | `{items, limit, offset, has_more}`；项目成员可读，服务端筛选和稳定排序，默认 `updated_at DESC, todo_id DESC`。|
 | `POST /` | `{title, description?, assignee_user_id?}` | 201，返回完整待办；状态初始 `todo`。普通成员只能指派自己或留空；owner/admin 可指派任何当前成员。|
 | `GET /{todo_id}` | 无 | 当前项目成员可读，跨项目 ID 与已删除记录均为 404。|
-| `PATCH /{todo_id}` | `{expected_version, title?, description?, status?, assignee_user_id?}` | 返回新版本；字段可选但至少一项变化。创建者和处理人可改标题、描述、状态；owner/admin 可改所有字段和处理人。普通成员不能改处理人。过期版本为 409，不发生部分更新或事件。`assignee_user_id: null` 表示取消指派。|
-| `DELETE /{todo_id}` | `expected_version` | 204；owner/admin 或创建者可删。过期版本为 409。|
-| `POST /bulk` | `{items: [{todo_id, expected_version}], status?: ..., assignee_user_id?: ...}` | 原子更新 1–50 条；至少提供状态或处理人，且仅 owner/admin 可用。任一条跨项目、已删除、处理人无效或版本冲突时整批不变；返回更新后的记录。|
+| `PATCH /{todo_id}` | `{expected_version, title?, description?, status?, assignee_user_id?}` | 返回完整的更新后待办记录（含 `todo_id`、`version`）；字段可选但至少一项变化。创建者和处理人可改标题、描述、状态；owner/admin 可改所有字段和处理人。普通成员不能改处理人。过期版本为 409，不发生部分更新或事件。`assignee_user_id: null` 表示取消指派。|
+| `DELETE /{todo_id}` | `expected_version` 查询参数 | 204；owner/admin 或创建者可删。过期版本为 409。|
+| `POST /bulk` | `{items: [{todo_id, expected_version}], status?: ..., assignee_user_id?: ...}` | 原子更新 1–50 条；至少提供状态或处理人，且仅 owner/admin 可用。任一条跨项目、已删除、处理人无效或版本冲突时整批不变；返回 `{items: [...]}`，每项是完整的更新后待办记录。|
 
 待办响应包含 `todo_id, project_id, title, description, status, creator_user_id, assignee_user_id, version, created_at, updated_at`。`GET` 查询最多 100 条，`q` 仅匹配标题，按输入原样转义 `%`、`_` 和反斜杠，避免把用户文字当通配符。返回时间为 Unix 秒。表格列至少展示标题/状态/处理人，选中状态、筛选、搜索和加载/空/错误态可复核；看板在三列中显示同一批数据，修改后两视图立即一致，刷新后仍一致。分页过滤必须在服务端完成，前端不能仅过滤当前页冒充全项目搜索。
 

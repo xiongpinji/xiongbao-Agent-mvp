@@ -19,6 +19,7 @@ from octop.infra.db.repos._base import (
     now_ts,
     partial_updates,
 )
+from octop.infra.db.repos.project_todos import EVENT_TODO_UPDATED
 from octop.infra.utils.ulid import new_ulid
 
 EVENT_CREATED = "project.created"
@@ -879,6 +880,34 @@ class ProjectRepo:
             )
             if getattr(deleted, "rowcount", 1) != 1:
                 return MemberMutation(outcome="stale", role=current)
+            # Unassign the removed member's undeleted todos in the same
+            # transaction so no todo points at a user without access. The
+            # version bump makes in-flight writes against the old row fail as
+            # stale; events carry ids only, never title/description.
+            unassigned = conn.execute(
+                "UPDATE project_todos "
+                "SET assignee_user_id = NULL, version = version + 1, updated_at = ? "
+                "WHERE project_id = ? AND assignee_user_id = ? AND deleted_at IS NULL "
+                "RETURNING todo_id",
+                (ts, project_id, user_id),
+            ).fetchall()
+            for todo in unassigned:
+                todo_payload = json.dumps(
+                    {
+                        "fields": ["assignee_user_id"],
+                        "from_assignee_user_id": user_id,
+                        "to_assignee_user_id": None,
+                    }
+                )
+                _append_event(
+                    conn,
+                    project_id,
+                    actor_user_id,
+                    EVENT_TODO_UPDATED,
+                    str(todo["todo_id"]),
+                    todo_payload,
+                    ts,
+                )
             payload = json.dumps({"user_id": user_id, "role": current})
             _append_event(
                 conn, project_id, actor_user_id, EVENT_MEMBER_REMOVED, str(user_id), payload, ts
