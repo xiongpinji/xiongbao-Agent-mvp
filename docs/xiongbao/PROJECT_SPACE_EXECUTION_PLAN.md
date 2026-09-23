@@ -26,7 +26,9 @@
 
 # Validation strategy
 
-每个实施片由 Codex 检查完整 diff 与路径白名单、独立重跑定向测试、类型/lint/构建；根目录 `make all` 是最终 ship bar。首次安全批次验收用 owner、member、outsider 三身份分别验证列表、详情、改名和成员页，刷新后数据一致。后续逐项跑 [PROJECT_SPACE_SPEC.md](PROJECT_SPACE_SPEC.md) 的 PS-01–09。GLM 只读审查不能替代 Codex 复测。
+每个实施片由 Codex 检查完整 diff 与路径白名单、独立重跑定向测试、类型/lint/构建；根目录 `make all` 是最终 ship bar。首次安全批次验收用 owner、member、outsider 三身份分别验证列表、详情、改名和成员页，刷新后数据一致。后续逐项跑 [PROJECT_SPACE_SPEC.md](PROJECT_SPACE_SPEC.md) 的 PS-01–11。GLM 只读审查不能替代 Codex 复测。
+
+官方 5.0.0 更新日志补充确认了外部数据源定时导入/Webhook 与个人消息中心。当前 Agent Orchestrator 八项快照在此发现前创建；以下是后继批次的显式待派工，**不是已实现或当前八项快照的完成证据**：Claude 负责数据源凭据、签名/重放保护、调度和失败重试；OpenCode 负责项目数据源配置与消息中心 UI；GLM 审查越权与事件泄漏；Codex 整合并以 PS-10/11 验收。后继批次需绑定新的持久计划项，不能仅在 008 中口头核销。
 
 # Completion criteria
 

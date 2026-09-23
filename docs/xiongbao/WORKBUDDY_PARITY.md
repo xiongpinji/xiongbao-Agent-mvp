@@ -33,7 +33,7 @@
 | P1 | 连接器授权、配置与执行 | Octop OAuth/MCP gateway 有实现；WorkBuddy 也有 [MCP/CLI+Skill 接入](https://open.workbuddy.cn/docs/connector) | 至少两个代表性真实连接器完成授权、权限回收、调用与报错验收；不复制他人凭据 | 基线有·待验收 |
 | P1 | 资料库上传、检索和引用 | Octop RAG 知识库有实现 | 文件入库、索引完成、引用可追溯、权限隔离、删除后失效 | 基线有·待验收 |
 | P1 | 定时/自动化任务与历史 | Octop cron 有实现；WorkBuddy [自动化](https://www.workbuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Automation-Guide)含工作目录、规则与记录 | 创建/编辑/暂停/失败重试/结果目录/执行历史完整 UI 旅程 | 基线有·待验收 |
-| P0 | 项目空间与团队协作 | 实机确认项目列表/创建、动态/计划/任务/资产四页签、成员邀请、项目配置及本地/云端任务入口；Octop 的 `teams` 是专家团，现无人的项目空间表、项目 API 或前端项目路由 | 按 [项目空间规格](PROJECT_SPACE_SPEC.md) 建立项目 CRUD/成员 ACL、计划、任务默认私密与显式共享、资产版本、动态/审计、项目级配置和两种任务模式；逐项用多用户真实旅程及 1280×768 UI 对照 | 最高优先级·差距 |
+| P0 | 项目空间与团队协作 | 实机确认项目列表/创建、动态/计划/任务/资产四页签、成员邀请、项目配置及本地/云端任务入口；官方更新日志另列外部数据源/Webhook 和邀请审批通知；Octop 的 `teams` 是专家团，现无人的项目空间表、项目 API 或前端项目路由 | 按 [项目空间规格](PROJECT_SPACE_SPEC.md) 建立项目 CRUD/成员 ACL、计划、任务默认私密与显式共享、资产版本、动态/审计、项目级配置、数据接入/通知和两种任务模式；逐项用多用户真实旅程及 1280×768 UI 对照 | 最高优先级·差距 |
 | P2 | 专家团分工、并行与合并验收 | Octop README 将 AgentTeams 列为 roadmap；WorkBuddy 有 [专家团格式](https://open.workbuddy.cn/en/docs/expert-team) | 一个任务内可见分工、并行执行、失败隔离、结果整合与成本/权限控制 | 差距 |
 | P2 | IM/远程控制和跨端接续 | Octop README 列飞书、钉钉、QQ、Discord、企微和远程桌面 | 验证真实连接、身份关联、任务接续及移动端状态；未验证渠道不得标已完成 | 基线有·待验收 |
 | P2 | Windows 原生安装、更新与通知 | Octop `desktop/` Wails 壳与发布工件；WorkBuddy 是原生桌面参考 | 熊宝名称/图标/安装器、升级、文件关联、窗口尺寸、系统通知及卸载实测 | 差距 |
