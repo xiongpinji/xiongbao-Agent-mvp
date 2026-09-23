@@ -23,13 +23,43 @@ vi.mock("../utils/locale", () => ({
 
 import { authApi } from "../api/modules/auth";
 import { getAuthToken } from "../api/request";
+import { consumePendingProjectInviteDestination } from "../utils/pendingProjectInvite";
 
 describe("AuthGuard offline boot", () => {
   beforeEach(() => {
+    sessionStorage.clear();
     vi.mocked(authApi.getAuthStatus).mockReset();
     vi.mocked(authApi.me).mockReset();
     vi.mocked(getAuthToken).mockReset();
     vi.mocked(getAuthToken).mockReturnValue(null);
+  });
+
+  it("preserves an invite link across the unauthenticated login redirect", async () => {
+    vi.mocked(authApi.getAuthStatus).mockResolvedValue({
+      setup_required: false,
+      has_admin: true,
+    } as never);
+
+    render(
+      <MemoryRouter initialEntries={["/projects?invite=link-token"]}>
+        <Routes>
+          <Route
+            path="/projects"
+            element={
+              <AuthGuard>
+                <div>protected-shell</div>
+              </AuthGuard>
+            }
+          />
+          <Route path="/login" element={<div>login-page</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("login-page")).toBeInTheDocument();
+    expect(consumePendingProjectInviteDestination()).toBe(
+      "/projects?invite=link-token",
+    );
   });
 
   it("shows offline panel instead of the protected shell when setup/status fails", async () => {

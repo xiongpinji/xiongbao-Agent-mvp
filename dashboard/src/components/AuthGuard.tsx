@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Spin } from "antd";
 import { clearAuthToken, getAuthToken } from "../api/request";
 import { authApi, type OctopUser } from "../api/modules/auth";
@@ -7,6 +7,10 @@ import { applyUserLocale } from "../utils/locale";
 import { isNetworkFetchError } from "../utils/networkError";
 import { CurrentUserProvider } from "../hooks/useCurrentUser";
 import BootOfflinePanel from "./BootOfflinePanel";
+import {
+  clearPendingProjectInvite,
+  rememberProjectInviteFromLocation,
+} from "../utils/pendingProjectInvite";
 
 interface AuthGuardProps {
   children: React.ReactNode;
@@ -36,8 +40,11 @@ interface AuthGuardProps {
  */
 export default function AuthGuard({ children }: AuthGuardProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
+  const locationRef = useRef(location);
+  locationRef.current = location;
 
   const [checking, setChecking] = useState(true);
   const [authed, setAuthed] = useState(false);
@@ -49,6 +56,10 @@ export default function AuthGuard({ children }: AuthGuardProps) {
     let cancelled = false;
 
     const check = async () => {
+      rememberProjectInviteFromLocation(
+        locationRef.current.pathname,
+        locationRef.current.search,
+      );
       setOffline(false);
       try {
         const status = await authApi.getAuthStatus();
@@ -80,6 +91,7 @@ export default function AuthGuard({ children }: AuthGuardProps) {
           const me = await authApi.me();
           await applyUserLocale(me.locale);
           if (!cancelled) {
+            clearPendingProjectInvite();
             setUser(me);
             setAuthed(true);
             setChecking(false);

@@ -9,6 +9,7 @@ import { refreshServerLabels } from "../../i18n";
 import { apiErrorMessage } from "../../utils/apiError";
 import { applyUserLocale } from "../../utils/locale";
 import { notifySsoOpener } from "../../utils/ssoPopup";
+import { consumePendingProjectInviteDestination } from "../../utils/pendingProjectInvite";
 
 const DEFAULT_REDIRECT = "/chat";
 
@@ -81,7 +82,9 @@ export default function OidcComplete() {
         void refreshServerLabels(res.user.locale);
         const dest = safeRedirect(redirect);
         if (notifySsoOpener({ ok: true, redirect: dest, bind })) return;
-        navigate(dest, { replace: true });
+        navigate(consumePendingProjectInviteDestination() || dest, {
+          replace: true,
+        });
       })
       .catch((err) => {
         const text = apiErrorMessage(err, t("login.oidcComplete.failed"), t);

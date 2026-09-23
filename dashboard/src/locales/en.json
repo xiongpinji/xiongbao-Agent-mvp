@@ -346,8 +346,45 @@
       "scheduledTasks": "Scheduled tasks",
       "members": "Members",
       "membersLoadFailed": "Failed to load the member list",
-      "invite": "Invite members",
-      "inviteUnavailable": "Invites are not built yet: member invite and approval need the backend API."
+      "invite": "Invite members"
+    },
+    "members": {
+      "count": "Members ({{value}})",
+      "manageTitle": "Invites and join requests",
+      "approval": "Approval required to join",
+      "expiry": "Valid days",
+      "createLink": "Create invite link",
+      "oneTime": "This link is shown only once. Copy it now.",
+      "link": "Invite link",
+      "copy": "Copy",
+      "copied": "Copied",
+      "invites": "Invite links",
+      "noInvites": "No invite links yet",
+      "direct": "Join directly",
+      "revoke": "Revoke",
+      "requests": "Pending requests",
+      "noRequests": "No pending requests",
+      "approve": "Approve",
+      "reject": "Reject",
+      "changeRole": "Change member role",
+      "remove": "Remove",
+      "removeConfirm": "Remove this member?",
+      "loadFailed": "Failed to load membership details",
+      "actionFailed": "Member action failed",
+      "status": {
+        "pending": "Active",
+        "used": "Used",
+        "revoked": "Revoked",
+        "expired": "Expired"
+      }
+    },
+    "join": {
+      "title": "Project invitation received",
+      "hint": "You can view project content only after joining. Some invitations require approval.",
+      "accept": "Accept invitation",
+      "cancel": "Cancel",
+      "failed": "Could not join project",
+      "pending": "Join request submitted. A project manager must approve it."
     },
     "taskComposer": {
       "placeholder": "Project tasks are not available yet — the composer is disabled",

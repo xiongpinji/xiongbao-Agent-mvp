@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { list, get, members, create, update } = vi.hoisted(() => ({
@@ -11,10 +11,14 @@ const { list, get, members, create, update } = vi.hoisted(() => ({
   create: vi.fn(),
   update: vi.fn(),
 }));
+const { acceptInvite } = vi.hoisted(() => ({ acceptInvite: vi.fn() }));
 
 vi.mock("../../api/modules/projects", () => ({
   PROJECTS_PAGE_SIZE: 20,
   projectsApi: { list, get, members, create, update },
+}));
+vi.mock("../../api/modules/projectMembership", () => ({
+  projectMembershipApi: { acceptInvite },
 }));
 vi.mock("../../hooks/useIsMobile", () => ({ useIsMobile: () => false }));
 vi.mock("../../hooks/useServerTimezone", () => ({
@@ -74,6 +78,15 @@ const summary = {
   updated_at: 1_700_000_000,
 };
 
+function CurrentPath() {
+  const location = useLocation();
+  return (
+    <output data-testid="current-path">
+      {location.pathname + location.search}
+    </output>
+  );
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -104,7 +117,125 @@ describe("project-space pages against the real API response shapes", () => {
     expect(list).toHaveBeenCalledWith({ q: "", limit: 20, offset: 0 });
   });
 
-  it("renders authorized detail and marks unfinished project actions unavailable", async () => {
+  it("accepts an invite from the project list only after a user click", async () => {
+    const user = userEvent.setup();
+    list.mockResolvedValue({
+      items: [],
+      limit: 20,
+      offset: 0,
+      has_more: false,
+    });
+    acceptInvite.mockResolvedValue({
+      status: "joined",
+      project_id: "joined-project",
+      role: "member",
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/projects?invite=secret-token"]}>
+        <Routes>
+          <Route path="/projects" element={<ProjectsPage />} />
+          <Route path="/projects/:projectId" element={<div>已加入项目</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("收到项目邀请")).toBeInTheDocument();
+    expect(acceptInvite).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "接受邀请" }));
+    expect(acceptInvite).toHaveBeenCalledWith("secret-token");
+    expect(await screen.findByText("已加入项目")).toBeInTheDocument();
+  });
+
+  it("clears a terminal invite token from the URL while showing its error", async () => {
+    const user = userEvent.setup();
+    list.mockResolvedValue({
+      items: [],
+      limit: 20,
+      offset: 0,
+      has_more: false,
+    });
+    acceptInvite.mockRejectedValue(
+      new Error(
+        '410 - {"error":{"code":"INVITE_EXPIRED","message":"invite expired"}}',
+      ),
+    );
+
+    render(
+      <MemoryRouter initialEntries={["/projects?invite=expired-token"]}>
+        <CurrentPath />
+        <ProjectsPage />
+      </MemoryRouter>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "接受邀请" }));
+    expect(acceptInvite).toHaveBeenCalledWith("expired-token");
+    expect(await screen.findByTestId("current-path")).toHaveTextContent(
+      "/projects",
+    );
+    expect(screen.getByTestId("current-path")).not.toHaveTextContent("invite=");
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(screen.queryByText("收到项目邀请")).toBeNull();
+  });
+
+  it("removes a declined invite and its previous error", async () => {
+    const user = userEvent.setup();
+    list.mockResolvedValue({
+      items: [],
+      limit: 20,
+      offset: 0,
+      has_more: false,
+    });
+    acceptInvite.mockRejectedValue(new Error("Temporary failure"));
+
+    render(
+      <MemoryRouter initialEntries={["/projects?invite=retry-token"]}>
+        <CurrentPath />
+        <ProjectsPage />
+      </MemoryRouter>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "接受邀请" }));
+    expect(await screen.findByText("Temporary failure")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /取\s*消/ }));
+    expect(screen.getByTestId("current-path")).toHaveTextContent("/projects");
+    expect(screen.queryByText("Temporary failure")).toBeNull();
+  });
+
+  it("keeps an approval-required invitee outside the project", async () => {
+    const user = userEvent.setup();
+    list.mockResolvedValue({
+      items: [],
+      limit: 20,
+      offset: 0,
+      has_more: false,
+    });
+    acceptInvite.mockResolvedValue({
+      status: "pending_approval",
+      project_id: "private-project",
+      request_id: "request-1",
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/projects?invite=approval-token"]}>
+        <Routes>
+          <Route path="/projects" element={<ProjectsPage />} />
+          <Route
+            path="/projects/:projectId"
+            element={<div>private content</div>}
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "接受邀请" }));
+    expect(
+      await screen.findByText("加入申请已提交，等待项目管理员审批。"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("private content")).toBeNull();
+  });
+
+  it("renders authorized detail and enables the owner member workflow", async () => {
     get.mockResolvedValue({ ...summary, instructions: "只在详情中返回的指令" });
     members.mockResolvedValue([
       { user_id: 1, username: "alice", role: "owner" },
@@ -124,7 +255,7 @@ describe("project-space pages against the real API response shapes", () => {
     expect(screen.getByRole("tab", { name: "任务" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "资产" })).toBeInTheDocument();
     expect(screen.getByText("alice")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "邀请成员" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "邀请成员" })).toBeEnabled();
     expect(screen.getByText(/更新于.*2023/)).toBeInTheDocument();
   });
 
@@ -149,6 +280,7 @@ describe("project-space pages against the real API response shapes", () => {
 
     expect(await screen.findByText("成员可读")).toBeInTheDocument();
     expect(screen.getByText("bob")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "邀请成员" })).toBeNull();
     expect(
       screen.queryByRole("button", { name: "编辑项目资料" }),
     ).not.toBeInTheDocument();

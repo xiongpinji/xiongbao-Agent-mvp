@@ -3,27 +3,36 @@
  *
  * Server-side search + paging against `GET /projects`; creation via
  * `POST /projects` (CreateProjectModal). All rows come from the API —
- * no fake project arrays. `teamsApi` (expert Agent teams) is unrelated.
+ * no fake project arrays. Invitation links require an explicit user click.
+ * `teamsApi` (expert Agent teams) is unrelated.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Button, Card, Input, Spin, Tag, Tooltip } from "antd";
+import { Alert, Button, Card, Input, Spin, Tag, Tooltip } from "antd";
 import { Plus, RefreshCw, Users } from "lucide-react";
 import PageShell from "../../layouts/PageShell";
 import { EmptyState } from "../../components/EmptyState";
 import { useIsMobile } from "../../hooks/useIsMobile";
 import { useServerTimezone } from "../../hooks/useServerTimezone";
 import { formatServerDateTime } from "../../utils/formatMessageTime";
-import { apiErrorMessage } from "../../utils/apiError";
+import { apiErrorMessage, parseApiError } from "../../utils/apiError";
 import {
   PROJECTS_PAGE_SIZE,
   projectsApi,
   type ProjectSummary,
   type ProjectRole,
 } from "../../api/modules/projects";
+import { projectMembershipApi } from "../../api/modules/projectMembership";
 import CreateProjectModal from "./CreateProjectModal";
+
+const TERMINAL_INVITE_CODES = new Set([
+  "INVITE_INVALID",
+  "INVITE_USED",
+  "INVITE_EXPIRED",
+  "INVITE_REVOKED",
+]);
 
 export function projectRoleTag(role: ProjectRole): {
   labelKey: string;
@@ -55,6 +64,8 @@ export function projectRoleTag(role: ProjectRole): {
 export default function ProjectsPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const inviteToken = searchParams.get("invite")?.trim() ?? "";
   const isMobile = useIsMobile();
   const timezone = useServerTimezone();
 
@@ -67,6 +78,9 @@ export default function ProjectsPage() {
   const [nextOffset, setNextOffset] = useState(0);
   const [reloadKey, setReloadKey] = useState(0);
   const [createOpen, setCreateOpen] = useState(false);
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteError, setInviteError] = useState<unknown>(null);
+  const [invitePending, setInvitePending] = useState(false);
   /** Monotonic guard so late responses never overwrite fresher results. */
   const fetchSeq = useRef(0);
 
@@ -102,6 +116,30 @@ export default function ProjectsPage() {
   useEffect(() => {
     void load(query, 0, false);
   }, [query, reloadKey, load]);
+
+  const acceptInvite = async () => {
+    if (!inviteToken) return;
+    setInviteBusy(true);
+    setInviteError(null);
+    try {
+      const result = await projectMembershipApi.acceptInvite(inviteToken);
+      if (result.status === "joined") {
+        navigate(`/projects/${encodeURIComponent(result.project_id)}`, {
+          replace: true,
+        });
+      } else {
+        setInvitePending(true);
+        navigate("/projects", { replace: true });
+      }
+    } catch (err) {
+      setInviteError(err);
+      if (TERMINAL_INVITE_CODES.has(parseApiError(err)?.code ?? "")) {
+        navigate("/projects", { replace: true });
+      }
+    } finally {
+      setInviteBusy(false);
+    }
+  };
 
   const newProjectButton = (
     <Button
@@ -290,6 +328,61 @@ export default function ProjectsPage() {
       )}
       actions={actions}
     >
+      {inviteToken && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={t("projects.join.title", "收到项目邀请")}
+          description={t(
+            "projects.join.hint",
+            "加入后才能查看项目内容；需要审批的邀请会先提交申请。",
+          )}
+          action={
+            <div style={{ display: "flex", gap: 8 }}>
+              <Button
+                loading={inviteBusy}
+                type="primary"
+                onClick={() => void acceptInvite()}
+              >
+                {t("projects.join.accept", "接受邀请")}
+              </Button>
+              <Button
+                disabled={inviteBusy}
+                onClick={() => {
+                  setInviteError(null);
+                  navigate("/projects", { replace: true });
+                }}
+              >
+                {t("projects.join.cancel", "取消")}
+              </Button>
+            </div>
+          }
+        />
+      )}
+      {inviteError != null && (
+        <Alert
+          type="error"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={apiErrorMessage(
+            inviteError,
+            t("projects.join.failed", "加入项目失败"),
+            t,
+          )}
+        />
+      )}
+      {invitePending && !inviteToken && (
+        <Alert
+          type="success"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={t(
+            "projects.join.pending",
+            "加入申请已提交，等待项目管理员审批。",
+          )}
+        />
+      )}
       <div style={{ marginBottom: 16, maxWidth: 420 }}>
         <Input.Search
           allowClear

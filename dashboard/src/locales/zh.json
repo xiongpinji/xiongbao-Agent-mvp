@@ -346,8 +346,45 @@
       "scheduledTasks": "定时任务",
       "members": "成员",
       "membersLoadFailed": "成员列表加载失败",
-      "invite": "邀请成员",
-      "inviteUnavailable": "邀请待建设：成员邀请与审批需要后端接口。"
+      "invite": "邀请成员"
+    },
+    "members": {
+      "count": "成员（{{value}}）",
+      "manageTitle": "邀请与加入申请",
+      "approval": "加入需要审批",
+      "expiry": "有效天数",
+      "createLink": "生成邀请链接",
+      "oneTime": "链接仅在此显示一次，请现在复制。",
+      "link": "邀请链接",
+      "copy": "复制",
+      "copied": "已复制",
+      "invites": "邀请链接",
+      "noInvites": "尚无邀请链接",
+      "direct": "直接加入",
+      "revoke": "撤销",
+      "requests": "待审批申请",
+      "noRequests": "暂无待审批申请",
+      "approve": "通过",
+      "reject": "拒绝",
+      "changeRole": "更改成员角色",
+      "remove": "移除",
+      "removeConfirm": "移除此成员？",
+      "loadFailed": "加载成员协作信息失败",
+      "actionFailed": "成员操作失败",
+      "status": {
+        "pending": "有效",
+        "used": "已使用",
+        "revoked": "已撤销",
+        "expired": "已过期"
+      }
+    },
+    "join": {
+      "title": "收到项目邀请",
+      "hint": "加入后才能查看项目内容；需要审批的邀请会先提交申请。",
+      "accept": "接受邀请",
+      "cancel": "取消",
+      "failed": "加入项目失败",
+      "pending": "加入申请已提交，等待项目管理员审批。"
     },
     "taskComposer": {
       "placeholder": "项目任务暂未开放，输入框不可用",

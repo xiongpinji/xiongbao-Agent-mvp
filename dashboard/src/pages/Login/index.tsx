@@ -23,6 +23,7 @@ import googleIcon from "../../assets/providers/google.svg";
 import CaptchaField, { type CaptchaFieldHandle } from "./CaptchaField";
 import ForgotPasswordModal from "./ForgotPasswordModal";
 import { type PublicCaptchaConfig } from "./captchaAdapters";
+import { consumePendingProjectInviteDestination } from "../../utils/pendingProjectInvite";
 
 function providerLabel(
   provider: OauthProviderStatus,
@@ -152,7 +153,11 @@ export default function LoginPage() {
         }
         return;
       }
-      window.location.replace(event.data.redirect || "/chat");
+      window.location.replace(
+        consumePendingProjectInviteDestination() ||
+          event.data.redirect ||
+          "/chat",
+      );
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
@@ -204,7 +209,9 @@ export default function LoginPage() {
       setAuthToken(res.access_token);
       await applyUserLocale(res.user.locale);
       void refreshServerLabels(res.user.locale);
-      navigate("/chat", { replace: true });
+      navigate(consumePendingProjectInviteDestination() || "/chat", {
+        replace: true,
+      });
     } catch (err) {
       message.error(apiErrorMessage(err, t("login.failed"), t));
       resetCaptcha();

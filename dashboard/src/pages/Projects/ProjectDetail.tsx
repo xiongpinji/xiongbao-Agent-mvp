@@ -5,8 +5,8 @@
  * the backend does not provide yet visibly unavailable:
  * - tabs 动态 / 计划 / 任务 / 资产: honest "not built yet" panels, no fake rows
  * - fixed 项目配置 column: real instructions (editable for owner/admin via
- *   PATCH), while connector / expert / skill / scheduled-task rows and the
- *   member invite entry all say 暂未开放
+ *   PATCH); member invitations and approvals use project membership APIs,
+ *   while connector / expert / skill / scheduled-task rows stay unavailable
  * - non-members get 404 from the server; the UI shows a fixed not-found
  *   state and never renders the project name
  */
@@ -15,14 +15,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Breadcrumb, Button, Input, Spin, Tabs, Tag, Typography } from "antd";
-import {
-  GraduationCap,
-  Link2,
-  Pencil,
-  Sparkles,
-  Timer,
-  Users,
-} from "lucide-react";
+import { GraduationCap, Link2, Pencil, Sparkles, Timer } from "lucide-react";
 import PageShell from "../../layouts/PageShell";
 import { EmptyState } from "../../components/EmptyState";
 import { useIsMobile } from "../../hooks/useIsMobile";
@@ -35,6 +28,7 @@ import {
   type ProjectRecord,
 } from "../../api/modules/projects";
 import CreateProjectModal from "./CreateProjectModal";
+import ProjectMembersPanel from "./ProjectMembersPanel";
 import { projectRoleTag } from "./index";
 
 const { Text } = Typography;
@@ -344,60 +338,12 @@ export default function ProjectDetail() {
         {t("projects.unavailable.config", "暂未开放：后端尚未提供项目级配置。")}
       </div>
 
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginTop: 16,
-          marginBottom: 4,
-        }}
-      >
-        <span style={{ fontSize: 13, fontWeight: 500 }}>
-          <Users size={14} style={{ verticalAlign: "-2px", marginRight: 6 }} />
-          {t("projects.config.members", "成员")}（{project.member_count}）
-        </span>
-      </div>
-      {members === null ? (
-        <div style={secondaryStyle}>
-          {t("projects.config.membersLoadFailed", "成员列表加载失败")}
-        </div>
-      ) : (
-        <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-          {members.map((member) => {
-            const memberRole = projectRoleTag(member.role);
-            return (
-              <li
-                key={member.user_id}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 8,
-                  padding: "6px 0",
-                  fontSize: 13,
-                }}
-              >
-                <span>{member.username}</span>
-                <Tag color={memberRole.color} style={{ marginInlineEnd: 0 }}>
-                  {t(memberRole.labelKey, memberRole.fallback)}
-                </Tag>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      <div style={{ marginTop: 8 }}>
-        <Button size="small" disabled>
-          {t("projects.config.invite", "邀请成员")}
-        </Button>
-        <div style={{ ...secondaryStyle, marginTop: 4 }}>
-          {t(
-            "projects.config.inviteUnavailable",
-            "邀请待建设：成员邀请与审批需要后端接口。",
-          )}
-        </div>
-      </div>
+      <ProjectMembersPanel
+        projectId={project.project_id}
+        role={project.my_role}
+        members={members}
+        onChanged={reload}
+      />
     </aside>
   );
 
