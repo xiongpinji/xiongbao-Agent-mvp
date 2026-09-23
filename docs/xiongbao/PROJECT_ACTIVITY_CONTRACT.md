@@ -29,12 +29,12 @@
 
 “与我相关”SQL 必须先按 `event_type` 选择已知字段，再按 scope 过滤、最后游标分页。比较用统一字符串参数 `str(current_user.id)`：成员事件用 `project_events.object_id = ?`（两库该列均为 TEXT）；SQLite 的待办字段须同时满足 `json_type(payload_json, '$.字段名') = 'integer'` 和 `CAST(json_extract(payload_json, '$.字段名') AS TEXT) = ?`；PostgreSQL 须同时满足 `jsonb_typeof(payload_json::jsonb -> '字段名') = 'number'` 和 `(payload_json::jsonb ->> '字段名') = ?`，避免 PostgreSQL 的 TEXT=INTEGER 错误或把 JSON 字符串误当用户 ID；缺失字段或 JSON null 不匹配。字段对应关系：`project.todo_created` 只用 `assignee_user_id`；`project.todo_updated` 用 `from_assignee_user_id` 与 `to_assignee_user_id`；`project.todo_deleted` 只用 `from_assignee_user_id`。当前事件写入器均生成有效 JSON，若已有白名单待办事件的 JSON 损坏，相关列表应报服务端错误并记日志，不得把该行当作匹配或泄露其原始载荷。操作者自身的安全事件可通过 `actor_user_id = current_user.id` 命中；留言只由本人操作时进入相关列表。结果映射再次做类型白名单，防未来新增事件误映射。
 
-具体游标为 `base64url("<created_at>:<id>")`，不带填充，解析后两个值都须是正整数，游标最长 64 字符；编码不用于保密，客户端只当不透明字符串原样回传。每条 `items` 的固定字段为 `event_id`（整数）、`event_type`、`actor_user_id`（可空）、`actor_name`（可空）、`object_kind`（`project|member|todo|message`）、`object_id`（仅项目/待办/留言可有，成员目标 ID 不公开）、`message_body`（仅留言可有）、`created_at`。留言正文只从 `project_messages` 按 `message_id = project_events.object_id` 关联取得，不写进 `payload_json`。不返回原始载荷或其他动态字段。对成员目标只返回通用动作文案和操作者；当前成员列表仍由既有独立 API 展示。
+具体游标为 `base64url("<created_at>:<id>")`，不带填充，解析后两个值都须是正整数，游标最长 64 字符；编码不用于保密，客户端只当不透明字符串原样回传。每条 `items` 的固定字段为 `event_id`（整数）、`event_type`、`actor_user_id`（可空）、`actor_name`（可空）、`object_kind`（`project|member|todo|message`）、`object_id`（仅项目/待办/留言可有，成员目标 ID 不公开）、`message_body`（仅留言可有）、`created_at`。留言正文只从 `project_messages` 按 **`message_id = project_events.object_id AND project_messages.project_id = project_events.project_id`** 关联取得，不写进 `payload_json`；即使数据库中出现指向别的项目留言 ID 的错误事件，也不能借此读取跨项目正文。不返回原始载荷或其他动态字段。对成员目标只返回通用动作文案和操作者；当前成员列表仍由既有独立 API 展示。
 
 ## UI 与验收
 
 项目详情“动态”页签接真实接口：默认“与我相关”，可切换“成员动态”；显示时间、操作者、安全动作和纯文本留言，支持加载更多、刷新、空态、失败重试和发表中禁重。切换项目/筛选后旧项目或旧筛选的动态绝不能闪现；晚到的响应不得覆盖新项目。未经 API 支持的评论图片/富文本入口不出现。视觉用熊宝红黑金品牌和项目页既有布局，最终 WorkBuddy 1:1 仍需逐状态截图与实机交互对照。
 
-先写失败测试，再实现迁移、repo/service/router 与 Dashboard API/组件。至少用 owner、member、outsider 验证：两成员各发一条留言并刷新可见；“与我相关”按操作者/目标/历史处理人正确过滤；服务端分页跨同秒与新事件插入稳定；非成员列表/发表均 404；移除成员后旧令牌 404；留言写入失败原子回滚；021 本人私密任务 ID/标题不在任何动态响应；邀请令牌/项目指令和原始 JSON 不出现在响应；React 对 `<script>` 字符串只按文本渲染。PG 迁移、锁与游标查询必须用真实实例验证才称 PG 通过；静态 SQL 和模拟连接仅算补充。Codex 独立运行定向/回归测试、隔离浏览器三身份旅程、GLM 只读审查后才推送。
+先写失败测试，再实现迁移、repo/service/router 与 Dashboard API/组件。至少用 owner、member、outsider 验证：两成员各发一条留言并刷新可见；“与我相关”按操作者/目标/历史处理人正确过滤；服务端分页跨同秒与新事件插入稳定；非成员列表/发表均 404；移除成员后旧令牌 404；留言写入失败原子回滚；伪造的同项目事件引用别的项目 `message_id` 时不返回其正文；021 本人私密任务 ID/标题不在任何动态响应；邀请令牌/项目指令和原始 JSON 不出现在响应；React 对 `<script>` 字符串只按文本渲染。PG 迁移、锁与游标查询必须用真实实例验证才称 PG 通过；静态 SQL 和模拟连接仅算补充。Codex 独立运行定向/回归测试、隔离浏览器三身份旅程、GLM 只读审查后才推送。
 
 本片完成不代表 PS-03 全部对齐：消息中心、@ 提及、图片/富文本、精细通知、历史审计修订与 WorkBuddy 视觉逐状态仍在后继批次。
