@@ -189,6 +189,7 @@
     "chat": "Conversation",
     "common": "Common",
     "control": "Control",
+    "projects": "Projects",
     "experts": "Experts",
     "tasks": "Automation",
     "connectors": "Connectors",
@@ -244,6 +245,115 @@
     "records": "Tasks",
     "paneSettings": "Settings",
     "paneRecords": "Tasks"
+  },
+  "projects": {
+    "newProject": "New project",
+    "openProject": "Open project: {{name}}",
+    "searchPlaceholder": "Search project names",
+    "loadFailed": "Failed to load projects",
+    "loadMore": "Load more",
+    "errorTitle": "Failed to load projects",
+    "emptyTitle": "No projects yet",
+    "emptyHint": "Create your first project to gather members, plans and materials in one space.",
+    "emptySearchTitle": "No matching projects",
+    "emptySearchHint": "Try a different keyword, or create a new project.",
+    "memberCount": "{{total}} members",
+    "updatedAt": "Updated {{time}}",
+    "roleOwner": "Owner",
+    "roleAdmin": "Admin",
+    "roleMember": "Member",
+    "create": {
+      "title": "New project",
+      "editTitle": "Edit project",
+      "name": "Project name",
+      "namePlaceholder": "e.g. Product requirements",
+      "nameRule": "Name must be 1–15 characters",
+      "nameCounter": "{{length}}/15",
+      "nameRequired": "Enter a project name",
+      "nameTooLong": "Name must be at most 15 characters",
+      "description": "Description",
+      "descriptionPlaceholder": "Optional: project goal and scope",
+      "instructions": "Project instructions",
+      "instructionsPlaceholder": "Optional: default instructions for tasks in this project",
+      "submit": "Create",
+      "save": "Save",
+      "successCreated": "Project created",
+      "successSaved": "Saved",
+      "createFailed": "Failed to create project",
+      "saveFailed": "Failed to save",
+      "templatesTitle": "Start from a template",
+      "templatesHint": "Templates only prefill the form below; edit it freely.",
+      "overwriteTitle": "Overwrite unsaved changes?",
+      "overwriteContent": "Switching templates overwrites the unsaved edits in this form.",
+      "overwriteOk": "Overwrite",
+      "overwriteCancel": "Keep current edits"
+    },
+    "templates": {
+      "requirements": {
+        "name": "Product requirements",
+        "description": "Collect and review product requirements; track status and release plans.",
+        "instructions": "For each requirement record background, target users, features, acceptance criteria and priority, then draft the requirement doc."
+      },
+      "competitor": {
+        "name": "Competitor analysis",
+        "description": "Track competitors continuously; build feature comparisons and differentiation.",
+        "instructions": "Compare competitors with a feature matrix, pricing, strengths, weaknesses and ideas to borrow; cite sources and observation dates."
+      },
+      "knowledge": {
+        "name": "Team knowledge base",
+        "description": "Maintain team docs, conventions and FAQs in one place.",
+        "instructions": "Prefer citing knowledge-base entries with sources when answering; mark missing content as to-be-added."
+      },
+      "delivery": {
+        "name": "Project delivery",
+        "description": "Manage delivery milestones, risks and acceptance checklists.",
+        "instructions": "Drive delivery by milestones: break down tasks, name owners and due dates, and surface risks early."
+      },
+      "bugTracking": {
+        "name": "Bug tracking",
+        "description": "Record, assign and track defects until fixed and verified.",
+        "instructions": "For each defect record reproduction steps, impact, severity and fix status; regression-test after the fix."
+      }
+    },
+    "detail": {
+      "breadcrumb": "Projects",
+      "notFound": "Project not found or you do not have access",
+      "loadFailed": "Failed to load the project",
+      "back": "Back to projects",
+      "edit": "Edit project"
+    },
+    "tabs": {
+      "activity": "Activity",
+      "plan": "Plan",
+      "tasks": "Tasks",
+      "assets": "Assets"
+    },
+    "unavailable": {
+      "badge": "Not available yet",
+      "activity": "Activity is not built yet: the message and member-action timeline needs the backend project-events API.",
+      "plan": "Plan is not built yet: the project todo table/board needs the backend plan API.",
+      "tasks": "Tasks are not built yet: project task ownership, sharing and handover need the backend task API.",
+      "assets": "Assets are not built yet: the project asset library, versions and quota need the backend asset API.",
+      "config": "Not available yet: the backend does not expose project-level configuration."
+    },
+    "config": {
+      "title": "Project configuration",
+      "instructions": "Instructions",
+      "instructionsEmpty": "No project instructions yet.",
+      "connectors": "Connectors",
+      "experts": "Experts",
+      "skills": "Skills",
+      "scheduledTasks": "Scheduled tasks",
+      "members": "Members",
+      "membersLoadFailed": "Failed to load the member list",
+      "invite": "Invite members",
+      "inviteUnavailable": "Invites are not built yet: member invite and approval need the backend API."
+    },
+    "taskComposer": {
+      "placeholder": "Project tasks are not available yet — the composer is disabled",
+      "hint": "Project task ownership and sharing must land in the backend first (in progress).",
+      "send": "Send"
+    }
   },
   "skillPackages": {
     "title": "Skill Packages",
@@ -5542,6 +5652,10 @@
     "experts": {
       "title": "Experts",
       "subtitle": "Create and manage your AI experts, or pick a scenario template to get started quickly."
+    },
+    "projects": {
+      "title": "Projects",
+      "subtitle": "Long-lived spaces for people: members, plans, tasks and assets per project."
     },
     "tasks": {
       "title": "Automation",

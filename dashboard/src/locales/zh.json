@@ -189,6 +189,7 @@
     "chat": "对话",
     "common": "常用",
     "control": "控制",
+    "projects": "项目",
     "experts": "专家",
     "tasks": "自动化",
     "connectors": "连接器",
@@ -244,6 +245,115 @@
     "records": "任务",
     "paneSettings": "设置",
     "paneRecords": "任务"
+  },
+  "projects": {
+    "newProject": "新建项目",
+    "openProject": "打开项目：{{name}}",
+    "searchPlaceholder": "搜索项目名称",
+    "loadFailed": "加载项目失败",
+    "loadMore": "加载更多",
+    "errorTitle": "项目加载失败",
+    "emptyTitle": "还没有项目",
+    "emptyHint": "创建第一个项目，把成员、计划和资料沉淀到项目空间。",
+    "emptySearchTitle": "没有匹配的项目",
+    "emptySearchHint": "换个关键词，或创建一个新项目。",
+    "memberCount": "{{total}} 名成员",
+    "updatedAt": "更新于 {{time}}",
+    "roleOwner": "所有者",
+    "roleAdmin": "管理员",
+    "roleMember": "成员",
+    "create": {
+      "title": "新建项目",
+      "editTitle": "编辑项目资料",
+      "name": "项目名称",
+      "namePlaceholder": "例如：产品需求管理",
+      "nameRule": "名称 1–15 个字符",
+      "nameCounter": "{{length}}/15",
+      "nameRequired": "请输入项目名称",
+      "nameTooLong": "名称最多 15 个字符",
+      "description": "描述",
+      "descriptionPlaceholder": "可选：项目目标与范围",
+      "instructions": "项目指令",
+      "instructionsPlaceholder": "可选：项目内任务默认遵循的指令",
+      "submit": "创建",
+      "save": "保存",
+      "successCreated": "项目已创建",
+      "successSaved": "已保存",
+      "createFailed": "创建项目失败",
+      "saveFailed": "保存失败",
+      "templatesTitle": "从模板开始",
+      "templatesHint": "模板只预填下方表单，可自由修改。",
+      "overwriteTitle": "覆盖未保存内容？",
+      "overwriteContent": "切换模板会覆盖表单中尚未保存的修改。",
+      "overwriteOk": "覆盖",
+      "overwriteCancel": "保留当前内容"
+    },
+    "templates": {
+      "requirements": {
+        "name": "产品需求管理",
+        "description": "收集与评审产品需求，跟踪状态与版本计划。",
+        "instructions": "整理需求时写明背景、目标用户、功能点、验收标准与优先级，输出需求文档草稿。"
+      },
+      "competitor": {
+        "name": "竞品分析",
+        "description": "持续跟踪竞品动态，沉淀功能对比与差异化结论。",
+        "instructions": "对比竞品时列出功能矩阵、定价、优劣势与可借鉴点，标注信息来源与观察时间。"
+      },
+      "knowledge": {
+        "name": "团队知识库",
+        "description": "集中维护团队文档、规范与常见问题解答。",
+        "instructions": "回答时优先引用知识库条目并注明出处；缺失内容标记为待补充。"
+      },
+      "delivery": {
+        "name": "项目交付",
+        "description": "管理交付里程碑、风险与验收清单。",
+        "instructions": "按里程碑推进交付：拆解任务、明确负责人与截止时间，及时暴露风险。"
+      },
+      "bugTracking": {
+        "name": "Bug 跟踪",
+        "description": "记录、分派并跟踪缺陷直至修复验证。",
+        "instructions": "每个缺陷记录复现步骤、影响范围、严重级别与修复状态，修复后回归验证。"
+      }
+    },
+    "detail": {
+      "breadcrumb": "项目",
+      "notFound": "项目不存在或你无权访问",
+      "loadFailed": "加载项目详情失败",
+      "back": "返回项目列表",
+      "edit": "编辑项目资料"
+    },
+    "tabs": {
+      "activity": "动态",
+      "plan": "计划",
+      "tasks": "任务",
+      "assets": "资产"
+    },
+    "unavailable": {
+      "badge": "暂未开放",
+      "activity": "动态待建设：留言与成员操作时间线需要后端项目事件接口。",
+      "plan": "计划待建设：项目待办的表格与看板需要后端计划接口。",
+      "tasks": "任务待建设：项目任务的归属、共享与协同需要后端任务接口。",
+      "assets": "资产待建设：项目资产库、版本与容量需要后端资产接口。",
+      "config": "暂未开放：后端尚未提供项目级配置。"
+    },
+    "config": {
+      "title": "项目配置",
+      "instructions": "指令",
+      "instructionsEmpty": "还没有项目指令。",
+      "connectors": "连接器",
+      "experts": "专家",
+      "skills": "技能",
+      "scheduledTasks": "定时任务",
+      "members": "成员",
+      "membersLoadFailed": "成员列表加载失败",
+      "invite": "邀请成员",
+      "inviteUnavailable": "邀请待建设：成员邀请与审批需要后端接口。"
+    },
+    "taskComposer": {
+      "placeholder": "项目任务暂未开放，输入框不可用",
+      "hint": "需先打通项目任务归属与共享权限（后端建设中）。",
+      "send": "发送"
+    }
   },
   "skillPackages": {
     "title": "技能包",
@@ -5681,6 +5791,10 @@
     "experts": {
       "title": "专家",
       "subtitle": "创建与管理你的 AI 专家，也可从模板库挑选场景一键新建。"
+    },
+    "projects": {
+      "title": "项目",
+      "subtitle": "人的长期协作空间：成员、计划、任务与资产按项目沉淀。"
     },
     "tasks": {
       "title": "自动化",

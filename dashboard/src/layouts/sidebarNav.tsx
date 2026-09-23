@@ -18,6 +18,7 @@ import {
   GraduationCap,
   Shield,
   PanelsTopLeft,
+  FolderKanban,
 } from "lucide-react";
 import type { OctopUser } from "../api/modules/auth";
 import { navAllowed, userCan } from "../utils/permissions";
@@ -83,6 +84,12 @@ export function buildNavSections(
           path: "/chat",
           icon: <MessageSquareText size={iconSize} strokeWidth={iconStroke} />,
           labelKey: "nav.chat",
+        },
+        {
+          key: "projects",
+          path: "/projects",
+          icon: <FolderKanban size={iconSize} strokeWidth={iconStroke} />,
+          labelKey: "nav.projects",
         },
         {
           key: "experts",
