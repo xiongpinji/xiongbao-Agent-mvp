@@ -908,6 +908,14 @@ class ProjectRepo:
                     todo_payload,
                     ts,
                 )
+            # Detach the removed member's private task links in the same
+            # transaction so no link outlives its membership; their original
+            # threads stay untouched. Task links are never evented, so no
+            # private thread id reaches the shared project feed.
+            conn.execute(
+                "DELETE FROM project_task_links WHERE project_id = ? AND owner_user_id = ?",
+                (project_id, user_id),
+            )
             payload = json.dumps({"user_id": user_id, "role": current})
             _append_event(
                 conn, project_id, actor_user_id, EVENT_MEMBER_REMOVED, str(user_id), payload, ts

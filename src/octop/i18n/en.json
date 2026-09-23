@@ -443,7 +443,8 @@
     "TEAM_MEMBERS_TOO_FEW": "A team needs at least two members.",
     "TEAM_MEMBER_INVALID": "The selected roster is not valid.",
     "TEAM_MEMBER_BUSY": "This expert has an in-flight team job. Wait until it finishes.",
-    "TEAM_NOT_SHAREABLE": "Teams cannot be shared in this version."
+    "TEAM_NOT_SHAREABLE": "Teams cannot be shared in this version.",
+    "PROJECT_TASK_LINK_CONFLICT": "This task is already linked to another project. Detach it there first."
   },
   "desktop": {
     "install_log_deps": "Installing Python dependencies…",

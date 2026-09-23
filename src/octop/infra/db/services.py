@@ -16,6 +16,7 @@ from octop.infra.db.repos.cron import CronJobRepo
 from octop.infra.db.repos.invites import InviteRepo
 from octop.infra.db.repos.knowledge import KnowledgeRepo
 from octop.infra.db.repos.proactive_care_config import ProactiveCareConfigRepo
+from octop.infra.db.repos.project_tasks import ProjectTaskRepo
 from octop.infra.db.repos.project_todos import ProjectTodoRepo
 from octop.infra.db.repos.projects import ProjectRepo
 from octop.infra.db.repos.providers import ProviderRepo
@@ -65,6 +66,7 @@ class RepoBundle:
     sso_repo: SsoRepo
     project_repo: ProjectRepo
     project_todo_repo: ProjectTodoRepo
+    project_task_repo: ProjectTaskRepo
 
     @classmethod
     def from_pool(cls, db: DatabasePool) -> RepoBundle:
@@ -96,6 +98,7 @@ class RepoBundle:
             sso_repo=SsoRepo(db),
             project_repo=ProjectRepo(db),
             project_todo_repo=ProjectTodoRepo(db),
+            project_task_repo=ProjectTaskRepo(db),
         )
 
 
@@ -212,6 +215,10 @@ class SharedServices:
     @property
     def project_todo_repo(self) -> ProjectTodoRepo:
         return self.repos.project_todo_repo
+
+    @property
+    def project_task_repo(self) -> ProjectTaskRepo:
+        return self.repos.project_task_repo
 
 
 def build_shared_services(

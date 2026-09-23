@@ -31,6 +31,7 @@ import {
 import CreateProjectModal from "./CreateProjectModal";
 import ProjectMembersPanel from "./ProjectMembersPanel";
 import ProjectPlan from "./ProjectPlan";
+import ProjectTasks from "./ProjectTasks";
 import { projectRoleTag } from "./index";
 
 const { Text } = Typography;
@@ -179,7 +180,7 @@ export default function ProjectDetail() {
         disabled
         placeholder={t(
           "projects.taskComposer.placeholder",
-          "项目任务暂未开放，输入框不可用",
+          "项目内直接创建并执行任务尚未开放：请到已关联的对话中继续任务",
         )}
       />
       <div
@@ -194,7 +195,7 @@ export default function ProjectDetail() {
         <Text type="secondary" style={{ fontSize: 12 }}>
           {t(
             "projects.taskComposer.hint",
-            "需先打通项目任务归属与共享权限（后端建设中）。",
+            "本片只登记已有任务归属；项目内创建/发送、共享、本地/云端与移交需后续后端权限。",
           )}
         </Text>
         <Button type="primary" disabled>
@@ -231,12 +232,7 @@ export default function ProjectDetail() {
       label: t("projects.tabs.tasks", "任务"),
       children: (
         <>
-          {unavailablePanel(
-            t(
-              "projects.unavailable.tasks",
-              "任务待建设：项目任务的归属、共享与协同需要后端任务接口。",
-            ),
-          )}
+          <ProjectTasks projectId={project.project_id} />
           {taskComposer}
         </>
       ),
