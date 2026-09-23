@@ -1,7 +1,7 @@
 # 任务级工作目录与访问边界 — 架构记录（总计划 004）
 
 状态：**设计记录 + 停止实施报告**。本批次未落地任何生产代码 / 迁移 / UI。
-与 [PROJECT_SPACE_SPEC.md](PROJECT_SPACE_SPEC.md) 的区别：此处的“工作目录”是任务实际执行文件和 shell 的边界，项目空间是成员共享协作域。项目 CRUD/ACL 可先实施，但不能据此声称任务目录隔离已完成。迁移 018 已由项目空间首批预留；下文原提案的任务目录迁移编号调整为 019（最终以实施时可用编号为准）。
+与 [PROJECT_SPACE_SPEC.md](PROJECT_SPACE_SPEC.md) 的区别：此处的“工作目录”是任务实际执行文件和 shell 的边界，项目空间是成员共享协作域。项目 CRUD/ACL 可先实施，但不能据此声称任务目录隔离已完成。迁移 018 已由项目空间首批使用，019 分配给项目成员邀请，020 预留项目计划待办；下文任务目录迁移暂定 021（实施前仍须核对主分支最高版本）。
 结论先行：在当前 Octop 接线与 004 白名单范围内，**无法让实际 Agent
 工具执行遵守按任务（thread）选择的工作目录**；按任务约束"目录选择"若不配合执行链
 改造，会形成误导用户的假隔离。依据任务约束（"若无法在本范围内让实际 Agent 工具与
@@ -70,7 +70,7 @@ harness 的 `FilesystemGuardMiddleware` 只覆盖文件工具，**不覆盖 shel
 
 以下为目标设计，供扩围后直接采用；**本批次未实现**。
 
-1. **持久化**：迁移 `019_thread_workspace.sql` + `019_thread_workspace.pg.sql`
+1. **持久化**：暂定迁移 `021_thread_workspace.sql` + `021_thread_workspace.pg.sql`；实施前核对主分支最高迁移版本。
    成对新增 `threads.workspace_dir TEXT NULL`（创建时已解析的真实宿主路径）与
    `threads.workspace_access_mode TEXT NULL`（如 `task-scoped` /
    `legacy-agent-workspace`）。NULL = 旧线程，保持既有 Agent 工作区行为并在 UI

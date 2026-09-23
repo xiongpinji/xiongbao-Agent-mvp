@@ -5,9 +5,9 @@
 ## 证据与产品边界
 
 - WorkBuddy 5.5.6 实机只读观察见 [WORKBUDDY_LIVE_UI_AUDIT.md](WORKBUDDY_LIVE_UI_AUDIT.md)：项目列表、创建表单、动态、计划、任务、资产、右侧配置、成员邀请和项目底部输入区。项目任务分本地/云端；本地任务可用本地资源与项目共享资源，云端任务可用项目共享资源并发起任务协作。项目任务页明示个人任务默认私密，除非共享。
-- WorkBuddy [官方更新日志](https://www.workbuddy.cn/docs/workbuddy/Changelog) 5.0.0 列出项目/邀请/权限、计划看板、资产库与版本、动态、项目级配置、外部数据源定时导入及 Webhook、实时协同与任务移交，以及邀请/审批/动态通知；5.6.2 仍在修复项目本地任务创建。官方文档描述的能力需在熊宝自身用真实用户旅程逐项验收。
+- WorkBuddy [官方更新日志](https://www.workbuddy.cn/docs/workbuddy/Changelog) 5.0.0 列出项目/邀请/权限、计划看板、资产库与版本、动态、项目级配置、外部数据源定时导入及 Webhook、实时协同与任务移交，以及邀请/审批/动态通知。官方文档描述的能力需在熊宝自身用真实用户旅程逐项验收；更新日志的后续版本也不替代本机 5.5.6 的界面观察。
 - 官方 [资料库多人多 Agent 协作](https://www.workbuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Library/Collaboration) 另描述“团队空间”的查看/编辑/管理/无权限四档，以及 Agent 只按当前用户权限读取材料。资料库团队空间与项目空间是两个界面/数据域；实现时可以复用经审查的权限原语，但不能把资料库或专家团页面当作项目空间完成证据。
-- Octop `src/octop/api/routers/teams.py` 是**专家团**：成员是 Agent ID，不是人的项目成员。现有数据库最高迁移 017；`threads` 有 `agent_id/user_id`，无项目归属或共享任务 ACL。前端 `/workspace` 目前重定向到 `/experts`，无项目页。现有资料库/Agent 工作区/专家团均不能直接冒充项目空间。
+- Octop 原始基线中的 `src/octop/api/routers/teams.py` 是**专家团**：成员是 Agent ID，不是人的项目成员。熊宝当前已新增迁移 018、人的项目成员和项目 API/前端入口；`threads` 仍只有 `agent_id/user_id`，无项目归属或共享任务 ACL。前端 `/workspace` 仍重定向到 `/experts`，项目页是独立的 `/projects`。现有资料库/Agent 工作区/专家团均不能直接冒充项目空间。
 - **项目空间 Project**：人的长期协作域，拥有成员、计划、资产、动态和项目级配置。**任务 Task**：对话/运行记录，归属用户与可选项目，默认仅任务拥有者可读写，显式协同后才扩权。**本地工作空间 Workspace**：任务实际文件和 shell 执行范围，由后端授权，不因加入项目自动变宽。**Agent/专家团**：执行主体/能力，不是项目成员。
 
 ## 用户旅程与行为验收
