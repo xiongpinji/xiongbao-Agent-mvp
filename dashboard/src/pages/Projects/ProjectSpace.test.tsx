@@ -128,6 +128,33 @@ describe("project-space pages against the real API response shapes", () => {
     expect(screen.getByText(/更新于.*2023/)).toBeInTheDocument();
   });
 
+  it("lets a member read the project without showing the edit action", async () => {
+    get.mockResolvedValue({
+      ...summary,
+      my_role: "member",
+      instructions: "成员可读",
+    });
+    members.mockResolvedValue([
+      { user_id: 1, username: "alice", role: "owner" },
+      { user_id: 2, username: "bob", role: "member" },
+    ]);
+
+    render(
+      <MemoryRouter initialEntries={["/projects/project-1"]}>
+        <Routes>
+          <Route path="/projects/:projectId" element={<ProjectDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("成员可读")).toBeInTheDocument();
+    expect(screen.getByText("bob")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "编辑项目资料" }),
+    ).not.toBeInTheDocument();
+    expect(update).not.toHaveBeenCalled();
+  });
+
   it("does not reveal a project name when the API denies membership", async () => {
     get.mockRejectedValue(new Error('404 - {"error":{"code":"NOT_FOUND"}}'));
     members.mockResolvedValue([]);
@@ -176,5 +203,45 @@ describe("project-space pages against the real API response shapes", () => {
     await user.click(screen.getByRole("button", { name: /创\s*建/ }));
     expect(onSaved).toHaveBeenCalledWith({ ...summary, instructions: "" });
     expect(create).toHaveBeenCalledWith({ name: "熊宝项目" });
+  });
+
+  it("keeps a typed draft when a template switch is cancelled", async () => {
+    const nativeGetComputedStyle = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation((element) =>
+      nativeGetComputedStyle(element),
+    );
+    const user = userEvent.setup();
+
+    render(<CreateProjectModal open onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    const name = screen.getByPlaceholderText("例如：产品需求管理");
+    await user.type(name, "自定义项目");
+    const template = screen.getByRole("button", { name: /产品需求管理/ });
+    await user.click(template);
+
+    const keepDraft = await screen.findByRole("button", {
+      name: "保留当前内容",
+    });
+    await user.click(keepDraft);
+    expect(name).toHaveValue("自定义项目");
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("prefills from a template only after confirming the overwrite", async () => {
+    const nativeGetComputedStyle = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation((element) =>
+      nativeGetComputedStyle(element),
+    );
+    const user = userEvent.setup();
+
+    render(<CreateProjectModal open onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    const name = screen.getByPlaceholderText("例如：产品需求管理");
+    await user.type(name, "自定义项目");
+
+    await user.click(screen.getByRole("button", { name: /产品需求管理/ }));
+    await user.click(await screen.findByRole("button", { name: /覆\s*盖/ }));
+    expect(name).toHaveValue("产品需求管理");
+    expect(create).not.toHaveBeenCalled();
   });
 });
