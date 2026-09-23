@@ -1,0 +1,40 @@
+-- Schema v19: project membership — one-use invite links and join requests.
+
+CREATE TABLE IF NOT EXISTS project_invites (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  invite_id TEXT NOT NULL UNIQUE,
+  project_id TEXT NOT NULL REFERENCES project_spaces(project_id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role TEXT NOT NULL DEFAULT 'member',
+  requires_approval INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  revoked_at INTEGER,
+  consumed_at INTEGER,
+  consumed_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_invites_project ON project_invites(project_id);
+
+CREATE TABLE IF NOT EXISTS project_join_requests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  request_id TEXT NOT NULL UNIQUE,
+  project_id TEXT NOT NULL REFERENCES project_spaces(project_id) ON DELETE CASCADE,
+  invite_id TEXT REFERENCES project_invites(invite_id) ON DELETE SET NULL,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+  requested_at INTEGER NOT NULL,
+  resolved_at INTEGER,
+  resolved_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- At most one pending request per user per project (both dialects support
+-- partial/filtered unique indexes).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_project_join_requests_pending
+  ON project_join_requests(project_id, user_id) WHERE status = 'pending';
+
+CREATE INDEX IF NOT EXISTS idx_project_join_requests_project
+  ON project_join_requests(project_id);
+
+UPDATE _schema_version SET version = 19;
