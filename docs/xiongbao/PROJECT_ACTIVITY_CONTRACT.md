@@ -12,7 +12,9 @@
 
 ## 022 留言数据
 
-新表 `project_messages(message_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, author_user_id INTEGER NULL, body TEXT NOT NULL, created_at INTEGER NOT NULL)`：项目 FK `ON DELETE CASCADE`，作者 FK `ON DELETE SET NULL`，`CHECK(length(body) BETWEEN 1 AND 4000)`，索引 `(project_id, created_at, message_id)`。服务端去除首尾空白后再验证 1–4000 字符；正文按纯文本存储和渲染。作者账号删除后历史留言保留，显示为“已删除用户”。本片只创建和读取，不开放编辑/删除、图片、附件、富文本或 @ 提及；相关能力在 PS-04B/PS-06A 有独立存储与撤权设计后再扩展。
+新表 `project_messages(message_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, author_user_id INTEGER NULL, body TEXT NOT NULL, created_at INTEGER NOT NULL)`：项目 FK `ON DELETE CASCADE`，作者 FK `ON DELETE SET NULL`，`CHECK(length(body) BETWEEN 1 AND 4000)`，索引 `(project_id, created_at, message_id)`。服务端去除首尾空白、验证 1–4000 字符，并**存储去空白后的正文**；正文按纯文本渲染。作者账号删除后历史留言保留，显示为“已删除用户”。本片只创建和读取，不开放编辑/删除、图片、附件、富文本或 @ 提及；相关能力在 PS-04B/PS-06A 有独立存储与撤权设计后再扩展。
+
+022 两份迁移还须为已有 `project_events` 增加 `(project_id, created_at DESC, id DESC)` 复合索引；仅有 018 的 `project_id` 索引会让每页活动重复扫描排序。项目归档在当前代码尚无写入入口，本片沿用既有成员可读语义；归档后的只读/禁留言规则留待 PS-09 一并设计，不能把本片暗示为已完成归档权限。
 
 一次留言写入在**同一事务**完成：先验证并锁定 `project_members` 当前用户行（PostgreSQL `FOR SHARE`，SQLite 写事务串行），再插入 `project_messages` 与一条 `project.message_created` 事件，事件 `object_id=message_id`、`payload_json='{}'`。成员移除与留言创建按“成员行 → 留言/事件行”同序列化；被移除后新请求统一 404。失败回滚时不得留下半条留言或无正文事件。
 
@@ -20,12 +22,14 @@
 
 | 路由 | 请求与响应 | 权限/失败 |
 | --- | --- | --- |
-| `GET /api/projects/{project_id}/activity?scope=members|related&limit=20&cursor=` | `items`、`next_cursor`；时间倒序，用 `(created_at,id)` 双键稳定排序；`limit` 1–50；游标表示上一页最后一条双键，查询用严格小于并按白名单和 scope 过滤后取 `limit+1`。 | 仅当前成员；非成员/未知项目统一 404。非法 scope/limit/cursor 为 422。不返回未授权项目的总数。 |
+| `GET /api/projects/{project_id}/activity?scope=members|related&limit=20&cursor=` | `items`、`next_cursor`；时间倒序，用 `(created_at,id)` 双键稳定排序；`limit` 1–50；游标表示上一页最后一条双键，查询用严格小于并按白名单和 scope 过滤后取 `limit+1`。 | 仅当前成员；非成员/未知项目统一 404。非法 scope/limit/cursor 为 422；非法游标专用 `PROJECT_ACTIVITY_CURSOR_INVALID`（HTTP 422）。不返回未授权项目的总数。 |
 | `POST /api/projects/{project_id}/messages` | `{body}`；返回新动态安全摘要，201。 | 仅当前成员；空白/超长/附加 actor 或任意额外字段 422；非成员/未知项目统一 404。正文纯文本，服务端决定作者和事件类型。 |
 
-游标格式为服务端编码的 `created_at:id`，仅用于排序，**不是授权凭证**；每次翻页都重新校验成员。解析失败返回 422。并发插入新事件不应造成已看过的旧事件在下一页重复或跳页；相同秒内按 `id DESC` 打破平局。SQLite 与 PostgreSQL 使用各自的 JSON 读取表达式做“与我相关”待办处理人过滤；只检查白名单事件已知的 `assignee_user_id`、`from_assignee_user_id`、`to_assignee_user_id` 安全数字字段，不对未知 JSON 路径做猜测。数据库端对 `actor_user_id`、成员事件 `object_id` 和待办处理人字段做 scope 条件；留言仅作者匹配。结果映射再次做类型白名单，防未来新增事件误映射。
+游标格式为服务端编码的 `created_at:id`，仅用于排序，**不是授权凭证**；每次翻页都重新校验成员。解析失败返回专用错误码 `PROJECT_ACTIVITY_CURSOR_INVALID`（HTTP 422），后端 `ErrorCode`/HTTP 映射、后端中英文字典、Dashboard `apiErrors` 中英文字典和 i18n 一致性测试须同步更新。严格键集翻页保证不重复已看事件，并且不跳过查询开始前已提交的旧事件；PostgreSQL 若较大排序键的事务在翻页后才提交，用户需刷新首屏才能看到它。相同秒内按 `id DESC` 打破平局。
 
-具体游标为 `base64url("<created_at>:<id>")`，不带填充，解析后两个值都须是正整数，游标最长 64 字符；编码不用于保密，客户端只当不透明字符串原样回传。每条 `items` 的固定字段为 `event_id`（整数）、`event_type`、`actor_user_id`（可空）、`actor_name`（可空）、`object_kind`（`project|member|todo|message`）、`object_id`（仅项目/待办/留言可有，成员目标 ID 不公开）、`message_body`（仅留言可有）、`created_at`。不返回原始载荷或其他动态字段。对成员目标只返回通用动作文案和操作者；当前成员列表仍由既有独立 API 展示。
+“与我相关”SQL 必须先按 `event_type` 选择已知字段，再按 scope 过滤、最后游标分页。比较用统一字符串参数 `str(current_user.id)`：成员事件用 `project_events.object_id = ?`（两库该列均为 TEXT）；SQLite 的待办字段须同时满足 `json_type(payload_json, '$.字段名') = 'integer'` 和 `CAST(json_extract(payload_json, '$.字段名') AS TEXT) = ?`；PostgreSQL 须同时满足 `jsonb_typeof(payload_json::jsonb -> '字段名') = 'number'` 和 `(payload_json::jsonb ->> '字段名') = ?`，避免 PostgreSQL 的 TEXT=INTEGER 错误或把 JSON 字符串误当用户 ID；缺失字段或 JSON null 不匹配。字段对应关系：`project.todo_created` 只用 `assignee_user_id`；`project.todo_updated` 用 `from_assignee_user_id` 与 `to_assignee_user_id`；`project.todo_deleted` 只用 `from_assignee_user_id`。当前事件写入器均生成有效 JSON，若已有白名单待办事件的 JSON 损坏，相关列表应报服务端错误并记日志，不得把该行当作匹配或泄露其原始载荷。操作者自身的安全事件可通过 `actor_user_id = current_user.id` 命中；留言只由本人操作时进入相关列表。结果映射再次做类型白名单，防未来新增事件误映射。
+
+具体游标为 `base64url("<created_at>:<id>")`，不带填充，解析后两个值都须是正整数，游标最长 64 字符；编码不用于保密，客户端只当不透明字符串原样回传。每条 `items` 的固定字段为 `event_id`（整数）、`event_type`、`actor_user_id`（可空）、`actor_name`（可空）、`object_kind`（`project|member|todo|message`）、`object_id`（仅项目/待办/留言可有，成员目标 ID 不公开）、`message_body`（仅留言可有）、`created_at`。留言正文只从 `project_messages` 按 `message_id = project_events.object_id` 关联取得，不写进 `payload_json`。不返回原始载荷或其他动态字段。对成员目标只返回通用动作文案和操作者；当前成员列表仍由既有独立 API 展示。
 
 ## UI 与验收
 

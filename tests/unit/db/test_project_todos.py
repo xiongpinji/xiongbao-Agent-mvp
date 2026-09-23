@@ -211,7 +211,9 @@ def test_migration_020_is_idempotent(db: SqlitePool) -> None:
     with db.connect() as conn:
         conn.executescript(sql)
         v = conn.execute("SELECT version FROM _schema_version").fetchone()[0]
-    assert v == _max_discovered_version("sqlite")
+    # Re-running an older migration script writes its own watermark, even when
+    # newer migrations are installed in the fixture database.
+    assert v == 20
 
 
 def test_migration_020_pg_pair_declares_same_shape() -> None:
