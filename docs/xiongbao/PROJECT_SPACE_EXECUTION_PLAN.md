@@ -10,7 +10,7 @@
 # Constraints and guardrails
 
 - 项目成员资格不授予任何私密任务正文或本地文件权限。所有服务端入口做成员/资源授权，包括搜索、下载、深链、事件与 WebSocket。首片 API 和角色见规格文档。
-- 共享接线文件 `api/app.py`、`infra/db/services.py`、`dashboard/src/routes/index.tsx`、`dashboard/src/layouts/sidebarNav.tsx` 分属各片明示的唯一所有者；主仓库只由 Codex 整合。已推送项目基座迁移 018；成员片使用 019，计划待办预留 020，任务工作目录原 019 提案改为 021，后续迁移按实际集成顺序顺延，避免已有用户升级时跳过较低版本。
+- 共享接线文件 `api/app.py`、`infra/db/services.py`、`dashboard/src/routes/index.tsx`、`dashboard/src/layouts/sidebarNav.tsx` 分属各片明示的唯一所有者；主仓库只由 Codex 整合。已推送项目基座 018、成员 019、计划 020；021 已分配给[私密项目任务关联](PROJECT_TASK_ACL_CONTRACT.md)。任务工作目录须另定后续迁移版本，不覆盖 021，避免已有用户升级时跳过或重用版本。
 - 先写行为测试再实现，SQLite/PostgreSQL 都验证；不能将 UI 展示、源码存在、单测、实机旅程或 1:1 验收混为一谈。外部登录/邮件/云任务等没有真实授权的环节以可控本地样例验证，保留真实验收缺口。
 
 # Checklist
