@@ -259,3 +259,21 @@ describe("ChatInput prefill clear-on-send", () => {
     expect(onQueue).not.toHaveBeenCalled();
   });
 });
+
+describe("ChatInput placeholder branding", () => {
+  it("does not fall back to the legacy Octop placeholder copy", () => {
+    render(
+      <ChatInput
+        onSend={vi.fn()}
+        onCancel={vi.fn()}
+        onNewChat={vi.fn()}
+        isStreaming={false}
+        agentId="agent-1"
+        threadId="thread-1"
+      />,
+    );
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    expect(textarea).toHaveAttribute("placeholder", "和 AI 小助手说点什么吧～");
+    expect(textarea.getAttribute("placeholder")).not.toMatch(/Octop/);
+  });
+});
