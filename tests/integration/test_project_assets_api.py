@@ -77,6 +77,7 @@ async def _upload(
     data: bytes = b"hello",
     parent_id: str | None = None,
     pid: str | None = None,
+    headers: dict[str, str] | None = None,
 ) -> Any:
     files = {"file": (name, io.BytesIO(data), "application/octet-stream")}
     form: dict[str, str] = {}
@@ -84,7 +85,7 @@ async def _upload(
         form["parent_id"] = parent_id
     return await ctx["client"].post(
         f"/api/projects/{pid or ctx['pid']}/assets/upload",
-        headers=auth,
+        headers={**auth, **(headers or {})},
         files=files,
         data=form,
     )
@@ -521,6 +522,9 @@ async def test_invalid_names_and_params_422(env_with_provider: Any) -> None:
     assert r.status_code == 422, r.text
     r = await _list(ctx, auth, q="x" * 121)
     assert r.status_code == 422, r.text
+    r = await _list(ctx, auth, q="İ" * 120)
+    assert r.status_code == 422, r.text
+    assert r.json()["error"]["code"] == "PROJECT_ASSET_INVALID"
 
     # Nothing half-baked survives the rejected calls: exactly the one upload.
     assert _asset_rows(ctx["srv"], ctx["pid"]) == (2, 1)  # root + 报告.txt
@@ -545,6 +549,23 @@ async def test_oversize_upload_413_leaves_nothing(env_with_provider: Any, monkey
     r = await _upload(ctx, ctx["owner_auth"], name="edge.bin", data=b"z" * 64)
     assert r.status_code == 201, r.text
     assert r.json()["size_bytes"] == 64
+
+
+async def test_content_length_precheck_rejects_large_declared_body(
+    env_with_provider: Any, monkeypatch: Any
+) -> None:
+    ctx = await _base(env_with_provider)
+    monkeypatch.setattr("octop.api.routers.project_assets._max_upload_bytes", lambda _server: 1)
+    r = await _upload(
+        ctx,
+        ctx["owner_auth"],
+        name="declared.bin",
+        data=b"x",
+        headers={"Content-Length": str(1 + 64 * 1024 + 1)},
+    )
+    assert r.status_code == 413, r.text
+    assert r.json()["error"]["code"] == "PROJECT_ASSET_TOO_LARGE"
+    assert _asset_rows(ctx["srv"], ctx["pid"]) == (0, 0)
 
 
 # ---------------------------------------------------------------------------

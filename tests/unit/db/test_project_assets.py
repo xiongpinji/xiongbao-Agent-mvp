@@ -22,7 +22,9 @@ import sqlite3
 import stat
 import time
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier
 from typing import Any, BinaryIO, cast
 
 import pytest
@@ -1141,7 +1143,7 @@ def test_open_regular_file_no_follow_rejects_symlink_swap(
     def swap_then_open(
         candidate: str | os.PathLike[str], flags: int, *args: Any, **kwargs: Any
     ) -> int:
-        if os.fspath(candidate) == os.fspath(path):
+        if os.fspath(candidate) in (os.fspath(path), path.name):
             path.unlink()
             path.symlink_to(secret)
         return original_open(candidate, flags, *args, **kwargs)
@@ -1149,6 +1151,25 @@ def test_open_regular_file_no_follow_rejects_symlink_swap(
     monkeypatch.setattr(os, "open", swap_then_open)
     with pytest.raises(AssetStorageError):
         open_regular_file_no_follow(path)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX intermediate symlink race")
+def test_open_regular_file_no_follow_rejects_intermediate_directory_swap(
+    tmp_path: Path,
+) -> None:
+    storage = ProjectAssetStorage(tmp_path / "assets")
+    project_id, version_id = new_ulid(), new_ulid()
+    temp, _ = storage.write_temp(version_id, io.BytesIO(b"safe"), max_bytes=4)
+    final = storage.publish(temp, project_id, version_id)
+    checked = storage.open_download(make_object_key(project_id, version_id))
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / version_id).write_bytes(b"secret")
+    final.parent.rename(tmp_path / "moved-project")
+    final.parent.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(AssetStorageError), open_regular_file_no_follow(checked) as stream:
+        stream.read()
 
 
 @pytest.mark.skipif(os.name != "posix", reason="symlink creation is POSIX-only here")
@@ -1558,6 +1579,47 @@ def test_upload_w4_committed_retry_is_conflict(
     assert view.path.read_bytes() == b"first"  # the winner is untouched
 
 
+def test_concurrent_same_name_uploads_keep_one_committed_object(
+    service: ProjectAssetService,
+    storage: ProjectAssetStorage,
+    db: SqlitePool,
+    pid: str,
+    member_id: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    barrier = Barrier(2, timeout=15)
+    original_write = storage.write_temp
+
+    def synchronized_write(version_id: str, stream: BinaryIO, *, max_bytes: int) -> Any:
+        result = original_write(version_id, stream, max_bytes=max_bytes)
+        barrier.wait()
+        return result
+
+    monkeypatch.setattr(storage, "write_temp", synchronized_write)
+
+    def attempt(data: bytes) -> Any:
+        try:
+            return _upload(service, pid, member_id, name="same.txt", data=data)
+        except OctopError as exc:
+            return exc
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = [
+            executor.submit(attempt, b"first"),
+            executor.submit(attempt, b"second"),
+        ]
+        results = [future.result(timeout=30) for future in outcomes]
+
+    winners = [item for item in results if not isinstance(item, OctopError)]
+    losers = [item for item in results if isinstance(item, OctopError)]
+    assert len(winners) == 1
+    assert len(losers) == 1 and losers[0].code == ErrorCode.PROJECT_ASSET_NAME_CONFLICT
+    assert len(_version_rows(db, pid)) == 1
+    assert len(_files_under(storage.root)) == 1
+    view = service.prepare_download(pid, user_id=member_id, node_id=winners[0].node.node_id)
+    assert view.path.read_bytes() in (b"first", b"second")
+
+
 def test_service_zero_byte_upload(service: ProjectAssetService, pid: str, member_id: int) -> None:
     uploaded = _upload(service, pid, member_id, name="empty.bin", data=b"")
     assert uploaded.version.size_bytes == 0
@@ -1743,3 +1805,20 @@ def test_service_search_normalizes_nfd_on_both_sides(
     assert asset_name_key(uploaded.node.name) == unicodedata.normalize(
         "NFC", asset_name_key("café-menu.pdf")
     )
+
+
+def test_service_search_normalizes_casefold_expansion(
+    service: ProjectAssetService, pid: str, member_id: int
+) -> None:
+    uploaded = _upload(service, pid, member_id, name="ǰ.txt", data=b"j")
+    page = service.list_assets(pid, user_id=member_id, q="ǰ")
+    assert [item.node_id for item in page.items] == [uploaded.node.node_id]
+
+
+def test_service_search_casefold_expansion_too_long_is_422(
+    service: ProjectAssetService, pid: str, member_id: int
+) -> None:
+    with pytest.raises(OctopError) as excinfo:
+        service.list_assets(pid, user_id=member_id, q="İ" * 120)
+    assert excinfo.value.code == ErrorCode.PROJECT_ASSET_INVALID
+    assert excinfo.value.status == 422

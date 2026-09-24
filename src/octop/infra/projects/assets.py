@@ -260,7 +260,12 @@ class ProjectAssetService:
                 return
             try:
                 known = self._repo.all_object_keys()
-                storage.reclaim_orphans(known)
+                report = storage.reclaim_orphans(known)
+                logger.info(
+                    "project asset reclaim complete: temps_removed=%d finals_removed=%d",
+                    report.temps_removed,
+                    report.finals_removed,
+                )
             except Exception:
                 # A broken cleaner must never take the asset API down; the
                 # next process start retries.
@@ -314,9 +319,9 @@ class ProjectAssetService:
             raise ValueError("offset must be >= 0")
         name_like: str | None = None
         if q is not None:
-            needle = unicodedata.normalize("NFC", q).strip().casefold()
+            needle = asset_name_key(unicodedata.normalize("NFC", q).strip())
             if len(needle) > ASSET_NAME_MAX_LENGTH:
-                raise ValueError("search query too long")
+                raise self._invalid("search query too long")
             if needle:
                 name_like = f"%{_escape_like(needle)}%"
         self._require_membership(project_id, user_id)

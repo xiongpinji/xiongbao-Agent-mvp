@@ -112,7 +112,7 @@ def _ensure_private_dir(directory: Path) -> None:
         if (
             not stat.S_ISDIR(directory.lstat().st_mode)
             or directory.is_symlink()
-            or directory.is_junction()
+            or getattr(directory, "is_junction", lambda: False)()
         ):
             raise AssetStorageError("asset directory is not a plain directory")
         return
@@ -130,21 +130,44 @@ def _ensure_private_dir(directory: Path) -> None:
         os.close(fd)
 
 
+def _open_posix_object_no_follow(path: Path, flags: int) -> int:
+    """Walk root/project/object with no-follow descriptors, never a re-opened path."""
+    directory_flag = getattr(os, "O_DIRECTORY", 0)
+    no_follow_flag = getattr(os, "O_NOFOLLOW", 0)
+    if not directory_flag or not no_follow_flag:
+        raise AssetStorageError("no-follow open unavailable")
+    directory_flags = os.O_RDONLY | directory_flag | no_follow_flag
+    root_fd = os.open(path.parent.parent, directory_flags)
+    try:
+        project_fd = os.open(path.parent.name, directory_flags, dir_fd=root_fd)
+        try:
+            return os.open(path.name, flags, dir_fd=project_fd)
+        finally:
+            os.close(project_fd)
+    finally:
+        os.close(root_fd)
+
+
 def open_regular_file_no_follow(path: Path) -> BinaryIO:
     """Open the validated download target without following a swapped link.
 
-    The inode check also rejects a regular-file replacement between ``lstat``
-    and ``open``. On POSIX ``O_NOFOLLOW`` closes the final-component symlink
-    race; callers must first authorize and contain the path under the private
-    asset root. The returned descriptor owns the bytes until the response
-    finishes, so a later pathname replacement cannot change the stream.
+    The inode check rejects a regular-file replacement between ``lstat`` and
+    ``open``. POSIX opens the root, project directory, and object using
+    ``O_NOFOLLOW`` and directory descriptors, closing both final and
+    intermediate-component symlink races. Callers must first authorize and
+    contain the path under the private asset root. The returned descriptor
+    owns the bytes until the response finishes.
     """
     try:
         before = os.lstat(path)
         if not stat.S_ISREG(before.st_mode):
             raise AssetStorageError("object is not a regular file")
         flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
-        fd = os.open(path, flags)
+        fd = (
+            _open_posix_object_no_follow(path, flags)
+            if os.name == "posix"
+            else os.open(path, flags)
+        )
     except OSError as exc:
         raise AssetStorageError("object unavailable") from exc
     try:
@@ -338,6 +361,10 @@ class ProjectAssetStorage:
                 try:
                     os.unlink(entry.path)
                     removed += 1
+                    logger.info(
+                        "project asset temp reclaimed: version_id=%s result=removed",
+                        name[: -len(_TMP_SUFFIX)],
+                    )
                 except OSError:
                     pass
         return removed
@@ -365,6 +392,11 @@ class ProjectAssetStorage:
                 try:
                     os.unlink(entry.path)
                     removed += 1
+                    logger.info(
+                        "project asset object reclaimed: project_id=%s version_id=%s result=removed",
+                        project_id,
+                        name,
+                    )
                 except OSError:
                     pass
         return removed
