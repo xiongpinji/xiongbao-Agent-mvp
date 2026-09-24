@@ -18,6 +18,7 @@ from octop.i18n import error_message
 from octop.infra.db.migrate import _max_discovered_version, _split_pg_sql, run_migrations
 from octop.infra.db.pool import SqlitePool
 from octop.infra.db.repos._base import UNSET, now_ts
+from octop.infra.db.repos.project_task_shares import ProjectTaskShareRepo
 from octop.infra.db.repos.project_tasks import ProjectTaskRepo
 from octop.infra.db.repos.projects import ProjectRepo
 from octop.infra.db.repos.threads import ThreadRepo
@@ -84,17 +85,24 @@ def pid(projects: ProjectRepo, owner_id: int, member_id: int, other_member_id: i
 
 
 class _StubServices:
-    def __init__(self, projects: ProjectRepo, tasks: ProjectTaskRepo, threads: ThreadRepo) -> None:
+    def __init__(
+        self,
+        projects: ProjectRepo,
+        tasks: ProjectTaskRepo,
+        shares: ProjectTaskShareRepo,
+        threads: ThreadRepo,
+    ) -> None:
         self.project_repo = projects
         self.project_task_repo = tasks
+        self.project_task_share_repo = shares
         self.thread_repo = threads
 
 
 @pytest.fixture
 def service(
-    projects: ProjectRepo, repo: ProjectTaskRepo, threads: ThreadRepo
+    projects: ProjectRepo, repo: ProjectTaskRepo, db: SqlitePool, threads: ThreadRepo
 ) -> ProjectTaskService:
-    return ProjectTaskService(_StubServices(projects, repo, threads))
+    return ProjectTaskService(_StubServices(projects, repo, ProjectTaskShareRepo(db), threads))
 
 
 def _seed_agent(db: SqlitePool, *, agent_id: str, user_id: int) -> None:

@@ -182,7 +182,7 @@ export default function ProjectDetail() {
         <Text type="secondary" style={{ fontSize: 12 }}>
           {t(
             "projects.taskComposer.hint",
-            "本片只登记已有任务归属；项目内创建/发送、共享、本地/云端与移交需后续后端权限。",
+            "项目内创建/发送、协同写入、本地/云端与移交需后续后端权限；任务卡片摘要可在“任务”页显式分享给指定成员。",
           )}
         </Text>
         <Button type="primary" disabled>
@@ -214,7 +214,7 @@ export default function ProjectDetail() {
       label: t("projects.tabs.tasks", "任务"),
       children: (
         <>
-          <ProjectTasks projectId={project.project_id} />
+          <ProjectTasks projectId={project.project_id} members={members} />
           {taskComposer}
         </>
       ),

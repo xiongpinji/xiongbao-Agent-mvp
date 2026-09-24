@@ -18,6 +18,7 @@ from octop.infra.db.repos.knowledge import KnowledgeRepo
 from octop.infra.db.repos.proactive_care_config import ProactiveCareConfigRepo
 from octop.infra.db.repos.project_activity import ProjectActivityRepo
 from octop.infra.db.repos.project_assets import ProjectAssetRepo
+from octop.infra.db.repos.project_task_shares import ProjectTaskShareRepo
 from octop.infra.db.repos.project_tasks import ProjectTaskRepo
 from octop.infra.db.repos.project_todos import ProjectTodoRepo
 from octop.infra.db.repos.projects import ProjectRepo
@@ -69,6 +70,7 @@ class RepoBundle:
     project_repo: ProjectRepo
     project_todo_repo: ProjectTodoRepo
     project_task_repo: ProjectTaskRepo
+    project_task_share_repo: ProjectTaskShareRepo
     project_activity_repo: ProjectActivityRepo
     project_asset_repo: ProjectAssetRepo
 
@@ -103,6 +105,7 @@ class RepoBundle:
             project_repo=ProjectRepo(db),
             project_todo_repo=ProjectTodoRepo(db),
             project_task_repo=ProjectTaskRepo(db),
+            project_task_share_repo=ProjectTaskShareRepo(db),
             project_activity_repo=ProjectActivityRepo(db),
             project_asset_repo=ProjectAssetRepo(db),
         )
@@ -225,6 +228,10 @@ class SharedServices:
     @property
     def project_task_repo(self) -> ProjectTaskRepo:
         return self.repos.project_task_repo
+
+    @property
+    def project_task_share_repo(self) -> ProjectTaskShareRepo:
+        return self.repos.project_task_share_repo
 
     @property
     def project_activity_repo(self) -> ProjectActivityRepo:

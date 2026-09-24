@@ -1,18 +1,21 @@
 /**
- * ProjectTasks — PS-05 first slice (项目任务 → 个人任务).
+ * ProjectTasks — PS-05 first slice + PS-05B-1 task-card sharing.
  *
- * Only the honest first slice of the 021 ACL contract is active:
- * - the caller's own linked Dashboard conversations are loaded and searched
- *   server-side (`GET /projects/{id}/tasks`) with offset paging;
- * - attaching uses a bounded list of the caller's recent Dashboard DM threads
- *   per enabled expert (`octopThreadsApi.list`, not a full history search) —
- *   the backend still enforces ownership and the exact Dashboard DM session;
- * - detaching only removes the project link; the conversation stays intact;
- * - 全部/协同任务, sharing, local/cloud execution and transfer stay visibly
- *   disabled until their backend ACL exists (PS-05B / PS-05C / PS-08).
+ * Honest card-level sharing of the 024 contract:
+ * - scope tabs map 1:1 to the server-filtered query (`own` / `shared` /
+ *   `all`); "all" is only the caller's own tasks plus cards explicitly
+ *   shared with them, never every project task and never a client filter;
+ * - owners keep the existing `/chat/{agent}/{thread}` deep link, can detach
+ *   and can grant/revoke reader access per task to individual members;
+ * - reader cards (`access === "reader"`) open a project-local read-only
+ *   summary (re-checked on the server) and never expose a `/chat`, history,
+ *   artifact, media, workspace or execution link;
+ * - local/cloud execution, transfer and collaborative writing stay visibly
+ *   disabled until their backend ACL exists (PS-05B-2/3, PS-05C, PS-08).
  *
- * The actor never comes from this component: no user id, role or source is
- * sent, and no `session_key`, artifact or workspace path is rendered.
+ * The actor never comes from this component: no user id is sent except the
+ * explicit share recipient, no role or source is sent at all, and no
+ * `session_key`, artifact or workspace path is rendered.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -46,10 +49,13 @@ import {
   octopThreadsApi,
   type OctopThread,
 } from "../../api/modules/octopThreads";
+import type { ProjectMember } from "../../api/modules/projects";
 import {
   PROJECT_TASKS_PAGE_SIZE,
   projectTasksApi,
   type ProjectTask,
+  type ProjectTaskScope,
+  type ProjectTaskShare,
 } from "../../api/modules/projectTasks";
 import { useServerTimezone } from "../../hooks/useServerTimezone";
 import { formatServerDateTime } from "../../utils/formatMessageTime";
@@ -59,6 +65,7 @@ import {
   parseApiError,
 } from "../../utils/apiError";
 import { message } from "../../utils/antdMessage";
+import { projectRoleTag } from "./index";
 
 const { Text } = Typography;
 
@@ -95,15 +102,21 @@ function mergeUniqueTasks(
 
 interface Props {
   projectId: string;
+  /**
+   * Roster already loaded by `ProjectDetail` (never re-fetched here).
+   * `null` means the roster request failed: granting stays disabled with an
+   * honest informational state, while revoking existing grants still works.
+   */
+  members: ProjectMember[] | null;
 }
 
-export default function ProjectTasks({ projectId }: Props) {
+export default function ProjectTasks({ projectId, members }: Props) {
   const { t } = useTranslation();
   const timezone = useServerTimezone();
   const { agents, activeAgentId } = useAgent();
 
   const [tasks, setTasks] = useState<ProjectTask[]>([]);
-  const [tasksProjectId, setTasksProjectId] = useState<string | null>(null);
+  const [tasksKey, setTasksKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
@@ -113,6 +126,11 @@ export default function ProjectTasks({ projectId }: Props) {
   const [search, setSearch] = useState<{ projectId: string; q: string }>(
     () => ({ projectId, q: "" }),
   );
+  /** Scope is keyed by project too: a switch always falls back to `own`. */
+  const [scopeState, setScopeState] = useState<{
+    projectId: string;
+    scope: ProjectTaskScope;
+  }>(() => ({ projectId, scope: "own" }));
   const [reloadKey, setReloadKey] = useState(0);
   const [actionError, setActionError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
@@ -123,14 +141,30 @@ export default function ProjectTasks({ projectId }: Props) {
   const [candidatesLoading, setCandidatesLoading] = useState(false);
   const [candidatesError, setCandidatesError] = useState<unknown>(null);
   const [candidateReloadKey, setCandidateReloadKey] = useState(0);
+  const [readerTarget, setReaderTarget] = useState<ProjectTask | null>(null);
+  const [readerDetail, setReaderDetail] = useState<ProjectTask | null>(null);
+  const [readerLoading, setReaderLoading] = useState(false);
+  const [readerError, setReaderError] = useState<unknown>(null);
+  const [shareTarget, setShareTarget] = useState<ProjectTask | null>(null);
+  const [shares, setShares] = useState<ProjectTaskShare[] | null>(null);
+  const [sharesLoading, setSharesLoading] = useState(false);
+  const [sharesError, setSharesError] = useState<unknown>(null);
+  const [sharesReloadKey, setSharesReloadKey] = useState(0);
+  const [shareBusyUserId, setShareBusyUserId] = useState<number | null>(null);
+  const [shareActionError, setShareActionError] = useState<string | null>(null);
   /** Monotonic guards so late responses never overwrite fresher results. */
   const fetchSeq = useRef(0);
   const candidateSeq = useRef(0);
+  const readerSeq = useRef(0);
+  const sharesSeq = useRef(0);
   const currentProjectId = useRef(projectId);
   currentProjectId.current = projectId;
 
   const query = search.projectId === projectId ? search.q : "";
-  const loaded = tasksProjectId === projectId;
+  const scope = scopeState.projectId === projectId ? scopeState.scope : "own";
+  const listKey = `${projectId}\u0000${scope}\u0000${query}`;
+  /** Rows are only rendered when they belong to the current project + scope. */
+  const loaded = tasksKey === listKey;
 
   const runningAgents = useMemo(
     () => selectEnabledExperts(agents, activeAgentId),
@@ -150,6 +184,16 @@ export default function ProjectTasks({ projectId }: Props) {
       ),
     [agents],
   );
+  const memberNames = useMemo(
+    () =>
+      new Map(
+        (members ?? []).map((member): [number, string] => [
+          member.user_id,
+          member.username,
+        ]),
+      ),
+    [members],
+  );
 
   const reload = useCallback(() => setReloadKey((key) => key + 1), []);
   const reloadCandidates = useCallback(
@@ -164,17 +208,36 @@ export default function ProjectTasks({ projectId }: Props) {
     setCandidatesError(null);
     setCandidatesLoading(false);
   }, []);
+  const closeReader = useCallback(() => {
+    readerSeq.current += 1;
+    setReaderTarget(null);
+    setReaderDetail(null);
+    setReaderError(null);
+    setReaderLoading(false);
+  }, []);
+  const closeShare = useCallback(() => {
+    sharesSeq.current += 1;
+    setShareTarget(null);
+    setShares(null);
+    setSharesError(null);
+    setSharesLoading(false);
+    setShareBusyUserId(null);
+    setShareActionError(null);
+  }, []);
 
-  // A project switch must never show the previous project's private rows or
-  // carry over its alerts / selected candidate.
+  // A project or scope switch must never show the previous view's private
+  // rows, alerts or open dialogs.
   useEffect(() => {
     setConflict(false);
     setActionError(null);
     closePicker();
-  }, [projectId, closePicker]);
+    closeReader();
+    closeShare();
+  }, [projectId, scope, closePicker, closeReader, closeShare]);
 
   const load = useCallback(
     async (offset: number, append: boolean) => {
+      const key = `${projectId}\u0000${scope}\u0000${query}`;
       const seq = ++fetchSeq.current;
       if (append) {
         setLoadingMore(true);
@@ -183,6 +246,7 @@ export default function ProjectTasks({ projectId }: Props) {
       }
       try {
         const data = await projectTasksApi.list(projectId, {
+          scope,
           q: query,
           limit: PROJECT_TASKS_PAGE_SIZE,
           offset,
@@ -194,18 +258,18 @@ export default function ProjectTasks({ projectId }: Props) {
         setHasMore(data.has_more);
         setNextOffset(offset + data.items.length);
         setListError(null);
-        setTasksProjectId(projectId);
+        setTasksKey(key);
       } catch (err: unknown) {
         if (seq !== fetchSeq.current) return;
         // A failed first page cannot reuse rows from the prior project or
-        // search. Keep already confirmed rows only for a later-page failure.
+        // scope. Keep already confirmed rows only for a later-page failure.
         if (!append || isNotFoundApiError(err)) {
           setTasks([]);
           setHasMore(false);
           setNextOffset(0);
         }
         setListError(err);
-        setTasksProjectId(projectId);
+        setTasksKey(key);
       } finally {
         if (seq === fetchSeq.current) {
           setLoading(false);
@@ -213,7 +277,7 @@ export default function ProjectTasks({ projectId }: Props) {
         }
       }
     },
-    [projectId, query],
+    [projectId, scope, query],
   );
 
   useEffect(() => {
@@ -240,6 +304,30 @@ export default function ProjectTasks({ projectId }: Props) {
         if (seq === candidateSeq.current) setCandidatesLoading(false);
       });
   }, [pickerOpen, pickerAgentId, candidateReloadKey]);
+
+  useEffect(() => {
+    if (shareTarget == null) return;
+    if (shareTarget.project_id !== projectId) return;
+    const seq = ++sharesSeq.current;
+    setSharesLoading(true);
+    projectTasksApi
+      .shares(projectId, shareTarget.thread_id)
+      .then((data) => {
+        if (seq !== sharesSeq.current) return;
+        if (projectId !== currentProjectId.current) return;
+        setShares(data.items);
+        setSharesError(null);
+      })
+      .catch((err: unknown) => {
+        if (seq !== sharesSeq.current) return;
+        if (projectId !== currentProjectId.current) return;
+        setShares([]);
+        setSharesError(err);
+      })
+      .finally(() => {
+        if (seq === sharesSeq.current) setSharesLoading(false);
+      });
+  }, [projectId, shareTarget, sharesReloadKey]);
 
   const linkTask = async (thread: OctopThread) => {
     setBusyThreadIds((previous) => [...previous, thread.thread_id]);
@@ -317,6 +405,150 @@ export default function ProjectTasks({ projectId }: Props) {
     }
   };
 
+  const openReader = (task: ProjectTask) => {
+    const seq = ++readerSeq.current;
+    setReaderTarget(task);
+    setReaderDetail(null);
+    setReaderError(null);
+    setReaderLoading(true);
+    projectTasksApi
+      .get(projectId, task.thread_id)
+      .then((detail) => {
+        if (seq !== readerSeq.current) return;
+        if (projectId !== currentProjectId.current) return;
+        setReaderDetail(detail);
+        setReaderError(null);
+      })
+      .catch((err: unknown) => {
+        if (seq !== readerSeq.current) return;
+        if (projectId !== currentProjectId.current) return;
+        if (isNotFoundApiError(err)) {
+          // Access revoked or card removed server-side: drop the stale card
+          // and refresh the authoritative list instead of showing old data.
+          readerSeq.current += 1;
+          setReaderTarget(null);
+          setReaderDetail(null);
+          setReaderLoading(false);
+          setTasks((previous) =>
+            previous.filter((item) => item.thread_id !== task.thread_id),
+          );
+          setActionError(
+            t(
+              "projects.tasks.readerRevoked",
+              "该任务已不再分享给你，卡片已从列表移除。",
+            ),
+          );
+          reload();
+        } else {
+          setReaderError(err);
+        }
+      })
+      .finally(() => {
+        if (seq === readerSeq.current) setReaderLoading(false);
+      });
+  };
+
+  const openShare = (task: ProjectTask) => {
+    setShareTarget(task);
+    setShares(null);
+    setSharesError(null);
+    setShareActionError(null);
+    setShareBusyUserId(null);
+    setSharesReloadKey((key) => key + 1);
+  };
+
+  const reloadShares = () => setSharesReloadKey((key) => key + 1);
+
+  const grantShare = async (member: ProjectMember) => {
+    if (shareTarget == null) return;
+    const threadId = shareTarget.thread_id;
+    setShareBusyUserId(member.user_id);
+    setShareActionError(null);
+    try {
+      await projectTasksApi.share(projectId, threadId, member.user_id);
+      if (projectId !== currentProjectId.current) return;
+      if (shareTarget.thread_id !== threadId) return;
+      void message.success(
+        t(
+          "projects.tasks.shareGrantSuccess",
+          "已分享给 {{name}}；正文和附件仍私密。",
+          { name: member.username },
+        ),
+      );
+      reloadShares();
+    } catch (err: unknown) {
+      if (projectId !== currentProjectId.current) return;
+      if (shareTarget.thread_id !== threadId) return;
+      if (isNotFoundApiError(err)) {
+        closeShare();
+        setTasks((previous) =>
+          previous.filter((item) => item.thread_id !== threadId),
+        );
+        setActionError(
+          t(
+            "projects.tasks.shareTargetGone",
+            "任务或成员状态已变化，分享失败；列表已刷新。",
+          ),
+        );
+        reload();
+      } else {
+        setShareActionError(
+          apiErrorMessage(
+            err,
+            t("projects.tasks.shareGrantFailed", "分享失败"),
+            t,
+          ),
+        );
+      }
+    } finally {
+      setShareBusyUserId(null);
+    }
+  };
+
+  const revokeShare = async (userId: number, username: string) => {
+    if (shareTarget == null) return;
+    const threadId = shareTarget.thread_id;
+    setShareBusyUserId(userId);
+    setShareActionError(null);
+    try {
+      await projectTasksApi.revoke(projectId, threadId, userId);
+      if (projectId !== currentProjectId.current) return;
+      if (shareTarget.thread_id !== threadId) return;
+      void message.success(
+        t("projects.tasks.shareRevokeSuccess", "已撤回 {{name}} 的分享。", {
+          name: username,
+        }),
+      );
+      reloadShares();
+    } catch (err: unknown) {
+      if (projectId !== currentProjectId.current) return;
+      if (shareTarget.thread_id !== threadId) return;
+      if (isNotFoundApiError(err)) {
+        closeShare();
+        setTasks((previous) =>
+          previous.filter((item) => item.thread_id !== threadId),
+        );
+        setActionError(
+          t(
+            "projects.tasks.shareTargetGone",
+            "任务或成员状态已变化，分享失败；列表已刷新。",
+          ),
+        );
+        reload();
+      } else {
+        setShareActionError(
+          apiErrorMessage(
+            err,
+            t("projects.tasks.shareRevokeFailed", "撤回分享失败"),
+            t,
+          ),
+        );
+      }
+    } finally {
+      setShareBusyUserId(null);
+    }
+  };
+
   const openPicker = () => {
     setActionError(null);
     setPickerOpen(true);
@@ -330,6 +562,15 @@ export default function ProjectTasks({ projectId }: Props) {
   const secondaryStyle: React.CSSProperties = {
     fontSize: 12,
     color: "var(--fn-text-tertiary, rgba(0,0,0,0.45))",
+  };
+
+  const rowStyle: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    padding: "8px 0",
+    borderBottom: "1px solid var(--fn-border-color-split, rgba(0,0,0,0.06))",
   };
 
   const disableReason = (
@@ -351,11 +592,101 @@ export default function ProjectTasks({ projectId }: Props) {
     </Tooltip>
   );
 
+  const scopeHint =
+    scope === "own"
+      ? t(
+          "projects.tasks.privacyHintOwn",
+          "项目任务默认私密：你只会看到自己关联的任务；正文与附件不会被共享。",
+        )
+      : scope === "all"
+      ? t(
+          "projects.tasks.privacyHintAll",
+          "“全部任务”只包含你关联的任务和被分享给你的卡片，不代表项目内所有成员的任务可见。",
+        )
+      : t(
+          "projects.tasks.privacyHintShared",
+          "只读视图：这些卡片由任务所有者分享，正文、附件与运行流仍只对所有者可见。",
+        );
+
   const renderTask = (task: ProjectTask) => {
     const title =
       task.title?.trim() || t("projects.tasks.untitled", "未命名任务");
     const agentName = agentNames.get(task.agent_id) ?? task.agent_id;
     const busy = busyThreadIds.includes(task.thread_id);
+    const isReader = task.access === "reader";
+    if (isReader) {
+      const ownerName =
+        memberNames.get(task.owner_user_id) ??
+        t("projects.tasks.shareUnknownMember", "用户 #{{id}}", {
+          id: task.owner_user_id,
+        });
+      return (
+        <div
+          key={task.thread_id}
+          data-testid={`project-task-${task.thread_id}`}
+          style={{
+            background: "var(--fn-bg-elevated, #fff)",
+            border: "1px solid var(--fn-border-color-split, rgba(0,0,0,0.06))",
+            borderRadius: 8,
+            padding: 10,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              justifyContent: "space-between",
+              gap: 8,
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => openReader(task)}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                textAlign: "left",
+                background: "none",
+                border: "none",
+                padding: 0,
+                cursor: "pointer",
+                color: "var(--fn-color-primary, #1677ff)",
+                fontWeight: 600,
+                fontSize: 14,
+                wordBreak: "break-word",
+              }}
+            >
+              {title}
+            </button>
+            <Tag color="blue" style={{ marginInlineEnd: 0 }}>
+              {t("projects.tasks.readerTag", "分享给我的 · 只读")}
+            </Tag>
+          </div>
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              flexWrap: "wrap",
+              alignItems: "center",
+              marginTop: 6,
+            }}
+          >
+            <Tag style={{ marginInlineEnd: 0 }}>{agentName}</Tag>
+            <span style={secondaryStyle}>
+              {t("projects.tasks.readerOwnerLabel", "任务所有者")}：{ownerName}
+            </span>
+            <span style={secondaryStyle}>
+              {t("projects.tasks.activeAt", "最近活动于 {{time}}", {
+                time: formatServerDateTime(
+                  task.last_active > 0 ? task.last_active : task.created_at,
+                  timezone,
+                ),
+              })}
+            </span>
+          </div>
+        </div>
+      );
+    }
     return (
       <div
         key={task.thread_id}
@@ -379,37 +710,65 @@ export default function ProjectTasks({ projectId }: Props) {
             to={`/chat/${encodeURIComponent(
               task.agent_id,
             )}/${encodeURIComponent(task.thread_id)}`}
-            style={{ fontWeight: 600, fontSize: 14, wordBreak: "break-word" }}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              fontWeight: 600,
+              fontSize: 14,
+              wordBreak: "break-word",
+            }}
           >
             {title}
           </Link>
-          <Popconfirm
-            title={t(
-              "projects.tasks.detachConfirm",
-              "从项目移除这条任务？原对话与历史会保留。",
-            )}
-            okText={t("projects.tasks.detachOk", "确认移除")}
-            cancelText={t("common.cancel", "取消")}
-            okButtonProps={{ danger: true, disabled: busy }}
-            onConfirm={() => void unlinkTask(task)}
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              flexShrink: 0,
+            }}
           >
             <Button
               size="small"
               type="text"
-              danger
-              icon={<Link2Off size={14} />}
-              disabled={busy}
+              icon={<Share2 size={14} />}
               aria-label={t(
-                "projects.tasks.detachNamed",
-                "取消关联：{{title}}",
-                {
-                  title,
-                },
+                "projects.tasks.shareActionNamed",
+                "分享任务：{{title}}",
+                { title },
               )}
+              onClick={() => openShare(task)}
             >
-              {t("projects.tasks.detach", "取消关联")}
+              {t("projects.tasks.shareAction", "分享")}
             </Button>
-          </Popconfirm>
+            <Popconfirm
+              title={t(
+                "projects.tasks.detachConfirm",
+                "从项目移除这条任务？原对话与历史会保留。",
+              )}
+              okText={t("projects.tasks.detachOk", "确认移除")}
+              cancelText={t("common.cancel", "取消")}
+              okButtonProps={{ danger: true, disabled: busy }}
+              onConfirm={() => void unlinkTask(task)}
+            >
+              <Button
+                size="small"
+                type="text"
+                danger
+                icon={<Link2Off size={14} />}
+                disabled={busy}
+                aria-label={t(
+                  "projects.tasks.detachNamed",
+                  "取消关联：{{title}}",
+                  {
+                    title,
+                  },
+                )}
+              >
+                {t("projects.tasks.detach", "取消关联")}
+              </Button>
+            </Popconfirm>
+          </div>
         </div>
         <div
           style={{
@@ -566,28 +925,38 @@ export default function ProjectTasks({ projectId }: Props) {
       </div>
     );
   } else if (tasks.length === 0 && listError == null) {
-    body = (
-      <EmptyState
-        variant="empty"
-        title={
-          anySearch
-            ? t("projects.tasks.emptySearchTitle", "没有匹配的任务")
-            : t("projects.tasks.emptyTitle", "还没有关联任务")
-        }
-        description={
-          anySearch
-            ? t("projects.tasks.emptySearchHint", "换个关键词，或清除搜索。")
-            : t(
-                "projects.tasks.emptyHint",
-                "关联一条你已有的 Dashboard 对话，把它归属到项目；对话内容仍只对你可见。",
-              )
-        }
-        actionLabel={
-          anySearch ? undefined : t("projects.tasks.attach", "关联我的任务")
-        }
-        onAction={anySearch ? undefined : openPicker}
-      />
-    );
+    body =
+      scope === "shared" ? (
+        <EmptyState
+          variant="empty"
+          title={t("projects.tasks.emptySharedTitle", "还没有分享给我的任务")}
+          description={t(
+            "projects.tasks.emptySharedHint",
+            "任务所有者需要显式分享卡片摘要；正文和附件仍私密。",
+          )}
+        />
+      ) : (
+        <EmptyState
+          variant="empty"
+          title={
+            anySearch
+              ? t("projects.tasks.emptySearchTitle", "没有匹配的任务")
+              : t("projects.tasks.emptyTitle", "还没有关联任务")
+          }
+          description={
+            anySearch
+              ? t("projects.tasks.emptySearchHint", "换个关键词，或清除搜索。")
+              : t(
+                  "projects.tasks.emptyHint",
+                  "关联一条你已有的 Dashboard 对话，把它归属到项目；对话内容仍只对你可见。",
+                )
+          }
+          actionLabel={
+            anySearch ? undefined : t("projects.tasks.attach", "关联我的任务")
+          }
+          onAction={anySearch ? undefined : openPicker}
+        />
+      );
   } else if (tasks.length === 0) {
     body = (
       <EmptyState
@@ -613,6 +982,244 @@ export default function ProjectTasks({ projectId }: Props) {
     );
   }
 
+  const readerTask = readerDetail ?? readerTarget;
+  const readerTitle =
+    readerTask?.title?.trim() || t("projects.tasks.untitled", "未命名任务");
+  const readerOwnerName =
+    readerTask == null
+      ? ""
+      : memberNames.get(readerTask.owner_user_id) ??
+        t("projects.tasks.shareUnknownMember", "用户 #{{id}}", {
+          id: readerTask.owner_user_id,
+        });
+
+  const shareMembers =
+    shareTarget == null
+      ? []
+      : (members ?? []).filter(
+          (member) => member.user_id !== shareTarget.owner_user_id,
+        );
+  const grantedIds = useMemo(
+    () => new Set((shares ?? []).map((grant) => grant.user_id)),
+    [shares],
+  );
+
+  const renderGranteeRows = (
+    grants: ProjectTaskShare[],
+    nameFor: (grant: ProjectTaskShare) => string,
+  ) => (
+    <div data-testid="task-share-grantee-list">
+      <div style={{ ...secondaryStyle, marginBottom: 4 }}>
+        {t("projects.tasks.shareGrantedHeading", "已分享成员")}
+      </div>
+      {grants.map((grant) => {
+        const name = nameFor(grant);
+        const busy = shareBusyUserId !== null;
+        return (
+          <div
+            key={grant.user_id}
+            data-testid={`task-share-grantee-${grant.user_id}`}
+            style={rowStyle}
+          >
+            <span style={{ fontSize: 13, wordBreak: "break-word" }}>
+              {name}
+            </span>
+            <Popconfirm
+              title={t(
+                "projects.tasks.shareRevokeConfirm",
+                "撤回后 {{name}} 将不再看到这张任务卡片。",
+                { name },
+              )}
+              okText={t("projects.tasks.shareRevokeOk", "确认撤回")}
+              cancelText={t("common.cancel", "取消")}
+              okButtonProps={{ danger: true }}
+              onConfirm={() => void revokeShare(grant.user_id, name)}
+            >
+              <Button
+                size="small"
+                danger
+                disabled={busy}
+                loading={shareBusyUserId === grant.user_id}
+                aria-label={t(
+                  "projects.tasks.shareRevokeNamed",
+                  "撤回 {{name}} 的分享",
+                  { name },
+                )}
+              >
+                {t("projects.tasks.shareRevoke", "撤回分享")}
+              </Button>
+            </Popconfirm>
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  const shareBody: React.ReactNode =
+    shareTarget == null ? null : members == null ? (
+      <>
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={t(
+            "projects.tasks.shareRosterFailed",
+            "成员名单加载失败，暂时无法选择分享对象；请刷新页面后重试。",
+          )}
+        />
+        {sharesLoading && shares == null ? (
+          <div
+            style={{ display: "flex", justifyContent: "center", padding: 16 }}
+          >
+            <Spin />
+          </div>
+        ) : null}
+        {sharesError != null && (
+          <Alert
+            type="error"
+            showIcon
+            message={apiErrorMessage(
+              sharesError,
+              t("projects.tasks.shareLoadFailed", "加载已分享成员失败"),
+              t,
+            )}
+            action={
+              <Button size="small" onClick={reloadShares}>
+                {t("common.retry", "重试")}
+              </Button>
+            }
+          />
+        )}
+        {shares != null &&
+          shares.length > 0 &&
+          renderGranteeRows(shares, (grant) =>
+            t("projects.tasks.shareUnknownMember", "用户 #{{id}}", {
+              id: grant.user_id,
+            }),
+          )}
+      </>
+    ) : sharesLoading && shares == null ? (
+      <div style={{ display: "flex", justifyContent: "center", padding: 24 }}>
+        <Spin />
+      </div>
+    ) : sharesError != null ? (
+      <Alert
+        type="error"
+        showIcon
+        message={apiErrorMessage(
+          sharesError,
+          t("projects.tasks.shareLoadFailed", "加载已分享成员失败"),
+          t,
+        )}
+        action={
+          <Button size="small" onClick={reloadShares}>
+            {t("common.retry", "重试")}
+          </Button>
+        }
+      />
+    ) : shareMembers.length === 0 ? (
+      <div style={{ ...secondaryStyle, padding: "12px 0" }}>
+        {t("projects.tasks.shareEmpty", "项目中没有其他成员可以分享。")}
+      </div>
+    ) : (
+      <div data-testid="task-share-member-list">
+        <div style={{ ...secondaryStyle, marginBottom: 4 }}>
+          {t("projects.tasks.shareMembersHeading", "项目成员")}
+        </div>
+        {shareMembers.map((member) => {
+          const granted = grantedIds.has(member.user_id);
+          const busy = shareBusyUserId !== null;
+          const role = projectRoleTag(member.role);
+          return (
+            <div
+              key={member.user_id}
+              data-testid={`task-share-member-${member.user_id}`}
+              style={rowStyle}
+            >
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  minWidth: 0,
+                }}
+              >
+                <span style={{ fontSize: 13, wordBreak: "break-word" }}>
+                  {member.username}
+                </span>
+                <Tag style={{ marginInlineEnd: 0 }}>
+                  {t(role.labelKey, role.fallback)}
+                </Tag>
+              </span>
+              {granted ? (
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                  }}
+                >
+                  <Tag color="green" style={{ marginInlineEnd: 0 }}>
+                    {t("projects.tasks.shareGrantedTag", "已分享")}
+                  </Tag>
+                  <Popconfirm
+                    title={t(
+                      "projects.tasks.shareRevokeConfirm",
+                      "撤回后 {{name}} 将不再看到这张任务卡片。",
+                      { name: member.username },
+                    )}
+                    okText={t("projects.tasks.shareRevokeOk", "确认撤回")}
+                    cancelText={t("common.cancel", "取消")}
+                    okButtonProps={{ danger: true }}
+                    onConfirm={() =>
+                      void revokeShare(member.user_id, member.username)
+                    }
+                  >
+                    <Button
+                      size="small"
+                      danger
+                      disabled={busy}
+                      loading={shareBusyUserId === member.user_id}
+                      aria-label={t(
+                        "projects.tasks.shareRevokeNamed",
+                        "撤回 {{name}} 的分享",
+                        { name: member.username },
+                      )}
+                    >
+                      {t("projects.tasks.shareRevoke", "撤回分享")}
+                    </Button>
+                  </Popconfirm>
+                </span>
+              ) : (
+                <Popconfirm
+                  title={t(
+                    "projects.tasks.shareGrantConfirm",
+                    "确认分享给 {{name}}？目前只共享任务标题与卡片信息，正文和附件仍私密。",
+                    { name: member.username },
+                  )}
+                  okText={t("projects.tasks.shareGrantOk", "确认分享")}
+                  cancelText={t("common.cancel", "取消")}
+                  onConfirm={() => void grantShare(member)}
+                >
+                  <Button
+                    size="small"
+                    type="primary"
+                    ghost
+                    disabled={busy}
+                    loading={shareBusyUserId === member.user_id}
+                  >
+                    {t("projects.tasks.shareGrantNamed", "分享给 {{name}}", {
+                      name: member.username,
+                    })}
+                  </Button>
+                </Popconfirm>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+
   return (
     <div>
       <div
@@ -624,52 +1231,48 @@ export default function ProjectTasks({ projectId }: Props) {
           marginBottom: 8,
         }}
       >
-        <Segmented<string>
-          value="personal"
+        <Segmented<ProjectTaskScope>
+          value={scope}
+          onChange={(value) => setScopeState({ projectId, scope: value })}
           aria-label={t("projects.tasks.scopeFilter", "任务范围")}
           options={[
             {
               label: (
                 <span
                   title={t(
-                    "projects.tasks.scopeAllReason",
-                    "全部任务需要明确的任务共享权限，暂未开放。",
+                    "projects.tasks.scopeAllHint",
+                    "全部任务只包含我的任务和被分享给我的卡片，不是项目内全员任务。",
                   )}
                 >
                   {t("projects.tasks.scopeAll", "全部任务")}
                 </span>
               ),
               value: "all",
-              disabled: true,
             },
             {
-              label: t("projects.tasks.scopePersonal", "个人任务"),
-              value: "personal",
+              label: t("projects.tasks.scopeOwn", "个人任务"),
+              value: "own",
             },
             {
               label: (
                 <span
                   title={t(
-                    "projects.tasks.scopeCollabReason",
-                    "协同任务需要成员协作与移交能力，暂未开放。",
+                    "projects.tasks.scopeSharedHint",
+                    "分享给我的任务卡片为只读；正文与附件仍私密。",
                   )}
                 >
-                  {t("projects.tasks.scopeCollab", "协同任务")}
+                  {t("projects.tasks.scopeShared", "分享给我的")}
                 </span>
               ),
-              value: "collab",
-              disabled: true,
+              value: "shared",
             },
           ]}
         />
         <Input.Search
           allowClear
           style={{ maxWidth: 220 }}
-          placeholder={t(
-            "projects.tasks.searchPlaceholder",
-            "搜索我的任务标题",
-          )}
-          aria-label={t("projects.tasks.searchPlaceholder", "搜索我的任务标题")}
+          placeholder={t("projects.tasks.searchPlaceholder", "搜索任务标题")}
+          aria-label={t("projects.tasks.searchPlaceholder", "搜索任务标题")}
           onChange={(event) => {
             if (event.target.value === "") setSearch({ projectId, q: "" });
           }}
@@ -683,17 +1286,18 @@ export default function ProjectTasks({ projectId }: Props) {
             onClick={reload}
           />
         </Tooltip>
-        <Button type="primary" icon={<Link2 size={14} />} onClick={openPicker}>
-          {t("projects.tasks.attach", "关联我的任务")}
-        </Button>
-      </div>
-
-      <div style={{ ...secondaryStyle, marginBottom: 8 }}>
-        {t(
-          "projects.tasks.privacyHint",
-          "项目任务默认私密：你只会看到自己关联的任务。",
+        {scope !== "shared" && (
+          <Button
+            type="primary"
+            icon={<Link2 size={14} />}
+            onClick={openPicker}
+          >
+            {t("projects.tasks.attach", "关联我的任务")}
+          </Button>
         )}
       </div>
+
+      <div style={{ ...secondaryStyle, marginBottom: 8 }}>{scopeHint}</div>
 
       <div
         data-testid="project-task-capabilities"
@@ -705,15 +1309,6 @@ export default function ProjectTasks({ projectId }: Props) {
           marginBottom: 12,
         }}
       >
-        {disableReason(
-          t("projects.tasks.share", "共享"),
-          t(
-            "projects.tasks.shareReason",
-            "共享任务前需让所有读取入口遵守任务权限，暂未开放。",
-          ),
-          <Share2 size={14} />,
-          "task-capability-share",
-        )}
         {disableReason(
           t("projects.tasks.local", "本地"),
           t(
@@ -743,8 +1338,14 @@ export default function ProjectTasks({ projectId }: Props) {
         )}
         <Text type="secondary" style={{ fontSize: 12 }}>
           {t(
+            "projects.tasks.shareCardHint",
+            "共享在每张任务卡片上进行：只把标题与卡片信息分享给指定成员，正文和附件仍私密。",
+          )}
+        </Text>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          {t(
             "projects.tasks.unavailableHint",
-            "共享、本地/云端与移交需要后续后端权限，当前不可用。",
+            "本地/云端与移交需要后续后端权限，当前不可用。",
           )}
         </Text>
       </div>
@@ -802,6 +1403,153 @@ export default function ProjectTasks({ projectId }: Props) {
             {t("projects.tasks.loadMore", "加载更多")}
           </Button>
         </div>
+      )}
+
+      {readerTask != null && (
+        <Modal
+          open
+          title={t("projects.tasks.readerModalTitle", "任务摘要（只读）")}
+          onCancel={closeReader}
+          destroyOnHidden
+          footer={[
+            <Button key="close" onClick={closeReader}>
+              {t("common.close", "关闭")}
+            </Button>,
+          ]}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: 12,
+            }}
+          >
+            <Tag color="blue" style={{ marginInlineEnd: 0 }}>
+              {t("projects.tasks.readerTag", "分享给我的 · 只读")}
+            </Tag>
+            <span style={{ fontWeight: 600, wordBreak: "break-word" }}>
+              {readerTitle}
+            </span>
+          </div>
+          {readerLoading && readerDetail == null ? (
+            <div
+              style={{ display: "flex", justifyContent: "center", padding: 24 }}
+            >
+              <Spin />
+            </div>
+          ) : readerError != null ? (
+            <Alert
+              type="error"
+              showIcon
+              message={apiErrorMessage(
+                readerError,
+                t("projects.tasks.readerLoadFailed", "加载任务摘要失败"),
+                t,
+              )}
+              action={
+                <Button
+                  size="small"
+                  onClick={() => readerTarget && openReader(readerTarget)}
+                >
+                  {t("common.retry", "重试")}
+                </Button>
+              }
+            />
+          ) : (
+            <>
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 12 }}
+                message={t(
+                  "projects.tasks.readerNoBodyTitle",
+                  "对话内容尚未共享",
+                )}
+                description={t(
+                  "projects.tasks.readerNoBodyHint",
+                  "这里只显示任务摘要；正文、附件、工作区文件与运行流仍只对任务所有者可见。",
+                )}
+              />
+              <div style={rowStyle}>
+                <span style={secondaryStyle}>
+                  {t("projects.tasks.readerOwnerLabel", "任务所有者")}
+                </span>
+                <span style={{ fontSize: 13 }}>{readerOwnerName}</span>
+              </div>
+              <div style={rowStyle}>
+                <span style={secondaryStyle}>
+                  {t("projects.tasks.sourceLabel", "来源")}
+                </span>
+                <span style={{ fontSize: 13 }}>
+                  {readerTask?.source === "manual"
+                    ? t("projects.tasks.sourceManual", "手动关联")
+                    : readerTask?.source}
+                </span>
+              </div>
+              <div style={rowStyle}>
+                <span style={secondaryStyle}>
+                  {t("projects.tasks.activeAtLabel", "最近活动")}
+                </span>
+                <span style={{ fontSize: 13 }}>
+                  {readerTask
+                    ? formatServerDateTime(
+                        readerTask.last_active > 0
+                          ? readerTask.last_active
+                          : readerTask.created_at,
+                        timezone,
+                      )
+                    : ""}
+                </span>
+              </div>
+              <div style={rowStyle}>
+                <span style={secondaryStyle}>
+                  {t("projects.tasks.createdAtLabel", "创建时间")}
+                </span>
+                <span style={{ fontSize: 13 }}>
+                  {readerTask
+                    ? formatServerDateTime(readerTask.created_at, timezone)
+                    : ""}
+                </span>
+              </div>
+            </>
+          )}
+        </Modal>
+      )}
+
+      {shareTarget != null && (
+        <Modal
+          open
+          title={t("projects.tasks.shareTitle", "分享任务卡片")}
+          onCancel={closeShare}
+          destroyOnHidden
+          footer={[
+            <Button key="close" onClick={closeShare}>
+              {t("common.close", "关闭")}
+            </Button>,
+          ]}
+        >
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message={t(
+              "projects.tasks.shareScopeNote",
+              "目前只共享任务标题与卡片信息，正文和附件仍私密。",
+            )}
+          />
+          {shareActionError != null && (
+            <Alert
+              type="error"
+              showIcon
+              closable
+              style={{ marginBottom: 12 }}
+              message={shareActionError}
+              onClose={() => setShareActionError(null)}
+            />
+          )}
+          {shareBody}
+        </Modal>
       )}
 
       {pickerOpen && (

@@ -11,6 +11,12 @@ const { get, members, list, usage } = vi.hoisted(() => ({
   usage: vi.fn(),
 }));
 
+const { tasksProps } = vi.hoisted(() => ({
+  tasksProps: {
+    current: null as null | { projectId: string; members: unknown },
+  },
+}));
+
 vi.mock("../../api/modules/projects", () => ({
   PROJECTS_PAGE_SIZE: 20,
   projectsApi: {
@@ -82,7 +88,10 @@ vi.mock("./ProjectPlan", () => ({
   default: () => <div>plan-stub</div>,
 }));
 vi.mock("./ProjectTasks", () => ({
-  default: () => <div>tasks-stub</div>,
+  default: (props: { projectId: string; members: unknown }) => {
+    tasksProps.current = props;
+    return <div>tasks-stub</div>;
+  },
 }));
 vi.mock("./ProjectMembersPanel", () => ({
   default: () => <div>members-stub</div>,
@@ -187,6 +196,27 @@ describe("ProjectDetail assets tab mount", () => {
     expect(await screen.findByText("tasks-stub")).toBeInTheDocument();
     expect(screen.getByText("members-stub")).toBeInTheDocument();
     expect(screen.getByText("项目配置")).toBeInTheDocument();
+  });
+
+  it("passes the loaded member roster to the tasks tab and states card sharing honestly", async () => {
+    const user = userEvent.setup();
+    renderDetail("project-1");
+
+    await user.click(await screen.findByRole("tab", { name: "任务" }));
+    expect(tasksProps.current).toEqual({
+      projectId: "project-1",
+      members: [{ user_id: 1, username: "alice", role: "owner" }],
+    });
+    expect(
+      screen.getByText(
+        "项目内创建/发送、协同写入、本地/云端与移交需后续后端权限；任务卡片摘要可在“任务”页显式分享给指定成员。",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "本片只登记已有任务归属；项目内创建/发送、共享、本地/云端与移交需后续后端权限。",
+      ),
+    ).toBeNull();
   });
 
   it("does not show project A files after switching to project B", async () => {

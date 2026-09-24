@@ -29,6 +29,7 @@ _SUMMARY_KEYS = {
     "source",
     "last_active",
     "created_at",
+    "access",
 }
 
 

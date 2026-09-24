@@ -8,6 +8,7 @@ import {
   PROJECT_TASKS_PAGE_SIZE,
   projectTasksApi,
   type ProjectTask,
+  type ProjectTaskShare,
 } from "./projectTasks";
 
 const task: ProjectTask = {
@@ -19,31 +20,38 @@ const task: ProjectTask = {
   source: "manual",
   last_active: 1_700_000_100,
   created_at: 1_700_000_000,
+  access: "owner",
+};
+
+const share: ProjectTaskShare = {
+  user_id: 7,
+  role: "reader",
+  granted_at: 1_700_000_500,
 };
 
 beforeEach(() => {
   request.mockClear();
 });
 
-describe("projectTasksApi against the PS-05 ACL contract", () => {
-  it("lists with encoded project id, literal search and default paging", () => {
+describe("projectTasksApi against the PS-05B-1 contract", () => {
+  it("lists in the default own scope with encoded project id and literal search", () => {
     projectTasksApi.list("p 1/2", { q: "周报 100%_x" });
 
     expect(request).toHaveBeenCalledTimes(1);
     expect(request).toHaveBeenCalledWith(
-      "/projects/p%201%2F2/tasks?q=%E5%91%A8%E6%8A%A5+100%25_x&limit=50&offset=0",
+      "/projects/p%201%2F2/tasks?scope=own&q=%E5%91%A8%E6%8A%A5+100%25_x&limit=50&offset=0",
     );
   });
 
-  it("omits blank q but keeps explicit paging", () => {
-    projectTasksApi.list("p1", {
-      q: "   ",
-      limit: PROJECT_TASKS_PAGE_SIZE,
-      offset: 50,
-    });
+  it("sends the selected shared/all scope instead of filtering locally", () => {
+    projectTasksApi.list("p1", { scope: "shared", offset: 50 });
+    expect(request).toHaveBeenLastCalledWith(
+      "/projects/p1/tasks?scope=shared&limit=50&offset=50",
+    );
 
-    expect(request).toHaveBeenCalledWith(
-      "/projects/p1/tasks?limit=50&offset=50",
+    projectTasksApi.list("p1", { scope: "all", q: "   " });
+    expect(request).toHaveBeenLastCalledWith(
+      "/projects/p1/tasks?scope=all&limit=50&offset=0",
     );
   });
 
@@ -75,14 +83,48 @@ describe("projectTasksApi against the PS-05 ACL contract", () => {
     });
   });
 
+  it("lists active shares from the envelope with only user_id/role/granted_at", () => {
+    projectTasksApi.shares("p1", "t 1/2");
+
+    expect(request).toHaveBeenCalledWith("/projects/p1/tasks/t%201%2F2/shares");
+    expect(Object.keys(share).sort()).toEqual([
+      "granted_at",
+      "role",
+      "user_id",
+    ]);
+  });
+
+  it("grants a reader share by numeric user_id only", () => {
+    projectTasksApi.share("p1", "t1", 7);
+
+    expect(request).toHaveBeenCalledWith("/projects/p1/tasks/t1/shares", {
+      method: "POST",
+      body: JSON.stringify({ user_id: 7 }),
+    });
+    const body = JSON.parse(request.mock.calls[0][1].body as string) as Record<
+      string,
+      unknown
+    >;
+    expect(Object.keys(body)).toEqual(["user_id"]);
+  });
+
+  it("revokes one grantee with DELETE and no body", () => {
+    projectTasksApi.revoke("p1", "t1", 7);
+
+    expect(request).toHaveBeenCalledWith("/projects/p1/tasks/t1/shares/7", {
+      method: "DELETE",
+    });
+  });
+
   it("keeps the default page size within the contract cap", () => {
     expect(PROJECT_TASKS_PAGE_SIZE).toBeLessThanOrEqual(100);
     expect(PROJECT_TASKS_PAGE_SIZE).toBeGreaterThan(0);
   });
 
-  it("exposes only the safe summary fields in its type surface", () => {
+  it("exposes only the safe summary fields plus access on the task surface", () => {
     const keys = Object.keys(task).sort();
     expect(keys).toEqual([
+      "access",
       "agent_id",
       "created_at",
       "last_active",
@@ -92,5 +134,6 @@ describe("projectTasksApi against the PS-05 ACL contract", () => {
       "thread_id",
       "title",
     ]);
+    expect(task.access).toBe("owner");
   });
 });
