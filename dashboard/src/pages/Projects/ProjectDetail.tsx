@@ -5,7 +5,8 @@
  * the backend does not provide yet visibly unavailable:
  * - 计划 tab: real PS-04 todos (table + board) via `ProjectPlan`
  * - 动态 tab: real PS-03A activity feed (related/members) via `ProjectActivity`
- * - tabs 任务 / 资产: honest "not built yet" panels, no fake rows
+ * - 资产 tab: real PS-06A / 023A private asset library via `ProjectAssets`
+ * - 任务 tab: honest "not built yet" panel, no fake rows
  * - fixed 项目配置 column: real instructions (editable for owner/admin via
  *   PATCH); member invitations and approvals use project membership APIs,
  *   while connector / expert / skill / scheduled-task rows stay unavailable
@@ -31,6 +32,7 @@ import {
 } from "../../api/modules/projects";
 import CreateProjectModal from "./CreateProjectModal";
 import ProjectActivity from "./ProjectActivity";
+import ProjectAssets from "./ProjectAssets";
 import ProjectMembersPanel from "./ProjectMembersPanel";
 import ProjectPlan from "./ProjectPlan";
 import ProjectTasks from "./ProjectTasks";
@@ -158,23 +160,6 @@ export default function ProjectDetail() {
     </Tag>
   );
 
-  const unavailablePanel = (text: string) => (
-    <div style={{ padding: "40px 16px", textAlign: "center" }}>
-      {unavailableBadge}
-      <div
-        style={{
-          marginTop: 12,
-          fontSize: 13,
-          maxWidth: 460,
-          marginInline: "auto",
-          color: "var(--fn-text-secondary, rgba(0,0,0,0.65))",
-        }}
-      >
-        {text}
-      </div>
-    </div>
-  );
-
   const taskComposer = (
     <div style={{ maxWidth: 640, margin: "0 auto", padding: "8px 0 16px" }}>
       <Input.TextArea
@@ -237,12 +222,7 @@ export default function ProjectDetail() {
     {
       key: "assets",
       label: t("projects.tabs.assets", "资产"),
-      children: unavailablePanel(
-        t(
-          "projects.unavailable.assets",
-          "资产待建设：项目资产库、版本与容量需要后端资产接口。",
-        ),
-      ),
+      children: <ProjectAssets projectId={project.project_id} />,
     },
   ];
 

@@ -1,0 +1,234 @@
+import type { ReactNode } from "react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const { get, members, list, usage } = vi.hoisted(() => ({
+  get: vi.fn(),
+  members: vi.fn(),
+  list: vi.fn(),
+  usage: vi.fn(),
+}));
+
+vi.mock("../../api/modules/projects", () => ({
+  PROJECTS_PAGE_SIZE: 20,
+  projectsApi: {
+    get,
+    members,
+    list: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+  },
+}));
+
+vi.mock("../../api/modules/projectAssets", async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import("../../api/modules/projectAssets")
+  >();
+  return {
+    ...actual,
+    projectAssetsApi: {
+      list,
+      usage,
+      createFolder: vi.fn(),
+      upload: vi.fn(),
+      download: vi.fn(),
+    },
+  };
+});
+
+vi.mock("../../hooks/useIsMobile", () => ({ useIsMobile: () => false }));
+vi.mock("../../hooks/useServerTimezone", () => ({
+  useServerTimezone: () => "UTC",
+}));
+vi.mock("../../utils/antdMessage", () => ({
+  message: {
+    success: vi.fn(),
+    error: vi.fn(),
+    warning: vi.fn(),
+    info: vi.fn(),
+  },
+}));
+
+vi.mock("../../layouts/PageShell", () => ({
+  default: ({ title, children }: { title: string; children: ReactNode }) => (
+    <main>
+      <h1>{title}</h1>
+      {children}
+    </main>
+  ),
+}));
+
+vi.mock("../../components/EmptyState", () => ({
+  EmptyState: ({
+    title,
+    description,
+  }: {
+    title?: string;
+    description?: ReactNode;
+  }) => (
+    <section>
+      <h2>{title}</h2>
+      <p>{description}</p>
+    </section>
+  ),
+}));
+
+vi.mock("./ProjectActivity", () => ({
+  default: () => <div>activity-stub</div>,
+}));
+vi.mock("./ProjectPlan", () => ({
+  default: () => <div>plan-stub</div>,
+}));
+vi.mock("./ProjectTasks", () => ({
+  default: () => <div>tasks-stub</div>,
+}));
+vi.mock("./ProjectMembersPanel", () => ({
+  default: () => <div>members-stub</div>,
+}));
+vi.mock("./CreateProjectModal", () => ({
+  default: () => null,
+}));
+
+import ProjectDetail from "./ProjectDetail";
+import type {
+  ProjectAssetNode,
+  ProjectAssetListResponse,
+} from "../../api/modules/projectAssets";
+
+const summary = {
+  project_id: "project-1",
+  name: "熊宝项目",
+  description: "真实项目描述",
+  my_role: "owner" as const,
+  member_count: 1,
+  created_at: 1_700_000_000,
+  updated_at: 1_700_000_000,
+};
+
+const folderDesign: ProjectAssetNode = {
+  node_id: "folder-1",
+  parent_node_id: null,
+  kind: "folder",
+  name: "设计稿",
+  size_bytes: null,
+  media_type: null,
+  created_at: 1_700_000_000,
+  updated_at: 1_700_000_100,
+};
+
+const fileSpec: ProjectAssetNode = {
+  node_id: "file-1",
+  parent_node_id: null,
+  kind: "file",
+  name: "需求说明.pdf",
+  size_bytes: 2048,
+  media_type: "application/pdf",
+  created_at: 1_700_000_000,
+  updated_at: 1_700_000_200,
+};
+
+function listResponse(items: ProjectAssetNode[]): ProjectAssetListResponse {
+  return { items, total: items.length, limit: 50, offset: 0, has_more: false };
+}
+
+function renderDetail(projectId: string, key = projectId) {
+  return render(
+    <MemoryRouter key={key} initialEntries={[`/projects/${projectId}`]}>
+      <Routes>
+        <Route path="/projects/:projectId" element={<ProjectDetail />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  get.mockResolvedValue({ ...summary, instructions: "" });
+  members.mockResolvedValue([{ user_id: 1, username: "alice", role: "owner" }]);
+  list.mockResolvedValue(listResponse([folderDesign, fileSpec]));
+  usage.mockResolvedValue({ file_count: 2, total_bytes: 2048 });
+});
+
+describe("ProjectDetail assets tab mount", () => {
+  it("mounts the real asset library and calls the 023A API", async () => {
+    const user = userEvent.setup();
+    renderDetail("project-1");
+
+    const assets = await screen.findByRole("tab", { name: "资产" });
+    expect(
+      screen.queryByText(
+        "资产待建设：项目资产库、版本与容量需要后端资产接口。",
+      ),
+    ).toBeNull();
+
+    await user.click(assets);
+
+    expect(await screen.findByText("需求说明.pdf")).toBeInTheDocument();
+    expect(screen.getByText("设计稿")).toBeInTheDocument();
+    expect(list).toHaveBeenCalledWith(
+      "project-1",
+      expect.objectContaining({ parentId: null, offset: 0 }),
+    );
+    expect(usage).toHaveBeenCalledWith("project-1");
+    expect(screen.getByRole("button", { name: "上传" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "新建文件夹" })).toBeEnabled();
+  });
+
+  it("keeps the other project tabs intact around the assets tab", async () => {
+    const user = userEvent.setup();
+    renderDetail("project-1");
+
+    expect(await screen.findByText("activity-stub")).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "计划" }));
+    expect(await screen.findByText("plan-stub")).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "任务" }));
+    expect(await screen.findByText("tasks-stub")).toBeInTheDocument();
+    expect(screen.getByText("members-stub")).toBeInTheDocument();
+    expect(screen.getByText("项目配置")).toBeInTheDocument();
+  });
+
+  it("does not show project A files after switching to project B", async () => {
+    const user = userEvent.setup();
+    get.mockImplementation((projectId: string) =>
+      Promise.resolve({ ...summary, project_id: projectId, instructions: "" }),
+    );
+    list.mockImplementation((projectId: string) =>
+      Promise.resolve(
+        listResponse(
+          projectId === "project-1"
+            ? [{ ...fileSpec, name: "项目A文件.pdf" }]
+            : [{ ...fileSpec, name: "项目B文件.pdf" }],
+        ),
+      ),
+    );
+
+    const view = renderDetail("project-1");
+    await user.click(await screen.findByRole("tab", { name: "资产" }));
+    expect(await screen.findByText("项目A文件.pdf")).toBeInTheDocument();
+
+    view.rerender(
+      <MemoryRouter key="project-2" initialEntries={["/projects/project-2"]}>
+        <Routes>
+          <Route path="/projects/:projectId" element={<ProjectDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await user.click(await screen.findByRole("tab", { name: "资产" }));
+    expect(await screen.findByText("项目B文件.pdf")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("项目A文件.pdf")).toBeNull());
+  });
+
+  it("never reveals assets when the project itself is not accessible", async () => {
+    get.mockRejectedValue(new Error('404 - {"error":{"code":"NOT_FOUND"}}'));
+    renderDetail("private-project");
+
+    expect(
+      await screen.findByText("项目不存在或你无权访问"),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "资产" })).toBeNull();
+    expect(list).not.toHaveBeenCalled();
+  });
+});

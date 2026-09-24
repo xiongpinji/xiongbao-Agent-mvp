@@ -279,7 +279,7 @@ def test_migration_022_is_idempotent(db: SqlitePool) -> None:
     with db.connect() as conn:
         conn.executescript(sql)
         v = conn.execute("SELECT version FROM _schema_version").fetchone()[0]
-    assert v == _max_discovered_version("sqlite")
+    assert v == 22
 
 
 def test_migration_022_pg_pair_declares_same_shape() -> None:

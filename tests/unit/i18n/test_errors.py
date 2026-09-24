@@ -55,7 +55,8 @@ def test_dashboard_api_errors_match_backend():
     backend_en = json.loads((repo / "src/octop/i18n/en.json").read_text(encoding="utf-8"))
     dash_codes = set(dash_en["apiErrors"].keys())
     backend_codes = set(backend_en["errors"].keys())
-    assert dash_codes == backend_codes == {c.value for c in ErrorCode}
+    assert backend_codes == {c.value for c in ErrorCode}
+    assert dash_codes == backend_codes
 
 
 # i18next uses ``{{name}}``; a lone ``{name}`` is left uninterpolated in the UI.
@@ -85,6 +86,11 @@ def test_login_locked_interpolates_minutes():
 def test_knowledge_doc_too_large_interpolates_max_mb():
     assert "100" in error_message("KNOWLEDGE_DOC_TOO_LARGE", "zh", max_mb=100)
     assert "{max_mb}" not in error_message("KNOWLEDGE_DOC_TOO_LARGE", "en", max_mb=100)
+
+
+def test_project_asset_too_large_interpolates_max_mb():
+    assert "100" in error_message("PROJECT_ASSET_TOO_LARGE", "zh", max_mb=100)
+    assert "{max_mb}" not in error_message("PROJECT_ASSET_TOO_LARGE", "en", max_mb=100)
 
 
 def test_localized_message_falls_back_when_key_missing(monkeypatch: pytest.MonkeyPatch):

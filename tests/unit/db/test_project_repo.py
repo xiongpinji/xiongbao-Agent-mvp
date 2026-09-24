@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from octop.infra.db.migrate import run_migrations
+from octop.infra.db.migrate import _max_discovered_version, run_migrations
 from octop.infra.db.pool import SqlitePool
 from octop.infra.db.repos._base import now_ts
 from octop.infra.db.repos.projects import ProjectInviteRow, ProjectRepo
@@ -144,7 +144,7 @@ def test_project_tables_migrated(db: SqlitePool) -> None:
         request_cols = {
             r["name"] for r in conn.execute("PRAGMA table_info(project_join_requests)").fetchall()
         }
-    assert v == 22
+    assert v == _max_discovered_version("sqlite")
     assert {
         "project_spaces",
         "project_members",
@@ -226,7 +226,7 @@ def test_migration_upgrades_from_v17(tmp_path: Path) -> None:
     assert row.project_id
     with pool.connect() as conn:
         v = conn.execute("SELECT version FROM _schema_version").fetchone()[0]
-    assert v == 22
+    assert v == _max_discovered_version("sqlite")
 
 
 def test_migration_upgrades_from_v18(tmp_path: Path) -> None:
@@ -252,7 +252,7 @@ def test_migration_upgrades_from_v18(tmp_path: Path) -> None:
         tables = {
             r["name"] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
-    assert v == 22
+    assert v == _max_discovered_version("sqlite")
     assert {"project_invites", "project_join_requests"}.issubset(tables)
 
 

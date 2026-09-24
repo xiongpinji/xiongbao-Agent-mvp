@@ -79,6 +79,23 @@ class PathLayout:
         """Global knowledge base files: ``~/.octop/knowledge/``."""
         return self.root / "knowledge"
 
+    @property
+    def project_assets_dir(self) -> Path:
+        """Private project asset objects: ``~/.octop/project-assets/``.
+
+        Never served statically and never inside the workspace or knowledge
+        dirs; reachable only through the membership-gated download route.
+        """
+        return self.root / "project-assets"
+
+    def ensure_project_assets_dir(self) -> Path:
+        """Create the project asset root and return it."""
+        out = self.project_assets_dir
+        out.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if os.name == "posix":
+            os.chmod(out, 0o700)
+        return out
+
     def agent_workspace(self, agent_id: str) -> Path:
         """Global agent workspace: ~/.octop/agents/<agent_id>/"""
         return self.agents_dir / agent_id
