@@ -444,7 +444,8 @@
     "TEAM_MEMBER_INVALID": "The selected roster is not valid.",
     "TEAM_MEMBER_BUSY": "This expert has an in-flight team job. Wait until it finishes.",
     "TEAM_NOT_SHAREABLE": "Teams cannot be shared in this version.",
-    "PROJECT_TASK_LINK_CONFLICT": "This task is already linked to another project. Detach it there first."
+    "PROJECT_TASK_LINK_CONFLICT": "This task is already linked to another project. Detach it there first.",
+    "PROJECT_ACTIVITY_CURSOR_INVALID": "The activity cursor is invalid or expired. Refresh the activity feed and try again."
   },
   "desktop": {
     "install_log_deps": "Installing Python dependencies…",

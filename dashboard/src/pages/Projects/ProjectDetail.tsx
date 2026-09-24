@@ -4,7 +4,8 @@
  * Loads the real project record + member list, and keeps every capability
  * the backend does not provide yet visibly unavailable:
  * - 计划 tab: real PS-04 todos (table + board) via `ProjectPlan`
- * - tabs 动态 / 任务 / 资产: honest "not built yet" panels, no fake rows
+ * - 动态 tab: real PS-03A activity feed (related/members) via `ProjectActivity`
+ * - tabs 任务 / 资产: honest "not built yet" panels, no fake rows
  * - fixed 项目配置 column: real instructions (editable for owner/admin via
  *   PATCH); member invitations and approvals use project membership APIs,
  *   while connector / expert / skill / scheduled-task rows stay unavailable
@@ -29,6 +30,7 @@ import {
   type ProjectRecord,
 } from "../../api/modules/projects";
 import CreateProjectModal from "./CreateProjectModal";
+import ProjectActivity from "./ProjectActivity";
 import ProjectMembersPanel from "./ProjectMembersPanel";
 import ProjectPlan from "./ProjectPlan";
 import ProjectTasks from "./ProjectTasks";
@@ -209,12 +211,7 @@ export default function ProjectDetail() {
     {
       key: "activity",
       label: t("projects.tabs.activity", "动态"),
-      children: unavailablePanel(
-        t(
-          "projects.unavailable.activity",
-          "动态待建设：留言与成员操作时间线需要后端项目事件接口。",
-        ),
-      ),
+      children: <ProjectActivity projectId={project.project_id} />,
     },
     {
       key: "plan",
