@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 
 from octop.api.common.agent import assert_agent_access
 from octop.api.deps import current_user, get_server
+from octop.api.routers.chat.history import _require_thread
 from octop.api.routers.chat.models import HitlResumeBody, PolishBody
 from octop.api.routers.chat.sse import format_sse
 from octop.i18n.domains.stream import format_stream_error
@@ -192,6 +193,7 @@ async def resume_hitl(
 ) -> StreamingResponse:
     """Resume a paused human-in-the-loop tool approval and stream subsequent chunks."""
     assert_agent_access(server, agent_id, user)
+    _require_thread(server, agent_id, body.thread_id, user, None)
     processor = server.app_runtime.gateway.processor
     hitl_coordinator = processor.hitl_coordinator
     pending = hitl_coordinator.store.resolve_pending_for_thread(
