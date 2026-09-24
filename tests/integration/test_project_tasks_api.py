@@ -30,6 +30,7 @@ _SUMMARY_KEYS = {
     "last_active",
     "created_at",
     "access",
+    "can_read_text",
 }
 
 

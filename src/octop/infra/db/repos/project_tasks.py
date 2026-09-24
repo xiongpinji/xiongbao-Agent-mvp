@@ -60,6 +60,7 @@ class ProjectTaskSummary:
     source: str
     last_active: int
     created_at: int
+    can_read_text: bool = True
 
     @classmethod
     def from_row(cls, row: DbRow) -> ProjectTaskSummary:

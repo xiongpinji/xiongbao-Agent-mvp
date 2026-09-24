@@ -40,8 +40,11 @@ _READER_FROM = (
     "FROM project_task_shares s "
     "JOIN project_task_links l ON l.project_id = s.project_id AND l.thread_id = s.thread_id "
     "JOIN threads t ON t.thread_id = l.thread_id "
-    "JOIN project_members pm ON pm.project_id = s.project_id AND pm.user_id = s.grantee_user_id"
+    "JOIN project_members pm ON pm.project_id = s.project_id AND pm.user_id = s.grantee_user_id "
+    "LEFT JOIN project_task_content_grants c ON c.project_id = s.project_id "
+    "AND c.thread_id = s.thread_id AND c.grantee_user_id = s.grantee_user_id "
 )
+_READER_TEXT_COLUMN = "CASE WHEN c.grantee_user_id IS NULL THEN 0 ELSE 1 END AS can_read_text"
 # Same activity sentinel as ProjectTaskRepo._ORDER_BY: last_active=0 means
 # "no turns yet", so brand-new threads sort by created_at instead of sinking.
 _ACTIVITY_ORDER = (
@@ -63,6 +66,7 @@ class VisibleTaskSummary(ProjectTaskSummary):
     """
 
     access: str = "owner"
+    can_read_text: bool = False
 
     @classmethod
     def from_row(cls, row: DbRow) -> VisibleTaskSummary:
@@ -77,6 +81,7 @@ class VisibleTaskSummary(ProjectTaskSummary):
             last_active=base.last_active,
             created_at=base.created_at,
             access=str(row["access"]),
+            can_read_text=bool(row["can_read_text"]),
         )
 
 
@@ -91,13 +96,17 @@ class TaskShareRow:
     user_id: int
     role: str
     granted_at: int
+    can_read_text: bool = False
 
     @classmethod
     def from_row(cls, row: DbRow) -> TaskShareRow:
+        # sqlite3.Row membership checks values, so inspect its column names.
+        column_names = row.keys()
         return cls(
             user_id=int(row["grantee_user_id"]),
             role=str(row["role"]),
             granted_at=int(row["granted_at"]),
+            can_read_text=bool(row["can_read_text"]) if "can_read_text" in column_names else False,
         )
 
 
@@ -184,8 +193,12 @@ class ProjectTaskShareRepo:
         self, conn: Any, project_id: str, thread_id: str, grantee_user_id: int
     ) -> TaskShareRow | None:
         row = conn.execute(
-            "SELECT grantee_user_id, role, granted_at FROM project_task_shares "
-            "WHERE project_id = ? AND thread_id = ? AND grantee_user_id = ?",
+            "SELECT s.grantee_user_id, s.role, s.granted_at, "
+            f"{_READER_TEXT_COLUMN} "
+            "FROM project_task_shares s LEFT JOIN project_task_content_grants c "
+            "ON c.project_id = s.project_id AND c.thread_id = s.thread_id "
+            "AND c.grantee_user_id = s.grantee_user_id "
+            "WHERE s.project_id = ? AND s.thread_id = ? AND s.grantee_user_id = ?",
             (project_id, thread_id, grantee_user_id),
         ).fetchone()
         return TaskShareRow.from_row(row) if row is not None else None
@@ -233,8 +246,12 @@ class ProjectTaskShareRepo:
                     return ShareGrantMutation(outcome="invalid_recipient")
 
                 existing = conn.execute(
-                    "SELECT role, granted_at, revoked_at FROM project_task_shares "
-                    "WHERE project_id = ? AND thread_id = ? AND grantee_user_id = ?",
+                    "SELECT s.role, s.granted_at, s.revoked_at, "
+                    f"{_READER_TEXT_COLUMN} "
+                    "FROM project_task_shares s LEFT JOIN project_task_content_grants c "
+                    "ON c.project_id = s.project_id AND c.thread_id = s.thread_id "
+                    "AND c.grantee_user_id = s.grantee_user_id "
+                    "WHERE s.project_id = ? AND s.thread_id = ? AND s.grantee_user_id = ?",
                     (project_id, thread_id, grantee_user_id),
                 ).fetchone()
                 if existing is not None and existing["revoked_at"] is None:
@@ -246,6 +263,7 @@ class ProjectTaskShareRepo:
                             user_id=grantee_user_id,
                             role=str(existing["role"]),
                             granted_at=int(existing["granted_at"]),
+                            can_read_text=bool(existing["can_read_text"]),
                         ),
                     )
                 if existing is not None:
@@ -308,7 +326,8 @@ class ProjectTaskShareRepo:
         """
         ts = now_ts()
         with self._db.transaction() as conn:
-            if self._member_role_locked(conn, project_id, actor_user_id) is None:
+            roles = self._members_locked(conn, project_id, (actor_user_id, grantee_user_id))
+            if actor_user_id not in roles:
                 return "not_member"
             if not self._own_task_ok(conn, project_id, thread_id, actor_user_id):
                 return "missing_task"
@@ -317,6 +336,13 @@ class ProjectTaskShareRepo:
                 "WHERE project_id = ? AND thread_id = ? AND grantee_user_id = ? "
                 "AND revoked_at IS NULL",
                 (ts, project_id, thread_id, grantee_user_id),
+            )
+            # Revoking the card also revokes the independent 025 text grant
+            # in the SAME transaction. A later card regrant cannot revive it.
+            conn.execute(
+                "DELETE FROM project_task_content_grants "
+                "WHERE project_id = ? AND thread_id = ? AND grantee_user_id = ?",
+                (project_id, thread_id, grantee_user_id),
             )
             if getattr(updated, "rowcount", 1) == 1:
                 return "revoked"
@@ -337,9 +363,13 @@ class ProjectTaskShareRepo:
             if not self._own_task_ok(conn, project_id, thread_id, actor_user_id):
                 return None
             rows = conn.execute(
-                "SELECT grantee_user_id, role, granted_at FROM project_task_shares "
-                "WHERE project_id = ? AND thread_id = ? AND revoked_at IS NULL "
-                "ORDER BY granted_at, grantee_user_id",
+                "SELECT s.grantee_user_id, s.role, s.granted_at, "
+                f"{_READER_TEXT_COLUMN} "
+                "FROM project_task_shares s LEFT JOIN project_task_content_grants c "
+                "ON c.project_id = s.project_id AND c.thread_id = s.thread_id "
+                "AND c.grantee_user_id = s.grantee_user_id "
+                "WHERE s.project_id = ? AND s.thread_id = ? AND s.revoked_at IS NULL "
+                "ORDER BY s.granted_at, s.grantee_user_id",
                 (project_id, thread_id),
             ).fetchall()
         return map_rows(rows, TaskShareRow)
@@ -360,7 +390,7 @@ class ProjectTaskShareRepo:
         without a COUNT; title search is literal and case-insensitive.
         """
         sql = (
-            f"SELECT {_SUMMARY_COLUMNS}, 'reader' AS access {_READER_FROM} "
+            f"SELECT {_SUMMARY_COLUMNS}, 'reader' AS access, {_READER_TEXT_COLUMN} {_READER_FROM} "
             "WHERE s.project_id = ? AND s.grantee_user_id = ? AND s.revoked_at IS NULL"
         )
         params: list[object] = [project_id, user_id]
@@ -389,7 +419,7 @@ class ProjectTaskShareRepo:
         pure safety. Returns up to ``limit + 1`` rows.
         """
         own_sql = (
-            f"SELECT {_SUMMARY_COLUMNS}, 'owner' AS access "
+            f"SELECT {_SUMMARY_COLUMNS}, 'owner' AS access, 1 AS can_read_text "
             "FROM project_task_links l "
             "JOIN threads t ON t.thread_id = l.thread_id "
             "JOIN project_members pm ON pm.project_id = l.project_id "
@@ -397,7 +427,7 @@ class ProjectTaskShareRepo:
             "WHERE l.project_id = ? AND l.owner_user_id = ?"
         )
         reader_sql = (
-            f"SELECT {_SUMMARY_COLUMNS}, 'reader' AS access {_READER_FROM} "
+            f"SELECT {_SUMMARY_COLUMNS}, 'reader' AS access, {_READER_TEXT_COLUMN} {_READER_FROM} "
             "WHERE s.project_id = ? AND s.grantee_user_id = ? AND s.revoked_at IS NULL"
         )
         own_sql, own_params = self._apply_q(own_sql, [project_id, user_id], q)
@@ -423,7 +453,7 @@ class ProjectTaskShareRepo:
         foreign task, so no title or existence leaks.
         """
         sql = (
-            f"SELECT {_SUMMARY_COLUMNS}, 'reader' AS access {_READER_FROM} "
+            f"SELECT {_SUMMARY_COLUMNS}, 'reader' AS access, {_READER_TEXT_COLUMN} {_READER_FROM} "
             "WHERE s.project_id = ? AND s.thread_id = ? AND s.grantee_user_id = ? "
             "AND s.revoked_at IS NULL"
         )

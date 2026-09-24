@@ -31,6 +31,7 @@ Error contract:
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -60,6 +61,7 @@ class TaskSummaryView:
     last_active: int
     created_at: int
     access: str = "owner"
+    can_read_text: bool = True
 
 
 @dataclass(frozen=True)
@@ -69,6 +71,30 @@ class TaskShareView:
     user_id: int
     role: str
     granted_at: int
+    can_read_text: bool = False
+
+
+@dataclass(frozen=True)
+class TaskTextGrantView:
+    user_id: int
+    granted_at: int
+
+
+@dataclass(frozen=True)
+class TaskMessageView:
+    seq: int
+    role: str
+    text: str
+    created_at: int
+    truncated: bool
+
+
+@dataclass(frozen=True)
+class TaskMessagesPage:
+    status: str
+    items: list[TaskMessageView]
+    has_more: bool
+    next_before_seq: int | None
 
 
 @dataclass(frozen=True)
@@ -104,9 +130,71 @@ def _archived_error() -> OctopError:
     return OctopError(ErrorCode.FORBIDDEN, "project is archived")
 
 
+def _safe_text_message(row: Any) -> TaskMessageView | None:
+    """Project only plain user/assistant text from a stored projection row."""
+    try:
+        raw = row.message_json
+        if len(raw.encode("utf-8")) > 256 * 1024:
+            return None
+        wire = json.loads(raw)
+        if not isinstance(wire, dict) or not isinstance(wire.get("data"), dict):
+            return None
+        data = wire["data"]
+        stored = row.role
+        kind = wire.get("type")
+        if stored in ("human", "user") and kind in ("human", "user"):
+            role = "user"
+        elif stored in ("ai", "assistant") and kind in ("ai", "assistant"):
+            role = "assistant"
+        else:
+            return None
+        # Normal AI wires include empty lists. Any populated or malformed
+        # call field is excluded in its entirety, even if content is a string.
+        for key in ("tool_calls", "invalid_tool_calls"):
+            calls = data.get(key, [])
+            if calls != []:
+                return None
+        extra = data.get("additional_kwargs")
+        if isinstance(extra, dict) and extra.get("octop_stream_error") is True:
+            return None
+        content = data.get("content")
+        if isinstance(content, str):
+            text = content
+        elif isinstance(content, list):
+            parts: list[str] = []
+            for part in content:
+                if isinstance(part, str):
+                    parts.append(part)
+                elif (
+                    isinstance(part, dict)
+                    and part.get("type") == "text"
+                    and isinstance(part.get("text"), str)
+                ):
+                    parts.append(part["text"])
+            text = "".join(parts)
+        else:
+            return None
+        if not text:
+            return None
+        encoded = text.encode("utf-8")
+        truncated = len(encoded) > 32768
+        if truncated:
+            text = encoded[:32768].decode("utf-8", "ignore")
+        return TaskMessageView(
+            seq=row.seq,
+            role=role,
+            text=text,
+            created_at=row.created_at,
+            truncated=truncated,
+        )
+    except (TypeError, ValueError, UnicodeError, AttributeError):
+        return None
+
+
 class ProjectTaskService:
-    def __init__(self, services: Any) -> None:
+    def __init__(self, services: Any, *, history_archive: Any = None) -> None:
         self._services = services
+        self._history_archive = history_archive
 
     @property
     def _repo(self) -> Any:
@@ -115,6 +203,10 @@ class ProjectTaskService:
     @property
     def _share_repo(self) -> Any:
         return self._services.project_task_share_repo
+
+    @property
+    def _content_repo(self) -> Any:
+        return self._services.project_task_content_repo
 
     @property
     def _project_repo(self) -> Any:
@@ -164,6 +256,9 @@ class ProjectTaskService:
             last_active=summary.last_active,
             created_at=summary.created_at,
             access=access,
+            can_read_text=summary.can_read_text
+            if isinstance(summary, VisibleTaskSummary)
+            else True,
         )
 
     # ------------------------------------------------------------ attach
@@ -299,6 +394,7 @@ class ProjectTaskService:
             user_id=mutation.share.user_id,
             role=mutation.share.role,
             granted_at=mutation.share.granted_at,
+            can_read_text=mutation.share.can_read_text,
         )
         return view, mutation.outcome == "created"
 
@@ -335,6 +431,80 @@ class ProjectTaskService:
         if rows is None:
             raise _task_not_found()
         return [
-            TaskShareView(user_id=row.user_id, role=row.role, granted_at=row.granted_at)
+            TaskShareView(
+                user_id=row.user_id,
+                role=row.role,
+                granted_at=row.granted_at,
+                can_read_text=row.can_read_text,
+            )
             for row in rows
         ]
+
+    # ------------------------------------------------------------ text grants
+
+    def grant_text_share(
+        self, project_id: str, thread_id: str, *, user_id: int, grantee_user_id: int
+    ) -> tuple[TaskTextGrantView, bool]:
+        self._require_membership(project_id, user_id)
+        if user_id == grantee_user_id:
+            raise _task_not_found()
+        mutation = self._content_repo.grant(
+            project_id=project_id,
+            thread_id=thread_id,
+            actor_user_id=user_id,
+            grantee_user_id=grantee_user_id,
+        )
+        if mutation.outcome == "not_member":
+            raise _project_not_found()
+        if mutation.outcome == "archived":
+            raise _archived_error()
+        if mutation.outcome in ("invalid_task", "invalid_recipient"):
+            raise _task_not_found()
+        if mutation.grant is None:
+            raise OctopError(ErrorCode.INTERNAL_ERROR, "text grant missing after grant")
+        return (
+            TaskTextGrantView(mutation.grant.user_id, mutation.grant.granted_at),
+            mutation.outcome == "created",
+        )
+
+    def revoke_text_share(
+        self, project_id: str, thread_id: str, *, user_id: int, grantee_user_id: int
+    ) -> None:
+        self._require_membership(project_id, user_id)
+        outcome = self._content_repo.revoke(
+            project_id=project_id,
+            thread_id=thread_id,
+            actor_user_id=user_id,
+            grantee_user_id=grantee_user_id,
+        )
+        if outcome == "not_member":
+            raise _project_not_found()
+        if outcome == "missing_task":
+            raise _task_not_found()
+
+    def read_task_messages(
+        self,
+        project_id: str,
+        thread_id: str,
+        *,
+        user_id: int,
+        limit: int = 50,
+        before_seq: int | None = None,
+    ) -> TaskMessagesPage:
+        # Authorization and raw-row fetch share a single DB transaction. The
+        # service parses JSON only after the repository has released its lock.
+        self._require_membership(project_id, user_id)
+        raw = self._content_repo.read_page(
+            project_id=project_id,
+            thread_id=thread_id,
+            actor_user_id=user_id,
+            limit=limit,
+            before_seq=before_seq,
+            projection_enabled=self._history_archive is None,
+        )
+        if raw is None:
+            raise _task_not_found()
+        if raw.status != "ready":
+            return TaskMessagesPage("pending", [], False, None)
+        items = [item for row in raw.rows if (item := _safe_text_message(row)) is not None]
+        return TaskMessagesPage("ready", items, raw.has_more, raw.next_before_seq)

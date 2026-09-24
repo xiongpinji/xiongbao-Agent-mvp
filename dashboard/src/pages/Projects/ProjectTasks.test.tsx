@@ -12,17 +12,29 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import en from "../../locales/en.json";
 import zh from "../../locales/zh.json";
 
-const { list, getOne, link, unlink, shares, share, revoke } = vi.hoisted(
-  () => ({
-    list: vi.fn(),
-    getOne: vi.fn(),
-    link: vi.fn(),
-    unlink: vi.fn(),
-    shares: vi.fn(),
-    share: vi.fn(),
-    revoke: vi.fn(),
-  }),
-);
+const {
+  list,
+  getOne,
+  link,
+  unlink,
+  shares,
+  share,
+  revoke,
+  grantText,
+  revokeText,
+  messages,
+} = vi.hoisted(() => ({
+  list: vi.fn(),
+  getOne: vi.fn(),
+  link: vi.fn(),
+  unlink: vi.fn(),
+  shares: vi.fn(),
+  share: vi.fn(),
+  revoke: vi.fn(),
+  grantText: vi.fn(),
+  revokeText: vi.fn(),
+  messages: vi.fn(),
+}));
 
 const { threadsList, threadsDelete } = vi.hoisted(() => ({
   threadsList: vi.fn(),
@@ -48,7 +60,18 @@ vi.mock("../../api/modules/projectTasks", async (importOriginal) => {
   >();
   return {
     ...actual,
-    projectTasksApi: { list, get: getOne, link, unlink, shares, share, revoke },
+    projectTasksApi: {
+      list,
+      get: getOne,
+      link,
+      unlink,
+      shares,
+      share,
+      revoke,
+      grantText,
+      revokeText,
+      messages,
+    },
   };
 });
 
@@ -115,6 +138,7 @@ const taskOpen: ProjectTask = {
   last_active: 1_700_000_100,
   created_at: 1_700_000_000,
   access: "owner",
+  can_read_text: true,
 };
 
 const taskSecond: ProjectTask = {
@@ -127,6 +151,7 @@ const taskSecond: ProjectTask = {
   last_active: 1_700_000_200,
   created_at: 1_700_000_000,
   access: "owner",
+  can_read_text: true,
 };
 
 const taskOtherProject: ProjectTask = {
@@ -139,6 +164,7 @@ const taskOtherProject: ProjectTask = {
   last_active: 1_700_000_300,
   created_at: 1_700_000_000,
   access: "owner",
+  can_read_text: true,
 };
 
 const taskShared: ProjectTask = {
@@ -151,6 +177,7 @@ const taskShared: ProjectTask = {
   last_active: 1_700_000_400,
   created_at: 1_700_000_000,
   access: "reader",
+  can_read_text: false,
 };
 
 const memberAlice: ProjectMember = {
@@ -241,8 +268,20 @@ beforeEach(() => {
     user_id: 4,
     role: "reader",
     granted_at: 1_700_000_600,
+    can_read_text: false,
   });
   revoke.mockResolvedValue(undefined);
+  grantText.mockResolvedValue({
+    user_id: 3,
+    granted_at: 1_700_000_700,
+  });
+  revokeText.mockResolvedValue(undefined);
+  messages.mockResolvedValue({
+    status: "ready",
+    items: [],
+    has_more: false,
+    next_before_seq: null,
+  });
 });
 
 describe("ProjectTasks owner behavior", () => {
@@ -264,7 +303,7 @@ describe("ProjectTasks owner behavior", () => {
     expect(screen.getByText(/手动关联/)).toBeInTheDocument();
     expect(
       screen.getByText(
-        "项目任务默认私密：你只会看到自己关联的任务；正文与附件不会被共享。",
+        "项目任务默认私密；卡片与对话文本都需任务本人分别授权给指定成员，附件仍私密。",
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText(/session_key/)).toBeNull();
@@ -585,7 +624,7 @@ describe("ProjectTasks scopes", () => {
     await waitFor(() => expect(screen.queryByText("写周报")).toBeNull());
     expect(
       screen.getByText(
-        "只读视图：这些卡片由任务所有者分享，正文、附件与运行流仍只对所有者可见。",
+        "只读视图：卡片由任务本人分享；对话文本需单独授权，附件与运行流仍私密。",
       ),
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "关联我的任务" })).toBeNull();
@@ -646,7 +685,7 @@ describe("ProjectTasks scopes", () => {
     expect(screen.queryByRole("button", { name: "共享" })).toBeNull();
     expect(
       screen.getByText(
-        "共享在每张任务卡片上进行：只把标题与卡片信息分享给指定成员，正文和附件仍私密。",
+        "卡片分享仅开放摘要；任务本人可再单独授权指定成员只读对话文本。附件仍私密。",
       ),
     ).toBeInTheDocument();
     expect(
@@ -719,7 +758,7 @@ describe("ProjectTasks reader cards", () => {
     await waitFor(() => expect(screen.queryByText("被分享的周报")).toBeNull());
     expect(await screen.findByText("还没有分享给我的任务")).toBeInTheDocument();
     expect(
-      screen.getByText("该任务已不再分享给你，卡片已从列表移除。"),
+      screen.getByText("任务分享或文本权限已变化，列表已刷新。"),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("dialog", { name: "任务摘要（只读）" }),
@@ -747,6 +786,317 @@ describe("ProjectTasks reader cards", () => {
       await within(dialog).findByText("对话内容尚未共享"),
     ).toBeInTheDocument();
   });
+
+  it("never requests text when the fresh card detail is card-only", async () => {
+    const { user } = await openSharedScope();
+    getOne.mockResolvedValue({ ...taskShared, can_read_text: false });
+
+    await user.click(screen.getByRole("button", { name: "被分享的周报" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "任务摘要（只读）",
+    });
+
+    expect(within(dialog).getByText("对话内容尚未共享")).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(
+        "这里只显示任务摘要；正文、附件、工作区文件与运行流仍只对任务所有者可见。",
+      ),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(getOne).toHaveBeenCalledWith("p1", "ts1"));
+    expect(messages).not.toHaveBeenCalled();
+    expect(within(dialog).queryByTestId("project-task-reader-text")).toBeNull();
+  });
+
+  it("shows an honest pending state instead of inventing history", async () => {
+    const { user } = await openSharedScope();
+    getOne.mockResolvedValue({ ...taskShared, can_read_text: true });
+    messages.mockResolvedValueOnce({
+      status: "pending",
+      items: [],
+      has_more: false,
+      next_before_seq: null,
+    });
+
+    await user.click(screen.getByRole("button", { name: "被分享的周报" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "任务摘要（只读）",
+    });
+
+    await waitFor(() =>
+      expect(messages).toHaveBeenCalledWith("p1", "ts1", { limit: 50 }),
+    );
+    expect(
+      await within(dialog).findByText("对话文本暂不可读"),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(
+        /文本尚未同步，或该任务使用了本片暂不支持的版本化历史存储/,
+      ),
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByTestId("project-task-reader-text")).toBeNull();
+    expect(
+      within(dialog).queryByText(
+        "仅显示已支持且已完成投影的纯文本；部分非文本或超大消息未显示，这里不是完整历史。",
+      ),
+    ).toBeNull();
+  });
+
+  it("recovers from a text load error with retry and shows an honest empty state", async () => {
+    const { user } = await openSharedScope();
+    getOne.mockResolvedValue({ ...taskShared, can_read_text: true });
+    messages
+      .mockRejectedValueOnce(new Error("503 - service temporarily unavailable"))
+      .mockResolvedValueOnce({
+        status: "ready",
+        items: [],
+        has_more: false,
+        next_before_seq: null,
+      });
+
+    await user.click(screen.getByRole("button", { name: "被分享的周报" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "任务摘要（只读）",
+    });
+    expect(
+      await within(dialog).findByText("service temporarily unavailable"),
+    ).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: /重\s*试/ }));
+    await waitFor(() => expect(messages).toHaveBeenCalledTimes(2));
+    expect(
+      await within(dialog).findByText("没有可显示的文本消息。"),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText("该任务可能只有非文本内容，或文本尚未同步。"),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(
+        "仅显示已支持且已完成投影的纯文本；部分非文本或超大消息未显示，这里不是完整历史。",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("renders granted plain text escaped and pages older history by cursor", async () => {
+    const { user } = await openSharedScope();
+    getOne.mockResolvedValue({ ...taskShared, can_read_text: true });
+    messages.mockResolvedValueOnce({
+      status: "ready",
+      items: [
+        {
+          seq: 12,
+          role: "assistant",
+          text: "<img src=x onerror=alert(1)> 回复",
+          created_at: 1_700_000_900,
+          truncated: false,
+        },
+        {
+          seq: 11,
+          role: "user",
+          text: "第一行\n第二行",
+          created_at: 1_700_000_800,
+          truncated: true,
+        },
+      ],
+      has_more: true,
+      next_before_seq: 11,
+    });
+
+    await user.click(screen.getByRole("button", { name: "被分享的周报" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "任务摘要（只读）",
+    });
+
+    await waitFor(() =>
+      expect(messages).toHaveBeenCalledWith("p1", "ts1", { limit: 50 }),
+    );
+    expect(
+      await within(dialog).findByText("<img src=x onerror=alert(1)> 回复"),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText(/第一行/)).toBeInTheDocument();
+    expect(
+      within(dialog).getByText("内容过长，已截断显示"),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(
+        "仅显示已支持且已完成投影的纯文本；部分非文本或超大消息未显示，这里不是完整历史。",
+      ),
+    ).toBeInTheDocument();
+    expect(dialog.querySelector("img")).toBeNull();
+    expect(dialog.querySelector('a[href*="/chat"]')).toBeNull();
+    expect(within(dialog).queryAllByRole("link")).toHaveLength(0);
+
+    messages.mockResolvedValueOnce({
+      status: "ready",
+      items: [
+        {
+          seq: 10,
+          role: "user",
+          text: "更早的消息",
+          created_at: 1_700_000_700,
+          truncated: false,
+        },
+      ],
+      has_more: false,
+      next_before_seq: null,
+    });
+    await user.click(
+      within(dialog).getByRole("button", { name: "加载更早的文本" }),
+    );
+    await waitFor(() =>
+      expect(messages).toHaveBeenLastCalledWith("p1", "ts1", {
+        limit: 50,
+        beforeSeq: 11,
+      }),
+    );
+    expect(await within(dialog).findByText("更早的消息")).toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole("button", { name: "加载更早的文本" }),
+    ).toBeNull();
+
+    const nodes = Array.from(
+      dialog.querySelectorAll<HTMLElement>(
+        '[data-testid^="project-task-reader-text-"]',
+      ),
+    );
+    expect(nodes.map((node) => node.dataset.testid)).toEqual([
+      "project-task-reader-text-10",
+      "project-task-reader-text-11",
+      "project-task-reader-text-12",
+    ]);
+  });
+
+  it("drops a late text page after the reader dialog closes", async () => {
+    const { user } = await openSharedScope();
+    getOne.mockResolvedValue({ ...taskShared, can_read_text: true });
+    let resolveMessages: ((value: unknown) => void) | null = null;
+    messages.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveMessages = resolve)),
+    );
+
+    await user.click(screen.getByRole("button", { name: "被分享的周报" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "任务摘要（只读）",
+    });
+    await waitFor(() => expect(messages).toHaveBeenCalledTimes(1));
+
+    await user.click(within(dialog).getByRole("button", { name: /关\s*闭/ }));
+    await act(async () => {
+      resolveMessages?.({
+        status: "ready",
+        items: [
+          {
+            seq: 5,
+            role: "user",
+            text: "迟到私密文本",
+            created_at: 1_700_000_600,
+            truncated: false,
+          },
+        ],
+        has_more: false,
+        next_before_seq: null,
+      });
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByText("迟到私密文本")).toBeNull();
+    expect(screen.queryByTestId("project-task-reader-text")).toBeNull();
+    expect(
+      screen.queryByRole("dialog", { name: "任务摘要（只读）" }),
+    ).toBeNull();
+  });
+
+  it("clears cached text and the stale card when the text request 404s", async () => {
+    const user = userEvent.setup();
+    list.mockResolvedValueOnce(page([]));
+    renderTasks("p1");
+    await screen.findByText("还没有关联任务");
+
+    list
+      .mockResolvedValueOnce(page([taskShared]))
+      .mockResolvedValueOnce(page([]));
+    getOne.mockResolvedValue({ ...taskShared, can_read_text: true });
+    messages.mockRejectedValueOnce(
+      new Error('404 - {"error":{"code":"NOT_FOUND"}}'),
+    );
+
+    await user.click(screen.getByText("分享给我的"));
+    await screen.findByText("被分享的周报");
+    await user.click(screen.getByRole("button", { name: "被分享的周报" }));
+
+    await waitFor(() => expect(screen.queryByText("被分享的周报")).toBeNull());
+    expect(await screen.findByText("还没有分享给我的任务")).toBeInTheDocument();
+    expect(
+      screen.getByText("任务分享或文本权限已变化，列表已刷新。"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("dialog", { name: "任务摘要（只读）" }),
+    ).toBeNull();
+    expect(messages).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the card when only text access is revoked", async () => {
+    const user = userEvent.setup();
+    list.mockResolvedValueOnce(page([]));
+    renderTasks("p1");
+    await screen.findByText("还没有关联任务");
+
+    list
+      .mockResolvedValueOnce(page([taskShared]))
+      .mockResolvedValueOnce(page([{ ...taskShared, can_read_text: false }]));
+    getOne.mockResolvedValue({ ...taskShared, can_read_text: true });
+    messages.mockRejectedValueOnce(
+      new Error('404 - {"error":{"code":"NOT_FOUND"}}'),
+    );
+
+    await user.click(screen.getByText("分享给我的"));
+    await screen.findByText("被分享的周报");
+    await user.click(screen.getByRole("button", { name: "被分享的周报" }));
+
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(3));
+    expect(
+      screen.getByRole("button", { name: "被分享的周报" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("project-task-reader-text")).toBeNull();
+    expect(
+      screen.queryByRole("dialog", { name: "任务摘要（只读）" }),
+    ).toBeNull();
+  });
+
+  it("does not refetch or keep text when a reopened detail is card-only", async () => {
+    const { user } = await openSharedScope();
+    getOne.mockResolvedValueOnce({ ...taskShared, can_read_text: true });
+    messages.mockResolvedValueOnce({
+      status: "ready",
+      items: [
+        {
+          seq: 2,
+          role: "assistant",
+          text: "私密回复",
+          created_at: 1_700_000_800,
+          truncated: false,
+        },
+      ],
+      has_more: false,
+      next_before_seq: null,
+    });
+
+    await user.click(screen.getByRole("button", { name: "被分享的周报" }));
+    let dialog = await screen.findByRole("dialog", {
+      name: "任务摘要（只读）",
+    });
+    expect(await within(dialog).findByText("私密回复")).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: /关\s*闭/ }));
+    getOne.mockResolvedValueOnce({ ...taskShared, can_read_text: false });
+    await user.click(screen.getByRole("button", { name: "被分享的周报" }));
+    dialog = await screen.findByRole("dialog", { name: "任务摘要（只读）" });
+
+    await waitFor(() =>
+      expect(within(dialog).getByText("对话内容尚未共享")).toBeInTheDocument(),
+    );
+    expect(within(dialog).queryByText("私密回复")).toBeNull();
+    expect(messages).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("ProjectTasks owner sharing", () => {
@@ -765,14 +1115,21 @@ describe("ProjectTasks owner sharing", () => {
 
   it("grants and revokes reader access to selected members with confirmation", async () => {
     shares.mockResolvedValueOnce({
-      items: [{ user_id: 3, role: "reader", granted_at: 1_700_000_500 }],
+      items: [
+        {
+          user_id: 3,
+          role: "reader",
+          granted_at: 1_700_000_500,
+          can_read_text: false,
+        },
+      ],
     });
     const { user, dialog } = await openShareModal();
 
     await waitFor(() => expect(shares).toHaveBeenCalledWith("p1", "t1"));
     expect(
       within(dialog).getByText(
-        "目前只共享任务标题与卡片信息，正文和附件仍私密。",
+        "卡片分享仅开放摘要；对话文本需对每位接收者另行确认。附件仍私密。",
       ),
     ).toBeInTheDocument();
     expect(within(dialog).queryByText("alice")).toBeNull();
@@ -784,8 +1141,18 @@ describe("ProjectTasks owner sharing", () => {
 
     shares.mockResolvedValueOnce({
       items: [
-        { user_id: 3, role: "reader", granted_at: 1_700_000_500 },
-        { user_id: 4, role: "reader", granted_at: 1_700_000_600 },
+        {
+          user_id: 3,
+          role: "reader",
+          granted_at: 1_700_000_500,
+          can_read_text: false,
+        },
+        {
+          user_id: 4,
+          role: "reader",
+          granted_at: 1_700_000_600,
+          can_read_text: false,
+        },
       ],
     });
     await user.click(
@@ -802,6 +1169,8 @@ describe("ProjectTasks owner sharing", () => {
     expect(message.success).toHaveBeenCalledWith(
       "已分享给 carol；正文和附件仍私密。",
     );
+    // Sharing the card never grants conversation text on its own.
+    expect(grantText).not.toHaveBeenCalled();
     await waitFor(() => expect(shares).toHaveBeenCalledTimes(2));
 
     await user.click(screen.getByRole("button", { name: "撤回 bob 的分享" }));
@@ -857,13 +1226,167 @@ describe("ProjectTasks owner sharing", () => {
     await user.click(within(dialog).getByRole("button", { name: /关\s*闭/ }));
     await act(async () => {
       resolveShares?.({
-        items: [{ user_id: 3, role: "reader", granted_at: 1_700_000_500 }],
+        items: [
+          {
+            user_id: 3,
+            role: "reader",
+            granted_at: 1_700_000_500,
+            can_read_text: false,
+          },
+        ],
       });
       await Promise.resolve();
     });
 
     expect(screen.queryByRole("dialog", { name: "分享任务卡片" })).toBeNull();
     expect(screen.queryByText("撤回 bob 的分享")).toBeNull();
+  });
+
+  it("requires a separate confirmation before granting text to a shared member", async () => {
+    shares.mockResolvedValueOnce({
+      items: [
+        {
+          user_id: 3,
+          role: "reader",
+          granted_at: 1_700_000_500,
+          can_read_text: false,
+        },
+      ],
+    });
+    const { user, dialog } = await openShareModal();
+    await waitFor(() => expect(shares).toHaveBeenCalledWith("p1", "t1"));
+
+    expect(within(dialog).queryByText("可读文本")).toBeNull();
+    await user.click(
+      await within(dialog).findByRole("button", { name: "授予 bob 文本权限" }),
+    );
+    expect(
+      await screen.findByText(/允许 bob 查看本任务的历史与后续同步文本/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/文本可能包含用户粘贴的路径、链接或敏感内容/),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^取\s*消$/ }));
+    expect(grantText).not.toHaveBeenCalled();
+    expect(within(dialog).queryByText("可读文本")).toBeNull();
+  });
+
+  it("grants text only after the separate confirmation is accepted", async () => {
+    shares
+      .mockResolvedValueOnce({
+        items: [
+          {
+            user_id: 3,
+            role: "reader",
+            granted_at: 1_700_000_500,
+            can_read_text: false,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            user_id: 3,
+            role: "reader",
+            granted_at: 1_700_000_500,
+            can_read_text: true,
+          },
+        ],
+      });
+    const { user, dialog } = await openShareModal();
+    await waitFor(() => expect(shares).toHaveBeenCalledWith("p1", "t1"));
+
+    await user.click(
+      await within(dialog).findByRole("button", { name: "授予 bob 文本权限" }),
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "确认授予文本" }),
+    );
+
+    await waitFor(() => expect(grantText).toHaveBeenCalledWith("p1", "t1", 3));
+    await waitFor(() => expect(shares).toHaveBeenCalledTimes(2));
+    expect(await within(dialog).findByText("可读文本")).toBeInTheDocument();
+    expect(message.success).toHaveBeenCalledWith(
+      "已授予 bob 对话文本；附件、工具与思考过程仍私密。",
+    );
+  });
+
+  it("revokes text separately while the card share stays active", async () => {
+    shares.mockResolvedValueOnce({
+      items: [
+        {
+          user_id: 3,
+          role: "reader",
+          granted_at: 1_700_000_500,
+          can_read_text: true,
+        },
+      ],
+    });
+    const { user, dialog } = await openShareModal();
+    expect(await within(dialog).findByText("可读文本")).toBeInTheDocument();
+
+    shares.mockResolvedValueOnce({
+      items: [
+        {
+          user_id: 3,
+          role: "reader",
+          granted_at: 1_700_000_500,
+          can_read_text: false,
+        },
+      ],
+    });
+    await user.click(
+      within(dialog).getByRole("button", { name: "撤回 bob 的文本权限" }),
+    );
+    expect(
+      await screen.findByText(
+        "撤回后 bob 将不再看到对话文本，但任务卡片分享仍保留。",
+      ),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "确认撤回文本" }));
+
+    await waitFor(() => expect(revokeText).toHaveBeenCalledWith("p1", "t1", 3));
+    expect(revoke).not.toHaveBeenCalled();
+    await waitFor(() => expect(shares).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(within(dialog).queryByText("可读文本")).toBeNull(),
+    );
+    expect(within(dialog).getByText("已分享")).toBeInTheDocument();
+    expect(message.success).toHaveBeenCalledWith(
+      "已撤回 bob 的文本权限；卡片分享仍保留。",
+    );
+  });
+
+  it("clears text controls as soon as the card share is revoked", async () => {
+    shares.mockResolvedValueOnce({
+      items: [
+        {
+          user_id: 3,
+          role: "reader",
+          granted_at: 1_700_000_500,
+          can_read_text: true,
+        },
+      ],
+    });
+    const { user, dialog } = await openShareModal();
+    expect(await within(dialog).findByText("可读文本")).toBeInTheDocument();
+
+    shares.mockResolvedValueOnce({ items: [] });
+    await user.click(
+      within(dialog).getByRole("button", { name: "撤回 bob 的分享" }),
+    );
+    await user.click(await screen.findByRole("button", { name: "确认撤回" }));
+
+    await waitFor(() => expect(revoke).toHaveBeenCalledWith("p1", "t1", 3));
+    await waitFor(() => expect(shares).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(within(dialog).queryByText("可读文本")).toBeNull(),
+    );
+    expect(
+      within(dialog).queryByRole("button", { name: "撤回 bob 的文本权限" }),
+    ).toBeNull();
+    expect(grantText).not.toHaveBeenCalled();
   });
 });
 

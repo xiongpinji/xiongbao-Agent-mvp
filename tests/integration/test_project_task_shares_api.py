@@ -34,8 +34,9 @@ _SUMMARY_KEYS = {
     "last_active",
     "created_at",
     "access",
+    "can_read_text",
 }
-_SHARE_KEYS = {"user_id", "role", "granted_at"}
+_SHARE_KEYS = {"user_id", "role", "granted_at", "can_read_text"}
 
 
 async def _base(env: Any) -> dict[str, Any]:
@@ -272,8 +273,9 @@ async def test_share_management_is_task_owner_only(env_with_provider: Any) -> No
     body = r.json()
     assert set(body) == {"items"}
     assert len(body["items"]) == 1
-    assert set(body["items"][0]) == _SHARE_KEYS
+    assert set(body["items"][0]) == _SHARE_KEYS | {"can_read_text"}
     assert body["items"][0]["user_id"] == ctx["recipient_uid"]
+    assert body["items"][0]["can_read_text"] is False
 
 
 async def test_scope_own_shared_all_and_invalid_scope(env_with_provider: Any) -> None:

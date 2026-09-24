@@ -5,9 +5,11 @@ const { request } = vi.hoisted(() => ({ request: vi.fn() }));
 vi.mock("../request", () => ({ request }));
 
 import {
+  PROJECT_TASK_MESSAGE_PAGE_SIZE,
   PROJECT_TASKS_PAGE_SIZE,
   projectTasksApi,
   type ProjectTask,
+  type ProjectTaskMessagesResponse,
   type ProjectTaskShare,
 } from "./projectTasks";
 
@@ -21,12 +23,14 @@ const task: ProjectTask = {
   last_active: 1_700_000_100,
   created_at: 1_700_000_000,
   access: "owner",
+  can_read_text: true,
 };
 
 const share: ProjectTaskShare = {
   user_id: 7,
   role: "reader",
   granted_at: 1_700_000_500,
+  can_read_text: false,
 };
 
 beforeEach(() => {
@@ -83,14 +87,82 @@ describe("projectTasksApi against the PS-05B-1 contract", () => {
     });
   });
 
-  it("lists active shares from the envelope with only user_id/role/granted_at", () => {
+  it("lists active shares from the envelope with only user_id/role/granted_at/can_read_text", () => {
     projectTasksApi.shares("p1", "t 1/2");
 
     expect(request).toHaveBeenCalledWith("/projects/p1/tasks/t%201%2F2/shares");
     expect(Object.keys(share).sort()).toEqual([
+      "can_read_text",
       "granted_at",
       "role",
       "user_id",
+    ]);
+    expect(share.can_read_text).toBe(false);
+  });
+
+  it("grants text through the separate route with an empty body", () => {
+    projectTasksApi.grantText("p1", "t 1/2", 7);
+
+    expect(request).toHaveBeenCalledWith(
+      "/projects/p1/tasks/t%201%2F2/shares/7/text",
+      { method: "POST" },
+    );
+    expect(request.mock.calls[0][1]).not.toHaveProperty("body");
+  });
+
+  it("revokes text separately from the card share", () => {
+    projectTasksApi.revokeText("p1", "t1", 7);
+
+    expect(request).toHaveBeenCalledWith(
+      "/projects/p1/tasks/t1/shares/7/text",
+      {
+        method: "DELETE",
+      },
+    );
+    expect(request.mock.calls[0][1]).not.toHaveProperty("body");
+  });
+
+  it("reads a text page with the contract default limit and optional before_seq cursor", () => {
+    projectTasksApi.messages("p1", "t1");
+
+    expect(request).toHaveBeenLastCalledWith(
+      "/projects/p1/tasks/t1/messages?limit=50",
+    );
+
+    projectTasksApi.messages("p1", "t 1/2", { limit: 10, beforeSeq: 11 });
+    expect(request).toHaveBeenLastCalledWith(
+      "/projects/p1/tasks/t%201%2F2/messages?limit=10&before_seq=11",
+    );
+  });
+
+  it("keeps the text page DTO to the contract fields", () => {
+    const response: ProjectTaskMessagesResponse = {
+      status: "ready",
+      items: [
+        {
+          seq: 9,
+          role: "user",
+          text: "正文",
+          created_at: 1_700_000_700,
+          truncated: false,
+        },
+      ],
+      has_more: false,
+      next_before_seq: null,
+    };
+
+    expect(Object.keys(response).sort()).toEqual([
+      "has_more",
+      "items",
+      "next_before_seq",
+      "status",
+    ]);
+    expect(Object.keys(response.items[0]).sort()).toEqual([
+      "created_at",
+      "role",
+      "seq",
+      "text",
+      "truncated",
     ]);
   });
 
@@ -116,16 +188,18 @@ describe("projectTasksApi against the PS-05B-1 contract", () => {
     });
   });
 
-  it("keeps the default page size within the contract cap", () => {
+  it("keeps the default page sizes within the contract cap", () => {
     expect(PROJECT_TASKS_PAGE_SIZE).toBeLessThanOrEqual(100);
     expect(PROJECT_TASKS_PAGE_SIZE).toBeGreaterThan(0);
+    expect(PROJECT_TASK_MESSAGE_PAGE_SIZE).toBe(50);
   });
 
-  it("exposes only the safe summary fields plus access on the task surface", () => {
+  it("exposes only the safe summary fields plus access and can_read_text", () => {
     const keys = Object.keys(task).sort();
     expect(keys).toEqual([
       "access",
       "agent_id",
+      "can_read_text",
       "created_at",
       "last_active",
       "owner_user_id",
@@ -135,5 +209,6 @@ describe("projectTasksApi against the PS-05B-1 contract", () => {
       "title",
     ]);
     expect(task.access).toBe("owner");
+    expect(task.can_read_text).toBe(true);
   });
 });

@@ -1,15 +1,15 @@
 /**
- * ProjectTasks — PS-05 first slice + PS-05B-1 task-card sharing.
+ * ProjectTasks — PS-05 attribution + PS-05B card and opt-in text sharing.
  *
- * Honest card-level sharing of the 024 contract:
+ * Scoped project task sharing:
  * - scope tabs map 1:1 to the server-filtered query (`own` / `shared` /
  *   `all`); "all" is only the caller's own tasks plus cards explicitly
  *   shared with them, never every project task and never a client filter;
  * - owners keep the existing `/chat/{agent}/{thread}` deep link, can detach
  *   and can grant/revoke reader access per task to individual members;
- * - reader cards (`access === "reader"`) open a project-local read-only
- *   summary (re-checked on the server) and never expose a `/chat`, history,
- *   artifact, media, workspace or execution link;
+ * - reader cards (`access === "reader"`) open project-local read-only detail.
+ *   A separate owner grant can add safe projected text, but never `/chat`,
+ *   raw history, artifact, media, workspace or execution links;
  * - local/cloud execution, transfer and collaborative writing stay visibly
  *   disabled until their backend ACL exists (PS-05B-2/3, PS-05C, PS-08).
  *
@@ -51,9 +51,12 @@ import {
 } from "../../api/modules/octopThreads";
 import type { ProjectMember } from "../../api/modules/projects";
 import {
+  PROJECT_TASK_MESSAGE_PAGE_SIZE,
   PROJECT_TASKS_PAGE_SIZE,
   projectTasksApi,
   type ProjectTask,
+  type ProjectTaskMessage,
+  type ProjectTaskMessagesStatus,
   type ProjectTaskScope,
   type ProjectTaskShare,
 } from "../../api/modules/projectTasks";
@@ -74,6 +77,19 @@ const { Text } = Typography;
  * recent threads for one expert — never a complete, searchable history.
  */
 export const TASK_CANDIDATE_LIMIT = 50;
+
+/**
+ * Reader text cache. Keyed by `thread_id` so a late response or a project
+ * switch can never render another task's private text, and cleared whenever
+ * the dialog closes or a fresh detail revokes text access.
+ */
+interface ReaderMessages {
+  threadId: string;
+  status: ProjectTaskMessagesStatus;
+  items: ProjectTaskMessage[];
+  hasMore: boolean;
+  nextBeforeSeq: number | null;
+}
 
 /** Only the caller's own Dashboard DM threads are linkable candidates. */
 export function isDashboardDmCandidate(thread: OctopThread): boolean {
@@ -112,6 +128,8 @@ interface Props {
 
 export default function ProjectTasks({ projectId, members }: Props) {
   const { t } = useTranslation();
+  const translationRef = useRef(t);
+  translationRef.current = t;
   const timezone = useServerTimezone();
   const { agents, activeAgentId } = useAgent();
 
@@ -152,10 +170,18 @@ export default function ProjectTasks({ projectId, members }: Props) {
   const [sharesReloadKey, setSharesReloadKey] = useState(0);
   const [shareBusyUserId, setShareBusyUserId] = useState<number | null>(null);
   const [shareActionError, setShareActionError] = useState<string | null>(null);
+  const [readerMessages, setReaderMessages] = useState<ReaderMessages | null>(
+    null,
+  );
+  const [messagesMoreLoading, setMessagesMoreLoading] = useState(false);
+  const [messagesError, setMessagesError] = useState<unknown>(null);
+  const [messagesMoreError, setMessagesMoreError] = useState<unknown>(null);
+  const [messagesReloadKey, setMessagesReloadKey] = useState(0);
   /** Monotonic guards so late responses never overwrite fresher results. */
   const fetchSeq = useRef(0);
   const candidateSeq = useRef(0);
   const readerSeq = useRef(0);
+  const messagesSeq = useRef(0);
   const sharesSeq = useRef(0);
   const currentProjectId = useRef(projectId);
   currentProjectId.current = projectId;
@@ -210,11 +236,41 @@ export default function ProjectTasks({ projectId, members }: Props) {
   }, []);
   const closeReader = useCallback(() => {
     readerSeq.current += 1;
+    messagesSeq.current += 1;
     setReaderTarget(null);
     setReaderDetail(null);
     setReaderError(null);
     setReaderLoading(false);
+    setReaderMessages(null);
+    setMessagesMoreLoading(false);
+    setMessagesError(null);
+    setMessagesMoreError(null);
   }, []);
+
+  /**
+   * A detail or text 404 may mean either the card was removed or only the
+   * separate text grant was revoked. Clear private text immediately and let
+   * the authoritative list decide whether the card remains visible.
+   */
+  const resetReaderAccess = useCallback(() => {
+    readerSeq.current += 1;
+    messagesSeq.current += 1;
+    setReaderTarget(null);
+    setReaderDetail(null);
+    setReaderError(null);
+    setReaderLoading(false);
+    setReaderMessages(null);
+    setMessagesMoreLoading(false);
+    setMessagesError(null);
+    setMessagesMoreError(null);
+    setActionError(
+      translationRef.current(
+        "projects.tasks.readerRevoked",
+        "任务分享或文本权限已变化，列表已刷新。",
+      ),
+    );
+    reload();
+  }, [reload]);
   const closeShare = useCallback(() => {
     sharesSeq.current += 1;
     setShareTarget(null);
@@ -329,6 +385,99 @@ export default function ProjectTasks({ projectId, members }: Props) {
       });
   }, [projectId, shareTarget, sharesReloadKey]);
 
+  // Text is only fetched after a fresh detail says `can_read_text`; a card-only
+  // reader must never hit the messages route. The card detail is the
+  // authorization source, never the list row the reader clicked.
+  useEffect(() => {
+    if (readerTarget == null || readerDetail == null) return;
+    if (readerDetail.project_id !== projectId) return;
+    if (readerDetail.thread_id !== readerTarget.thread_id) return;
+    if (!readerDetail.can_read_text) {
+      messagesSeq.current += 1;
+      setReaderMessages(null);
+      setMessagesMoreLoading(false);
+      setMessagesError(null);
+      setMessagesMoreError(null);
+      return;
+    }
+    const threadId = readerDetail.thread_id;
+    const seq = ++messagesSeq.current;
+    setMessagesMoreLoading(false);
+    setMessagesError(null);
+    setMessagesMoreError(null);
+    projectTasksApi
+      .messages(projectId, threadId, {
+        limit: PROJECT_TASK_MESSAGE_PAGE_SIZE,
+      })
+      .then((data) => {
+        if (seq !== messagesSeq.current) return;
+        if (projectId !== currentProjectId.current) return;
+        setReaderMessages({
+          threadId,
+          status: data.status,
+          items: data.items,
+          hasMore: data.has_more,
+          nextBeforeSeq: data.next_before_seq,
+        });
+      })
+      .catch((err: unknown) => {
+        if (seq !== messagesSeq.current) return;
+        if (projectId !== currentProjectId.current) return;
+        if (isNotFoundApiError(err)) {
+          resetReaderAccess();
+        } else {
+          setReaderMessages(null);
+          setMessagesError(err);
+        }
+      });
+  }, [
+    projectId,
+    readerTarget,
+    readerDetail,
+    messagesReloadKey,
+    resetReaderAccess,
+  ]);
+
+  const loadOlderMessages = async () => {
+    if (readerMessages == null) return;
+    const threadId = readerMessages.threadId;
+    const beforeSeq = readerMessages.nextBeforeSeq;
+    if (!readerMessages.hasMore || beforeSeq == null) return;
+    const seq = ++messagesSeq.current;
+    setMessagesMoreLoading(true);
+    setMessagesMoreError(null);
+    try {
+      const data = await projectTasksApi.messages(projectId, threadId, {
+        limit: PROJECT_TASK_MESSAGE_PAGE_SIZE,
+        beforeSeq,
+      });
+      if (seq !== messagesSeq.current) return;
+      if (projectId !== currentProjectId.current) return;
+      setReaderMessages((previous) => {
+        if (previous == null || previous.threadId !== threadId) return previous;
+        const seen = new Set(previous.items.map((item) => item.seq));
+        const older = data.items.filter((item) => !seen.has(item.seq));
+        return {
+          threadId,
+          status: data.status,
+          items: [...previous.items, ...older],
+          hasMore: data.has_more,
+          nextBeforeSeq: data.next_before_seq,
+        };
+      });
+    } catch (err: unknown) {
+      if (seq !== messagesSeq.current) return;
+      if (projectId !== currentProjectId.current) return;
+      if (isNotFoundApiError(err)) {
+        resetReaderAccess();
+      } else {
+        setMessagesMoreError(err);
+      }
+    } finally {
+      if (seq === messagesSeq.current) setMessagesMoreLoading(false);
+    }
+  };
+
   const linkTask = async (thread: OctopThread) => {
     setBusyThreadIds((previous) => [...previous, thread.thread_id]);
     setActionError(null);
@@ -407,10 +556,15 @@ export default function ProjectTasks({ projectId, members }: Props) {
 
   const openReader = (task: ProjectTask) => {
     const seq = ++readerSeq.current;
+    messagesSeq.current += 1;
     setReaderTarget(task);
     setReaderDetail(null);
     setReaderError(null);
     setReaderLoading(true);
+    setReaderMessages(null);
+    setMessagesMoreLoading(false);
+    setMessagesError(null);
+    setMessagesMoreError(null);
     projectTasksApi
       .get(projectId, task.thread_id)
       .then((detail) => {
@@ -425,20 +579,7 @@ export default function ProjectTasks({ projectId, members }: Props) {
         if (isNotFoundApiError(err)) {
           // Access revoked or card removed server-side: drop the stale card
           // and refresh the authoritative list instead of showing old data.
-          readerSeq.current += 1;
-          setReaderTarget(null);
-          setReaderDetail(null);
-          setReaderLoading(false);
-          setTasks((previous) =>
-            previous.filter((item) => item.thread_id !== task.thread_id),
-          );
-          setActionError(
-            t(
-              "projects.tasks.readerRevoked",
-              "该任务已不再分享给你，卡片已从列表移除。",
-            ),
-          );
-          reload();
+          resetReaderAccess();
         } else {
           setReaderError(err);
         }
@@ -514,6 +655,13 @@ export default function ProjectTasks({ projectId, members }: Props) {
       await projectTasksApi.revoke(projectId, threadId, userId);
       if (projectId !== currentProjectId.current) return;
       if (shareTarget.thread_id !== threadId) return;
+      // A revoked card drops its text grant too: clear that UI immediately,
+      // then reconcile with the authoritative list.
+      setShares((previous) =>
+        previous == null
+          ? previous
+          : previous.filter((grant) => grant.user_id !== userId),
+      );
       void message.success(
         t("projects.tasks.shareRevokeSuccess", "已撤回 {{name}} 的分享。", {
           name: username,
@@ -540,6 +688,116 @@ export default function ProjectTasks({ projectId, members }: Props) {
           apiErrorMessage(
             err,
             t("projects.tasks.shareRevokeFailed", "撤回分享失败"),
+            t,
+          ),
+        );
+      }
+    } finally {
+      setShareBusyUserId(null);
+    }
+  };
+
+  const grantText = async (userId: number, username: string) => {
+    if (shareTarget == null) return;
+    const threadId = shareTarget.thread_id;
+    setShareBusyUserId(userId);
+    setShareActionError(null);
+    try {
+      await projectTasksApi.grantText(projectId, threadId, userId);
+      if (projectId !== currentProjectId.current) return;
+      if (shareTarget.thread_id !== threadId) return;
+      setShares((previous) =>
+        previous == null
+          ? previous
+          : previous.map((grant) =>
+              grant.user_id === userId
+                ? { ...grant, can_read_text: true }
+                : grant,
+            ),
+      );
+      void message.success(
+        t(
+          "projects.tasks.shareTextGrantSuccess",
+          "已授予 {{name}} 对话文本；附件、工具与思考过程仍私密。",
+          { name: username },
+        ),
+      );
+      reloadShares();
+    } catch (err: unknown) {
+      if (projectId !== currentProjectId.current) return;
+      if (shareTarget.thread_id !== threadId) return;
+      if (isNotFoundApiError(err)) {
+        closeShare();
+        setTasks((previous) =>
+          previous.filter((item) => item.thread_id !== threadId),
+        );
+        setActionError(
+          t(
+            "projects.tasks.shareTargetGone",
+            "任务或成员状态已变化，分享失败；列表已刷新。",
+          ),
+        );
+        reload();
+      } else {
+        setShareActionError(
+          apiErrorMessage(
+            err,
+            t("projects.tasks.shareTextGrantFailed", "授予文本失败"),
+            t,
+          ),
+        );
+      }
+    } finally {
+      setShareBusyUserId(null);
+    }
+  };
+
+  const revokeText = async (userId: number, username: string) => {
+    if (shareTarget == null) return;
+    const threadId = shareTarget.thread_id;
+    setShareBusyUserId(userId);
+    setShareActionError(null);
+    try {
+      await projectTasksApi.revokeText(projectId, threadId, userId);
+      if (projectId !== currentProjectId.current) return;
+      if (shareTarget.thread_id !== threadId) return;
+      setShares((previous) =>
+        previous == null
+          ? previous
+          : previous.map((grant) =>
+              grant.user_id === userId
+                ? { ...grant, can_read_text: false }
+                : grant,
+            ),
+      );
+      void message.success(
+        t(
+          "projects.tasks.shareTextRevokeSuccess",
+          "已撤回 {{name}} 的文本权限；卡片分享仍保留。",
+          { name: username },
+        ),
+      );
+      reloadShares();
+    } catch (err: unknown) {
+      if (projectId !== currentProjectId.current) return;
+      if (shareTarget.thread_id !== threadId) return;
+      if (isNotFoundApiError(err)) {
+        closeShare();
+        setTasks((previous) =>
+          previous.filter((item) => item.thread_id !== threadId),
+        );
+        setActionError(
+          t(
+            "projects.tasks.shareTargetGone",
+            "任务或成员状态已变化，分享失败；列表已刷新。",
+          ),
+        );
+        reload();
+      } else {
+        setShareActionError(
+          apiErrorMessage(
+            err,
+            t("projects.tasks.shareTextRevokeFailed", "撤回文本权限失败"),
             t,
           ),
         );
@@ -596,7 +854,7 @@ export default function ProjectTasks({ projectId, members }: Props) {
     scope === "own"
       ? t(
           "projects.tasks.privacyHintOwn",
-          "项目任务默认私密：你只会看到自己关联的任务；正文与附件不会被共享。",
+          "项目任务默认私密；卡片与对话文本都需任务本人分别授权给指定成员，附件仍私密。",
         )
       : scope === "all"
       ? t(
@@ -605,7 +863,7 @@ export default function ProjectTasks({ projectId, members }: Props) {
         )
       : t(
           "projects.tasks.privacyHintShared",
-          "只读视图：这些卡片由任务所有者分享，正文、附件与运行流仍只对所有者可见。",
+          "只读视图：卡片由任务本人分享；对话文本需单独授权，附件与运行流仍私密。",
         );
 
   const renderTask = (task: ProjectTask) => {
@@ -932,7 +1190,7 @@ export default function ProjectTasks({ projectId, members }: Props) {
           title={t("projects.tasks.emptySharedTitle", "还没有分享给我的任务")}
           description={t(
             "projects.tasks.emptySharedHint",
-            "任务所有者需要显式分享卡片摘要；正文和附件仍私密。",
+            "任务本人需先显式分享卡片；对话文本还需单独授权，附件仍私密。",
           )}
         />
       ) : (
@@ -948,7 +1206,7 @@ export default function ProjectTasks({ projectId, members }: Props) {
               ? t("projects.tasks.emptySearchHint", "换个关键词，或清除搜索。")
               : t(
                   "projects.tasks.emptyHint",
-                  "关联一条你已有的 Dashboard 对话，把它归属到项目；对话内容仍只对你可见。",
+                  "关联一条已有的 Dashboard 对话，归属到项目；默认仅本人可见，随后可分别授权卡片与文本。",
                 )
           }
           actionLabel={
@@ -999,10 +1257,84 @@ export default function ProjectTasks({ projectId, members }: Props) {
       : (members ?? []).filter(
           (member) => member.user_id !== shareTarget.owner_user_id,
         );
-  const grantedIds = useMemo(
-    () => new Set((shares ?? []).map((grant) => grant.user_id)),
+  const grantsByUserId = useMemo(
+    () =>
+      new Map(
+        (shares ?? []).map((grant): [number, ProjectTaskShare] => [
+          grant.user_id,
+          grant,
+        ]),
+      ),
     [shares],
   );
+
+  /**
+   * Separate text controls for an already card-shared member. Granting text
+   * always goes through its own confirmation that names the sensitive-content,
+   * archive-history and attachment limits; card sharing itself never flips
+   * `can_read_text`.
+   */
+  const renderTextGrantAction = (grant: ProjectTaskShare, name: string) => {
+    const busy = shareBusyUserId !== null;
+    if (grant.can_read_text) {
+      return (
+        <>
+          <Tag color="gold" style={{ marginInlineEnd: 0 }}>
+            {t("projects.tasks.shareTextCanReadTag", "可读文本")}
+          </Tag>
+          <Popconfirm
+            title={t(
+              "projects.tasks.shareTextRevokeConfirm",
+              "撤回后 {{name}} 将不再看到对话文本，但任务卡片分享仍保留。",
+              { name },
+            )}
+            okText={t("projects.tasks.shareTextRevokeOk", "确认撤回文本")}
+            cancelText={t("common.cancel", "取消")}
+            okButtonProps={{ danger: true }}
+            onConfirm={() => void revokeText(grant.user_id, name)}
+          >
+            <Button
+              size="small"
+              disabled={busy}
+              loading={shareBusyUserId === grant.user_id}
+              aria-label={t(
+                "projects.tasks.shareTextRevokeNamed",
+                "撤回 {{name}} 的文本权限",
+                { name },
+              )}
+            >
+              {t("projects.tasks.shareTextRevoke", "撤回文本")}
+            </Button>
+          </Popconfirm>
+        </>
+      );
+    }
+    return (
+      <Popconfirm
+        title={t(
+          "projects.tasks.shareTextGrantConfirm",
+          "允许 {{name}} 查看本任务的历史与后续同步文本？文本可能包含用户粘贴的路径、链接或敏感内容；附件、工具与思考过程仍私密。版本化历史存储暂不提供正文，界面会显示待支持/未同步，不能保证所有记录都可见。",
+          { name },
+        )}
+        okText={t("projects.tasks.shareTextGrantOk", "确认授予文本")}
+        cancelText={t("common.cancel", "取消")}
+        onConfirm={() => void grantText(grant.user_id, name)}
+      >
+        <Button
+          size="small"
+          disabled={busy}
+          loading={shareBusyUserId === grant.user_id}
+          aria-label={t(
+            "projects.tasks.shareTextGrantNamed",
+            "授予 {{name}} 文本权限",
+            { name },
+          )}
+        >
+          {t("projects.tasks.shareTextGrant", "授予文本")}
+        </Button>
+      </Popconfirm>
+    );
+  };
 
   const renderGranteeRows = (
     grants: ProjectTaskShare[],
@@ -1024,36 +1356,219 @@ export default function ProjectTasks({ projectId, members }: Props) {
             <span style={{ fontSize: 13, wordBreak: "break-word" }}>
               {name}
             </span>
-            <Popconfirm
-              title={t(
-                "projects.tasks.shareRevokeConfirm",
-                "撤回后 {{name}} 将不再看到这张任务卡片。",
-                { name },
-              )}
-              okText={t("projects.tasks.shareRevokeOk", "确认撤回")}
-              cancelText={t("common.cancel", "取消")}
-              okButtonProps={{ danger: true }}
-              onConfirm={() => void revokeShare(grant.user_id, name)}
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                flexWrap: "wrap",
+              }}
             >
-              <Button
-                size="small"
-                danger
-                disabled={busy}
-                loading={shareBusyUserId === grant.user_id}
-                aria-label={t(
-                  "projects.tasks.shareRevokeNamed",
-                  "撤回 {{name}} 的分享",
+              {renderTextGrantAction(grant, name)}
+              <Popconfirm
+                title={t(
+                  "projects.tasks.shareRevokeConfirm",
+                  "撤回后 {{name}} 将不再看到这张任务卡片。",
                   { name },
                 )}
+                okText={t("projects.tasks.shareRevokeOk", "确认撤回")}
+                cancelText={t("common.cancel", "取消")}
+                okButtonProps={{ danger: true }}
+                onConfirm={() => void revokeShare(grant.user_id, name)}
               >
-                {t("projects.tasks.shareRevoke", "撤回分享")}
-              </Button>
-            </Popconfirm>
+                <Button
+                  size="small"
+                  danger
+                  disabled={busy}
+                  loading={shareBusyUserId === grant.user_id}
+                  aria-label={t(
+                    "projects.tasks.shareRevokeNamed",
+                    "撤回 {{name}} 的分享",
+                    { name },
+                  )}
+                >
+                  {t("projects.tasks.shareRevoke", "撤回分享")}
+                </Button>
+              </Popconfirm>
+            </span>
           </div>
         );
       })}
     </div>
   );
+
+  const orderedReaderMessages =
+    readerMessages == null
+      ? null
+      : [...readerMessages.items].sort((a, b) => a.seq - b.seq);
+  const hasReaderMessages =
+    orderedReaderMessages != null && orderedReaderMessages.length > 0;
+
+  const readerTextBody: React.ReactNode = (() => {
+    if (readerMessages == null) {
+      if (messagesError != null) {
+        return (
+          <Alert
+            type="error"
+            showIcon
+            message={apiErrorMessage(
+              messagesError,
+              t("projects.tasks.readerTextLoadFailed", "加载对话文本失败"),
+              t,
+            )}
+            action={
+              <Button
+                size="small"
+                onClick={() => setMessagesReloadKey((key) => key + 1)}
+              >
+                {t("common.retry", "重试")}
+              </Button>
+            }
+          />
+        );
+      }
+      return (
+        <div style={{ display: "flex", justifyContent: "center", padding: 24 }}>
+          <Spin />
+        </div>
+      );
+    }
+    if (readerMessages.status === "pending") {
+      return (
+        <Alert
+          type="warning"
+          showIcon
+          message={t(
+            "projects.tasks.readerTextPendingTitle",
+            "对话文本暂不可读",
+          )}
+          description={t(
+            "projects.tasks.readerTextPendingHint",
+            "文本尚未同步，或该任务使用了本片暂不支持的版本化历史存储；这不代表对话为空。",
+          )}
+        />
+      );
+    }
+    return (
+      <>
+        <div style={{ ...secondaryStyle, marginBottom: 8 }}>
+          {t(
+            "projects.tasks.readerTextPrivacyHint",
+            "以纯文本只读显示；不解析 Markdown/HTML，也不自动加载链接或图片。",
+          )}
+        </div>
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={t(
+            "projects.tasks.readerTextOmitted",
+            "仅显示已支持且已完成投影的纯文本；部分非文本或超大消息未显示，这里不是完整历史。",
+          )}
+        />
+        {hasReaderMessages ? (
+          <div
+            data-testid="project-task-reader-text"
+            aria-label={t("projects.tasks.readerTextTitle", "对话文本（只读）")}
+            style={{
+              maxHeight: 360,
+              overflowY: "auto",
+              display: "flex",
+              flexDirection: "column",
+              gap: 10,
+              marginBottom: 12,
+            }}
+          >
+            {orderedReaderMessages.map((item) => (
+              <div
+                key={item.seq}
+                data-testid={`project-task-reader-text-${item.seq}`}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    flexWrap: "wrap",
+                    marginBottom: 2,
+                  }}
+                >
+                  <Tag style={{ marginInlineEnd: 0 }}>
+                    {item.role === "user"
+                      ? t("projects.tasks.readerRoleUser", "任务所有者")
+                      : t("projects.tasks.readerRoleAssistant", "助手")}
+                  </Tag>
+                  <span style={secondaryStyle}>
+                    {formatServerDateTime(item.created_at, timezone)}
+                  </span>
+                  {item.truncated && (
+                    <Tag color="orange" style={{ marginInlineEnd: 0 }}>
+                      {t(
+                        "projects.tasks.readerTextTruncated",
+                        "内容过长，已截断显示",
+                      )}
+                    </Tag>
+                  )}
+                </div>
+                <div
+                  style={{
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    fontSize: 13,
+                    lineHeight: 1.6,
+                  }}
+                >
+                  {item.text}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div
+            data-testid="project-task-reader-text-empty"
+            style={{ ...secondaryStyle, padding: "12px 0" }}
+          >
+            <div>
+              {t("projects.tasks.readerTextEmpty", "没有可显示的文本消息。")}
+            </div>
+            <div>
+              {t(
+                "projects.tasks.readerTextEmptyHint",
+                "该任务可能只有非文本内容，或文本尚未同步。",
+              )}
+            </div>
+          </div>
+        )}
+        {readerMessages.hasMore && readerMessages.nextBeforeSeq != null ? (
+          <div style={{ textAlign: "center" }}>
+            <Button
+              loading={messagesMoreLoading}
+              onClick={() => void loadOlderMessages()}
+            >
+              {t("projects.tasks.readerTextLoadMore", "加载更早的文本")}
+            </Button>
+          </div>
+        ) : null}
+        {messagesMoreError != null && (
+          <Alert
+            type="error"
+            showIcon
+            style={{ marginTop: 12 }}
+            message={apiErrorMessage(
+              messagesMoreError,
+              t("projects.tasks.readerTextLoadFailed", "加载对话文本失败"),
+              t,
+            )}
+            action={
+              <Button size="small" onClick={() => void loadOlderMessages()}>
+                {t("common.retry", "重试")}
+              </Button>
+            }
+          />
+        )}
+      </>
+    );
+  })();
 
   const shareBody: React.ReactNode =
     shareTarget == null ? null : members == null ? (
@@ -1127,7 +1642,7 @@ export default function ProjectTasks({ projectId, members }: Props) {
           {t("projects.tasks.shareMembersHeading", "项目成员")}
         </div>
         {shareMembers.map((member) => {
-          const granted = grantedIds.has(member.user_id);
+          const grant = grantsByUserId.get(member.user_id);
           const busy = shareBusyUserId !== null;
           const role = projectRoleTag(member.role);
           return (
@@ -1151,17 +1666,19 @@ export default function ProjectTasks({ projectId, members }: Props) {
                   {t(role.labelKey, role.fallback)}
                 </Tag>
               </span>
-              {granted ? (
+              {grant != null ? (
                 <span
                   style={{
                     display: "inline-flex",
                     alignItems: "center",
                     gap: 6,
+                    flexWrap: "wrap",
                   }}
                 >
                   <Tag color="green" style={{ marginInlineEnd: 0 }}>
                     {t("projects.tasks.shareGrantedTag", "已分享")}
                   </Tag>
+                  {renderTextGrantAction(grant, member.username)}
                   <Popconfirm
                     title={t(
                       "projects.tasks.shareRevokeConfirm",
@@ -1258,7 +1775,7 @@ export default function ProjectTasks({ projectId, members }: Props) {
                 <span
                   title={t(
                     "projects.tasks.scopeSharedHint",
-                    "分享给我的任务卡片为只读；正文与附件仍私密。",
+                    "分享给我的任务为只读；对话文本需任务本人另行授权，附件仍私密。",
                   )}
                 >
                   {t("projects.tasks.scopeShared", "分享给我的")}
@@ -1339,7 +1856,7 @@ export default function ProjectTasks({ projectId, members }: Props) {
         <Text type="secondary" style={{ fontSize: 12 }}>
           {t(
             "projects.tasks.shareCardHint",
-            "共享在每张任务卡片上进行：只把标题与卡片信息分享给指定成员，正文和附件仍私密。",
+            "卡片分享仅开放摘要；任务本人可再单独授权指定成员只读对话文本。附件仍私密。",
           )}
         </Text>
         <Text type="secondary" style={{ fontSize: 12 }}>
@@ -1458,19 +1975,23 @@ export default function ProjectTasks({ projectId, members }: Props) {
             />
           ) : (
             <>
-              <Alert
-                type="info"
-                showIcon
-                style={{ marginBottom: 12 }}
-                message={t(
-                  "projects.tasks.readerNoBodyTitle",
-                  "对话内容尚未共享",
-                )}
-                description={t(
-                  "projects.tasks.readerNoBodyHint",
-                  "这里只显示任务摘要；正文、附件、工作区文件与运行流仍只对任务所有者可见。",
-                )}
-              />
+              {readerDetail?.can_read_text ? (
+                readerTextBody
+              ) : (
+                <Alert
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 12 }}
+                  message={t(
+                    "projects.tasks.readerNoBodyTitle",
+                    "对话内容尚未共享",
+                  )}
+                  description={t(
+                    "projects.tasks.readerNoBodyHint",
+                    "这里只显示任务摘要；正文、附件、工作区文件与运行流仍只对任务所有者可见。",
+                  )}
+                />
+              )}
               <div style={rowStyle}>
                 <span style={secondaryStyle}>
                   {t("projects.tasks.readerOwnerLabel", "任务所有者")}
@@ -1532,12 +2053,18 @@ export default function ProjectTasks({ projectId, members }: Props) {
           <Alert
             type="info"
             showIcon
-            style={{ marginBottom: 12 }}
+            style={{ marginBottom: 8 }}
             message={t(
               "projects.tasks.shareScopeNote",
-              "目前只共享任务标题与卡片信息，正文和附件仍私密。",
+              "卡片分享仅开放摘要；对话文本需对每位接收者另行确认。附件仍私密。",
             )}
           />
+          <div style={{ ...secondaryStyle, marginBottom: 12 }}>
+            {t(
+              "projects.tasks.shareTextHint",
+              "文本权限需要单独授予：卡片分享本身不会开放正文；文本可能包含用户粘贴的敏感内容。",
+            )}
+          </div>
           {shareActionError != null && (
             <Alert
               type="error"

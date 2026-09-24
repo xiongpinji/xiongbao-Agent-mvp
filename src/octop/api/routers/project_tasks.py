@@ -35,7 +35,11 @@ router = APIRouter(prefix="/projects/{project_id}/tasks")
 def _task_service(server: OctopServer) -> ProjectTaskService:
     if server.services is None:
         raise OctopError(ErrorCode.INTERNAL_ERROR, "server services unavailable")
-    return ProjectTaskService(server.services)
+    runtime = server.app_runtime
+    return ProjectTaskService(
+        server.services,
+        history_archive=runtime.history_archive if runtime is not None else None,
+    )
 
 
 def _task_payload(view: TaskSummaryView) -> dict[str, Any]:
@@ -52,6 +56,7 @@ def _task_payload(view: TaskSummaryView) -> dict[str, Any]:
         "last_active": view.last_active,
         "created_at": view.created_at,
         "access": view.access,
+        "can_read_text": view.can_read_text,
     }
 
 
@@ -62,6 +67,7 @@ def _share_payload(view: TaskShareView) -> dict[str, Any]:
         "user_id": view.user_id,
         "role": view.role,
         "granted_at": view.granted_at,
+        "can_read_text": view.can_read_text,
     }
 
 
@@ -186,6 +192,71 @@ async def revoke_task_share(
     _task_service(server).revoke_share(
         project_id, thread_id, user_id=user.id, grantee_user_id=user_id
     )
+
+
+@router.post(
+    "/{thread_id}/shares/{user_id}/text",
+    status_code=201,
+    summary="Grant task conversation text to a card recipient",
+)
+async def grant_task_text(
+    project_id: str,
+    thread_id: str,
+    user_id: int,
+    server: OctopServer = Depends(get_server),
+    user: User = Depends(current_user),
+) -> Any:
+    view, created = _task_service(server).grant_text_share(
+        project_id, thread_id, user_id=user.id, grantee_user_id=user_id
+    )
+    payload = {"user_id": view.user_id, "granted_at": view.granted_at}
+    return payload if created else JSONResponse(status_code=200, content=payload)
+
+
+@router.delete(
+    "/{thread_id}/shares/{user_id}/text",
+    status_code=204,
+    summary="Revoke task conversation text without revoking its card",
+)
+async def revoke_task_text(
+    project_id: str,
+    thread_id: str,
+    user_id: int,
+    server: OctopServer = Depends(get_server),
+    user: User = Depends(current_user),
+) -> None:
+    _task_service(server).revoke_text_share(
+        project_id, thread_id, user_id=user.id, grantee_user_id=user_id
+    )
+
+
+@router.get("/{thread_id}/messages", summary="Read authorized task conversation text")
+async def get_task_messages(
+    project_id: str,
+    thread_id: str,
+    server: OctopServer = Depends(get_server),
+    user: User = Depends(current_user),
+    limit: int = Query(50, ge=1, le=100),
+    before_seq: int | None = Query(None, gt=0),
+) -> dict[str, Any]:
+    page = _task_service(server).read_task_messages(
+        project_id, thread_id, user_id=user.id, limit=limit, before_seq=before_seq
+    )
+    return {
+        "status": page.status,
+        "items": [
+            {
+                "seq": item.seq,
+                "role": item.role,
+                "text": item.text,
+                "created_at": item.created_at,
+                "truncated": item.truncated,
+            }
+            for item in page.items
+        ],
+        "has_more": page.has_more,
+        "next_before_seq": page.next_before_seq,
+    }
 
 
 @router.delete("/{thread_id}", status_code=204, summary="Detach own task from the project")
