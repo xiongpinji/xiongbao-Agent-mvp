@@ -31,7 +31,7 @@
 | --- | --- | --- |
 | `GET /api/projects/{project_id}/assets?parent_id=&q=&kind=&limit=&offset=` | 当前文件夹直接子节点；`kind` 仅 `file`/`folder`/缺省全部，`q` 用 NFC + casefold 后对 `name_key` 做服务端转义的包含搜索；先过滤再按 `(kind,name_key,node_id)` 全序排序并 `limit/offset` 分页。响应 `{items,total,limit,offset,has_more}`，每项为 `{node_id,parent_node_id,kind,name,size_bytes,media_type,created_at,updated_at}`；文件夹的 size/media 为 null。无 `parent_id` 表示隐藏根 | 非成员/不存在父节点 404；非法参数 422 |
 | `POST /api/projects/{project_id}/assets/folders` | `{parent_id?,name}` 创建文件夹，201，返回上述安全节点项；缺省父节点为隐藏根 | 非文件夹父节点 422；同名 409；非成员 404；归档项目 403 |
-| `POST /api/projects/{project_id}/assets/upload` | multipart `file` 和可选 `parent_id`；DB 提交成功才返回安全节点项与首版 `{version_id,size_bytes,sha256,media_type}`，201 | 超限 413；同名 409；非成员 404；归档项目 403；失败不得留下可见记录 |
+| `POST /api/projects/{project_id}/assets/upload` | multipart `file` 和可选 `parent_id`；DB 提交成功才返回 201，响应精确为 `{...安全节点项, version: {version_id,size_bytes,sha256,media_type}}`，首版摘要嵌套以避免与节点同名字段冲突，不含对象键 | 超限 413；同名 409；非成员 404；归档项目 403；失败不得留下可见记录 |
 | `GET /api/projects/{project_id}/assets/usage` | `{file_count,total_bytes}`，只计已提交当前版本 | 非成员 404 |
 | `GET /api/projects/{project_id}/assets/{node_id}/download` | 当前版本的私有流式附件，强制 attachment + nosniff | 非成员、跨项目、撤权、目录节点、文件缺失统一 404；绝不回退到其他项目同名文件 |
 
