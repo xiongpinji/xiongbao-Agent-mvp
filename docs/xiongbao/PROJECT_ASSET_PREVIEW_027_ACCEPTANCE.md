@@ -1,6 +1,6 @@
 # 027 · 项目资产 PDF 历史版本预览验收记录
 
-状态：本地集成、定向检查和三身份浏览器旅程通过；固定代码提交的 GLM-5.3 只读复审、远端推送与托管 CI 待完成。本记录只覆盖 PS-06B-1P，不核销项目空间或 WorkBuddy 1:1。
+状态：固定代码提交 `699c709f17d4d5e07a5cf3ed98a007a048fc53bd` 经 GLM-5.3 只读复审 GO、无新增 P0/P1；本地集成、定向和全仓非 live 检查、三身份浏览器旅程通过。用户仓库 `main` 已快进到该提交并经 `git ls-remote` 核对；托管 CI 尚待结果。本记录只覆盖 PS-06B-1P，不核销项目空间或 WorkBuddy 1:1。
 
 ## 行为边界
 
@@ -18,6 +18,8 @@
 | 隔离服务 + 无头 Chrome | 本地假 provider 环境的 owner/member/outsider 旅程两次通过：上传两版真实 PDF、旧版按 `version_id` 预览和切换、非成员 404、撤权后旧成员切版触发弹窗关闭；请求均留在本地。第二次还验证 760×720 窄屏下载按钮可滚动到可操作区域。此证据不是正式安装包或真实 provider 验收。 |
 
 本地截图：`outputs/xiongbao-project-asset-preview-027-wide.png`（1280×768）和 `outputs/xiongbao-project-asset-preview-027-narrow.png`（760×720）。截图确认 PDF 内容进入双栏右侧；窄屏操作需向下滚动。它们不是 WorkBuddy 逐像素对齐证明。
+
+GLM 第一次宽范围复审达到 12 轮上限，没有最终裁定；第二次基于固定提交四个源文件补丁、禁止额外工具的复审给出 GO、无新增 P0/P1。它没有运行测试或读取补丁外源码。其一项 P2 是既有 PDF 大纲外链在 `PdfDocumentPreview.tsx` 直接使用 URL 而无 http/https 协议白名单；027 使该路径也可由项目 PDF 触达，后续需加白名单并做恶意链接回归。另一项仅因审查材料不含 locale 文件而“未验证”的英文文案疑点，Codex 已在固定提交的 `en.json` 和 `zh.json` 中核实对应键存在，不构成实际缺陷。GLM GO 只覆盖提供的补丁，未独立复核 `requestBlob`、后端授权路由或整套运行测试。
 
 ## WorkBuddy 差距与未验
 
