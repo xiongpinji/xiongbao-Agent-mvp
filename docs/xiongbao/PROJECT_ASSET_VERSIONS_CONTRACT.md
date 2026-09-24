@@ -16,9 +16,9 @@
 
 | 路由 | 响应与行为 | 失败 |
 | --- | --- | --- |
-| `GET /api/projects/{project_id}/assets/{node_id}/versions?limit=50&offset=0` | `{items,total,limit,offset,has_more}`，默认 `limit=50`、范围 1–100，`offset≥0`；按 `(created_at DESC,version_id DESC)` 全序；每项 `{version_id,size_bytes,sha256,media_type,uploaded_by,created_at,is_current}`，`uploaded_by` 为可空的不透明用户 ID，页面无可用用户名时显示占位。 | 非成员/目录/跨项目 404；非法分页 422 |
+| `GET /api/projects/{project_id}/assets/{node_id}/versions?limit=50&offset=0` | `{items,total,limit,offset,has_more}`，默认 `limit=50`、范围 1–100，`offset≥0`；按 `(created_at DESC,version_id DESC)` 全序；每项 `{version_id,size_bytes,sha256,media_type,uploaded_by,created_at,is_current}`，`uploaded_by` 为可空整数用户 ID，不是用户名；页面没有经过授权的用户资料时显示占位，不能对整数调用字符串方法。 | 非成员/目录/跨项目 404；非法分页 422 |
 | `POST /api/projects/{project_id}/assets/{node_id}/versions` | multipart `file`；201，返回 023A 安全节点 DTO `{node_id,parent_node_id,kind,name,size_bytes,media_type,created_at,updated_at}` 加 `version:{version_id,size_bytes,sha256,media_type}`。服务端沿用 023A 单文件上限、流式写入和原子发布。 | 非成员/节点/目录 404；归档 403；超限 413；发布或事务失败无可见半版本 |
-| `POST /api/projects/{project_id}/assets/{node_id}/versions/{version_id}/restore` | 200，返回与新版本上传相同的安全节点 DTO 加 `version` 摘要；版本已是当前时仍返回 200，不能产生新对象或新版本。 | 非成员/节点/同项目错误节点版本/对象缺失 404；归档 403 |
+| `POST /api/projects/{project_id}/assets/{node_id}/versions/{version_id}/restore` | 200，返回与新版本上传相同的安全节点 DTO 加 `version` 摘要；版本已是当前时仍返回 200，不能产生新对象或新版本。切换前校验目标对象是安全的普通文件且字节数与版本元数据一致；事务内重新检查成员、归档和节点约束，当前版本的幂等路径也不能绕过这些检查。 | 非成员/节点/同项目错误节点版本/对象缺失或截断 404；归档 403 |
 | `GET /api/projects/{project_id}/assets/{node_id}/versions/{version_id}/download` | 该历史版本的私有附件流；下载文件名使用当前节点名。 | 非成员、撤权、跨项目、目录、未知版本或对象缺失 404 |
 
 所有路径沿用 `/api/projects` 现有登录、错误封套和 OpenAPI 文档方式；静态路由顺序不得被 `/{node_id}` 吞没。文件名字节不作为版本上传路由的节点选择依据。读请求在一次数据库事务内锁成员并读取目标节点/版本，避免撤权后沿用旧授权快照；版本列表的计数和分页数据在同一授权事务内读取。PostgreSQL 默认隔离级别下并发插入可能使两次查询的快照不同，前端须允许刷新，不能把 `total` 当授权依据。
@@ -28,6 +28,7 @@
 - 文件行右键或更多菜单新增“版本管理”。弹窗保持 WorkBuddy 观察到的宽版式：左栏版次/时间/当前标记，右栏显示选中版的安全元数据、下载入口及“恢复为当前版”。当前版禁用恢复按钮。首版显示“第 1 版”；本片版次仅由固定数据集的排序/计数推得，版本 ID 才是操作标识；并发同秒上传可能使显示版次重排，不得用版次做下载或恢复依据。对不能安全预览的类型显示明确占位，不嵌第三方预览地址或以内联 HTML 展示上传内容。
 - 在该文件的版本管理内“上传新版本”，上传完成后列表与资产当前大小、更新时间、用量一起刷新；失败保留原选中版并可重试。恢复旧版后更新当前标记、资产行和用量；弹窗关闭/项目切换、被撤权、晚到响应都不能显示旧项目版本。新版本按钮在归档项目不可用，服务端仍独立拒绝。
 - 旧版下载必须使用当前登录请求获取 Blob，不缓存跨用户复用的下载 URL。成员被撤权后的旧版下载入口应消失；即使界面来不及刷新，服务端 404 仍为最终边界。没有安全预览的版次不能用“预览”伪装真实能力。
+- 版本接口返回 404 时立即清除弹窗与旧资产数据，并重新请求当前项目资产列表确认项目权限；单个历史对象缺失不等于成员失权。若重新请求也返回 404，继续隐藏资产与写入入口。晚到的旧项目响应不得影响已切换的项目。
 
 ## 失败优先验收
 

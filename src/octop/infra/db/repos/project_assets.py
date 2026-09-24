@@ -1,4 +1,4 @@
-"""Project assets — SQL-only repository for PS-06A / 023A.
+"""Project assets — SQL-only repository for PS-06A / 023A + PS-06B-1.
 
 Authorization policy lives in ``octop.infra.projects.assets``; this module
 only enforces what must be race-safe and what must be server-side to prevent
@@ -13,14 +13,21 @@ leaks or cross-project access:
 * all queries are scoped by ``(project_id, node_id)`` pairs, and the 023
   composite child FKs make cross-project parenting impossible at the schema
   level too;
+* version queries (PS-06B-1) are scoped by the full
+  ``(project_id, node_id, version_id)`` triple — a same-project version
+  belonging to another file node is indistinguishable from an unknown one;
 * folder/file writes go through one transaction: node row plus (for files)
   its first current version commit together or not at all, so a failed
   publish never leaves a bodyless node or an unreferenced current version;
+* the current-version switch writes (new version upload, restore) share one
+  lock order — member row (PG ``FOR SHARE``) then file node row (PG ``FOR
+  UPDATE``) — reset the old ``is_current`` pointer before inserting/marking
+  the target, and touch the node timestamp, all in one transaction;
 * same-parent name conflicts (``name_key`` = casefolded NFC name) are
   enforced by the DB unique constraint and surfaced as ``name_conflict``;
 * node and version ids are server-generated ULIDs — request data never
   chooses an id or an ``object_key``;
-* this repo writes no ``project_events`` rows (023A is event-silent).
+* this repo writes no ``project_events`` rows (asset slices are event-silent).
 """
 
 from __future__ import annotations
@@ -44,6 +51,14 @@ _VERSION_SELECT = (
     "SELECT version_id, project_id, node_id, object_key, size_bytes, sha256, "
     "media_type, uploaded_by, created_at, is_current "
     "FROM project_asset_versions WHERE project_id = ? AND version_id = ?"
+)
+# PS-06B-1: every version action filters on the full triple so a same-project
+# version of ANOTHER file node answers exactly like an unknown id (None).
+_NODE_VERSION_SELECT = (
+    "SELECT version_id, project_id, node_id, object_key, size_bytes, sha256, "
+    "media_type, uploaded_by, created_at, is_current "
+    "FROM project_asset_versions "
+    "WHERE project_id = ? AND node_id = ? AND version_id = ?"
 )
 _ROOT_UPSERT = (
     "INSERT INTO project_asset_nodes("
@@ -175,6 +190,33 @@ class AssetDownloadRow:
 
 
 @dataclass(frozen=True)
+class AssetVersionListRow:
+    """Version-listing row (PS-06B-1): safe metadata only, never object keys."""
+
+    version_id: str
+    size_bytes: int
+    sha256: str
+    media_type: str | None
+    uploaded_by: int | None
+    created_at: int
+    is_current: bool
+
+    @classmethod
+    def from_row(cls, row: DbRow) -> AssetVersionListRow:
+        media = row["media_type"]
+        uploader = row["uploaded_by"]
+        return cls(
+            version_id=str(row["version_id"]),
+            size_bytes=int(row["size_bytes"]),
+            sha256=str(row["sha256"]),
+            media_type=None if media is None else str(media),
+            uploaded_by=None if uploader is None else int(uploader),
+            created_at=int(row["created_at"]),
+            is_current=bool(int(row["is_current"])),
+        )
+
+
+@dataclass(frozen=True)
 class FolderCreation:
     """Outcome of :meth:`ProjectAssetRepo.create_folder`.
 
@@ -194,6 +236,20 @@ class FileCommit:
     ``outcome`` is one of: committed, not_member, archived, parent_missing,
     parent_not_folder, name_conflict. ``node``/``version`` carry the fresh
     rows on success only.
+    """
+
+    outcome: str
+    node: AssetNodeRow | None = None
+    version: AssetVersionRow | None = None
+
+
+@dataclass(frozen=True)
+class VersionCommit:
+    """Outcome of the current-version switch writes (PS-06B-1).
+
+    ``outcome`` is one of: committed, not_member, archived, node_missing,
+    version_missing. ``node``/``version`` carry the post-switch rows on
+    success only.
     """
 
     outcome: str
@@ -292,6 +348,41 @@ def _insert_asset_version(
     )
 
 
+def _clear_current_version(conn: Any, *, project_id: str, node_id: str) -> None:
+    """Reset the node's current pointer — step 1 of every switch (PS-06B-1).
+
+    Module-level like the inserts so tests can observe the fixed statement
+    order; runs inside the caller's locked write transaction.
+    """
+    conn.execute(
+        "UPDATE project_asset_versions SET is_current = 0 "
+        "WHERE project_id = ? AND node_id = ? AND is_current = 1",
+        (project_id, node_id),
+    )
+
+
+def _mark_version_current(conn: Any, *, project_id: str, node_id: str, version_id: str) -> None:
+    """Point the node at one of its existing versions — restore step 2.
+
+    Triple-scoped: a version id belonging to another node (or project)
+    matches nothing and the switch silently no-ops instead of escaping its
+    containment; callers pre-verified the row inside the same transaction.
+    """
+    conn.execute(
+        "UPDATE project_asset_versions SET is_current = 1 "
+        "WHERE project_id = ? AND node_id = ? AND version_id = ?",
+        (project_id, node_id, version_id),
+    )
+
+
+def _touch_node_updated(conn: Any, *, project_id: str, node_id: str, ts: int) -> None:
+    """Bump the node's ``updated_at`` after a current-version switch."""
+    conn.execute(
+        "UPDATE project_asset_nodes SET updated_at = ? WHERE project_id = ? AND node_id = ?",
+        (ts, project_id, node_id),
+    )
+
+
 class ProjectAssetRepo:
     def __init__(self, db: DatabasePool) -> None:
         self._db = db
@@ -312,6 +403,15 @@ class ProjectAssetRepo:
             (project_id, user_id),
         ).fetchone()
         return None if row is None else str(row["role"])
+
+    def _node_update_lock(self) -> str:
+        # Contract (PS-06B-1): PostgreSQL locks the target file node row
+        # FOR UPDATE so concurrent new-version uploads and restores of the
+        # SAME file serialize; the lock order is always member row (FOR
+        # SHARE) → node row (FOR UPDATE), matching remove_member and the
+        # 023A write paths. SQLite's BEGIN IMMEDIATE writer serializes the
+        # whole transaction instead.
+        return " FOR UPDATE" if self._db.dialect == "postgresql" else ""
 
     def _project_archived(self, conn: Any, project_id: str) -> bool | None:
         """``None`` for unknown projects — they answer like non-memberships."""
@@ -411,6 +511,47 @@ class ProjectAssetRepo:
     def _version_row(self, conn: Any, project_id: str, version_id: str) -> AssetVersionRow | None:
         row = conn.execute(_VERSION_SELECT, (project_id, version_id)).fetchone()
         return AssetVersionRow.from_row(row) if row is not None else None
+
+    def _node_locked(self, conn: Any, project_id: str, node_id: str) -> AssetNodeRow | None:
+        """Read the node row, taking the writer lock on PostgreSQL."""
+        row = conn.execute(
+            _NODE_SELECT + self._node_update_lock(), (project_id, node_id)
+        ).fetchone()
+        return AssetNodeRow.from_row(row) if row is not None else None
+
+    def _node_version_row(
+        self, conn: Any, project_id: str, node_id: str, version_id: str
+    ) -> AssetVersionRow | None:
+        """Triple-scoped version read: a same-project version belonging to
+        another node is indistinguishable from an unknown one (uniform 404).
+        """
+        row = conn.execute(_NODE_VERSION_SELECT, (project_id, node_id, version_id)).fetchone()
+        return AssetVersionRow.from_row(row) if row is not None else None
+
+    def _lock_switch_target(
+        self, conn: Any, *, project_id: str, actor_user_id: int, node_id: str
+    ) -> AssetNodeRow:
+        """Shared lock/check prefix for the current-version switch writes.
+
+        Fixed order (contract): member row first (PG ``FOR SHARE``), then the
+        file node row (PG ``FOR UPDATE``), then the archived/unknown-project
+        check, then the file-kind containment check. Every rejection raises
+        :class:`_AssetConflict` so the caller's transaction rolls back with
+        nothing written; upload-new-version and restore share this exact
+        order so they serialize against each other and against member
+        removal.
+        """
+        if self._member_role_locked(conn, project_id, actor_user_id) is None:
+            raise _AssetConflict("not_member")
+        node = self._node_locked(conn, project_id, node_id)
+        archived = self._project_archived(conn, project_id)
+        if archived is None:
+            raise _AssetConflict("not_member")
+        if archived:
+            raise _AssetConflict("archived")
+        if node is None or node.kind != "file":
+            raise _AssetConflict("node_missing")
+        return node
 
     # ------------------------------------------------------------ root + lookups
 
@@ -568,6 +709,105 @@ class ProjectAssetRepo:
         except _AssetConflict as conflict:
             return FileCommit(outcome=conflict.outcome)
 
+    def commit_new_version(
+        self,
+        *,
+        project_id: str,
+        actor_user_id: int,
+        node_id: str,
+        media_type: str | None,
+        version_id: str,
+        object_key: str,
+        size_bytes: int,
+        sha256: str,
+    ) -> VersionCommit:
+        """Insert the next immutable version and switch the current pointer.
+
+        PS-06B-1: runs after the new bytes are already published on their
+        final private path (the 023A publish order is unchanged). One
+        transaction: member row lock → node row lock → archived/file checks →
+        reset the old ``is_current`` → insert the new current version → touch
+        the node. Any rejection or failure rolls everything back, so the old
+        current version survives untouched and the caller only has to unlink
+        this request's fresh orphan object (crash window W3). The node display
+        name never changes here — request filenames are not an input.
+        """
+        ts = now_ts()
+        try:
+            with self._db.transaction() as conn:
+                self._lock_switch_target(
+                    conn, project_id=project_id, actor_user_id=actor_user_id, node_id=node_id
+                )
+                _clear_current_version(conn, project_id=project_id, node_id=node_id)
+                _insert_asset_version(
+                    conn,
+                    version_id=version_id,
+                    project_id=project_id,
+                    node_id=node_id,
+                    object_key=object_key,
+                    size_bytes=size_bytes,
+                    sha256=sha256,
+                    media_type=media_type,
+                    uploaded_by=actor_user_id,
+                    ts=ts,
+                )
+                _touch_node_updated(conn, project_id=project_id, node_id=node_id, ts=ts)
+                node = self._node_row(conn, project_id, node_id)
+                version = self._version_row(conn, project_id, version_id)
+                if node is None or version is None:
+                    raise RuntimeError("version rows vanished inside the write transaction")
+                if version.node_id != node_id:
+                    # Belt-and-braces: _VERSION_SELECT is (project, version)
+                    # scoped, so the contract demands this containment
+                    # assertion whenever it is reused for version actions.
+                    raise RuntimeError("committed version escaped its node containment")
+                return VersionCommit(outcome="committed", node=node, version=version)
+        except _AssetConflict as conflict:
+            return VersionCommit(outcome=conflict.outcome)
+
+    def restore_version(
+        self, *, project_id: str, actor_user_id: int, node_id: str, version_id: str
+    ) -> VersionCommit:
+        """Switch the current pointer to one of the node's existing versions.
+
+        No new row and no copied bytes (PS-06B-1): member row lock → node row
+        lock → archived/file checks → triple-scoped containment read of the
+        target → reset the old pointer → mark the target current → touch the
+        node, all in one transaction. Restoring the already-current version
+        still passes the locked gates, then returns without any SQL writes.
+        The disk safety check on the target object happens in the service
+        BEFORE this call; a failed transaction never moves the pointer.
+        """
+        ts = now_ts()
+        try:
+            with self._db.transaction() as conn:
+                self._lock_switch_target(
+                    conn, project_id=project_id, actor_user_id=actor_user_id, node_id=node_id
+                )
+                target = self._node_version_row(conn, project_id, node_id, version_id)
+                if target is None:
+                    raise _AssetConflict("version_missing")
+                if target.is_current:
+                    # Idempotence still goes through the locked member,
+                    # archived and node checks above. A concurrent revoke or
+                    # archive must never be bypassed by the service pre-read.
+                    node = self._node_row(conn, project_id, node_id)
+                    if node is None:
+                        raise RuntimeError("file node vanished inside the write transaction")
+                    return VersionCommit(outcome="committed", node=node, version=target)
+                _clear_current_version(conn, project_id=project_id, node_id=node_id)
+                _mark_version_current(
+                    conn, project_id=project_id, node_id=node_id, version_id=version_id
+                )
+                _touch_node_updated(conn, project_id=project_id, node_id=node_id, ts=ts)
+                node = self._node_row(conn, project_id, node_id)
+                version = self._node_version_row(conn, project_id, node_id, version_id)
+                if node is None or version is None:
+                    raise RuntimeError("version rows vanished inside the write transaction")
+                return VersionCommit(outcome="committed", node=node, version=version)
+        except _AssetConflict as conflict:
+            return VersionCommit(outcome=conflict.outcome)
+
     # ------------------------------------------------------------ read paths
 
     def list_nodes(
@@ -669,3 +909,95 @@ class ProjectAssetRepo:
                 (project_id, node_id),
             ).fetchone()
         return AssetDownloadRow.from_row(row) if row is not None else None
+
+    def list_versions(
+        self,
+        project_id: str,
+        *,
+        user_id: int,
+        node_id: str,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[AssetVersionListRow], int] | None:
+        """One file node's version page (PS-06B-1); ``None`` for every 404
+        sentinel: non-members, unknown projects, folder/root nodes, and
+        unknown or cross-project node ids.
+
+        The membership lock, the file-kind check, the count, and the page all
+        run inside the SAME transaction, so a concurrent member removal can
+        never authorize a stale snapshot. The full deterministic
+        ``(created_at DESC, version_id DESC)`` order makes same-second
+        uploads page without duplicates or skips. Listing rows never carry
+        object keys.
+        """
+        with self._db.transaction() as conn:
+            if self._member_role_locked(conn, project_id, user_id) is None:
+                return None
+            node = self._node_row(conn, project_id, node_id)
+            if node is None or node.kind != "file":
+                return None
+            total_row = conn.execute(
+                "SELECT COUNT(*) AS n FROM project_asset_versions "
+                "WHERE project_id = ? AND node_id = ?",
+                (project_id, node_id),
+            ).fetchone()
+            rows = conn.execute(
+                "SELECT version_id, size_bytes, sha256, media_type, uploaded_by, "
+                "created_at, is_current "
+                "FROM project_asset_versions "
+                "WHERE project_id = ? AND node_id = ? "
+                "ORDER BY created_at DESC, version_id DESC LIMIT ? OFFSET ?",
+                (project_id, node_id, limit, offset),
+            ).fetchall()
+        total = int(total_row["n"]) if total_row is not None else 0
+        return map_rows(rows, AssetVersionListRow), total
+
+    def get_version_download(
+        self, project_id: str, *, user_id: int, node_id: str, version_id: str
+    ) -> AssetDownloadRow | None:
+        """Historical-version download reference (PS-06B-1).
+
+        The JOIN enforces the full ``(project_id, node_id, version_id)``
+        triple: a same-project version belonging to another file node answers
+        ``None`` exactly like unknown ids, folder nodes, and non-members —
+        all mapped to the uniform 404. ``name`` is the CURRENT node name (the
+        contract's download filename); ``object_key`` is the private storage
+        locator and never leaves the server.
+        """
+        with self._db.transaction() as conn:
+            if self._member_role_locked(conn, project_id, user_id) is None:
+                return None
+            row = conn.execute(
+                "SELECT n.node_id, n.name, v.version_id, v.object_key, "
+                "v.size_bytes, v.sha256, v.media_type "
+                "FROM project_asset_nodes n "
+                "JOIN project_asset_versions v "
+                "ON v.project_id = n.project_id AND v.node_id = n.node_id "
+                "WHERE n.project_id = ? AND n.node_id = ? AND n.kind = 'file' "
+                "AND v.version_id = ?",
+                (project_id, node_id, version_id),
+            ).fetchone()
+        return AssetDownloadRow.from_row(row) if row is not None else None
+
+    def get_node_version(
+        self, project_id: str, *, user_id: int, node_id: str, version_id: str
+    ) -> tuple[AssetNodeRow, AssetVersionRow] | None:
+        """Restore pre-read: the authorized ``(node, version)`` pair or None.
+
+        One membership-locked transaction answers every uniform-404 sentinel
+        (non-member, unknown project/node/version, folder node, same-project
+        other-node version). The version row carries the private object_key
+        for the service's fail-closed disk safety check only — the current
+        pointer is NOT switched here; that is :meth:`restore_version`'s job
+        under the node writer lock.
+        """
+        with self._db.transaction() as conn:
+            if self._member_role_locked(conn, project_id, user_id) is None:
+                return None
+            node = self._node_row(conn, project_id, node_id)
+            if node is None or node.kind != "file":
+                return None
+            version = self._node_version_row(conn, project_id, node_id, version_id)
+            if version is None:
+                return None
+            return node, version

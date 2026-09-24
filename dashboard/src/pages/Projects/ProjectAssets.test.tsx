@@ -19,12 +19,26 @@ import {
 import en from "../../locales/en.json";
 import zh from "../../locales/zh.json";
 
-const { list, usage, createFolder, upload, download } = vi.hoisted(() => ({
+const {
+  list,
+  usage,
+  createFolder,
+  upload,
+  download,
+  listVersions,
+  uploadVersion,
+  restoreVersion,
+  downloadVersion,
+} = vi.hoisted(() => ({
   list: vi.fn(),
   usage: vi.fn(),
   createFolder: vi.fn(),
   upload: vi.fn(),
   download: vi.fn(),
+  listVersions: vi.fn(),
+  uploadVersion: vi.fn(),
+  restoreVersion: vi.fn(),
+  downloadVersion: vi.fn(),
 }));
 
 const { request, requestBlob, requestUpload } = vi.hoisted(() => ({
@@ -41,7 +55,17 @@ vi.mock("../../api/modules/projectAssets", async (importOriginal) => {
   >();
   return {
     ...actual,
-    projectAssetsApi: { list, usage, createFolder, upload, download },
+    projectAssetsApi: {
+      list,
+      usage,
+      createFolder,
+      upload,
+      download,
+      listVersions,
+      uploadVersion,
+      restoreVersion,
+      downloadVersion,
+    },
   };
 });
 
@@ -83,7 +107,9 @@ vi.mock("../../components/EmptyState", () => ({
 import ProjectAssets from "./ProjectAssets";
 import {
   PROJECT_ASSETS_PAGE_SIZE,
+  PROJECT_ASSET_VERSIONS_PAGE_SIZE,
   type ProjectAssetNode,
+  type ProjectAssetVersion,
 } from "../../api/modules/projectAssets";
 import { message } from "../../utils/antdMessage";
 
@@ -120,6 +146,26 @@ const fileEmpty: ProjectAssetNode = {
   updated_at: 1_700_000_300,
 };
 
+const versionCurrent: ProjectAssetVersion = {
+  version_id: "ver-1",
+  size_bytes: 2048,
+  sha256: "a".repeat(64),
+  media_type: "application/pdf",
+  uploaded_by: 42,
+  created_at: 1_700_000_200,
+  is_current: true,
+};
+
+function versionListResponse(items: ProjectAssetVersion[]) {
+  return {
+    items,
+    total: items.length,
+    limit: PROJECT_ASSET_VERSIONS_PAGE_SIZE,
+    offset: 0,
+    has_more: false,
+  };
+}
+
 function listResponse(
   items: ProjectAssetNode[],
   options: { total?: number; hasMore?: boolean } = {},
@@ -155,6 +201,11 @@ beforeEach(() => {
   createFolder.mockReset();
   upload.mockReset();
   download.mockResolvedValue(new Blob(["bytes"], { type: "application/pdf" }));
+  listVersions.mockReset();
+  listVersions.mockResolvedValue(versionListResponse([versionCurrent]));
+  uploadVersion.mockReset();
+  restoreVersion.mockReset();
+  downloadVersion.mockReset();
 
   createObjectURL = vi.fn(() => "blob:mock");
   revokeObjectURL = vi.fn();
@@ -590,17 +641,149 @@ describe("ProjectAssets against the PS-06A / 023A contract", () => {
     expect(container.querySelectorAll("script")).toHaveLength(0);
   });
 
-  it("keeps 023B features visibly unavailable", async () => {
+  it("keeps later-batch controls unavailable while version management is live", async () => {
     renderAssets("p1");
     await screen.findByText("需求说明.pdf");
 
     const addToTask = screen.getByRole("button", { name: "添加到任务" });
     expect(addToTask).toBeDisabled();
     expect(screen.queryByRole("button", { name: "删除" })).toBeNull();
-    expect(screen.queryByRole("button", { name: /版本/ })).toBeNull();
     expect(
-      screen.getByText("版本历史、删除与「添加到任务」将在后续批次提供。"),
+      screen.getByText(
+        "版本管理已开放；删除、回收与「添加到任务」将在后续批次提供。",
+      ),
     ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "版本管理" })).toBeNull();
+
+    fireEvent.click(
+      within(screen.getByTestId("project-asset-file-1")).getByRole("button", {
+        name: "更多操作",
+      }),
+    );
+    expect(await screen.findByRole("menu")).toBeInTheDocument();
+    expect(screen.getByText("版本管理")).toBeInTheDocument();
+  });
+
+  it("opens version management from a file row and not from a folder row", async () => {
+    const user = userEvent.setup();
+    renderAssets("p1");
+    const fileRow = await screen.findByTestId("project-asset-file-1");
+    const folderRow = screen.getByTestId("project-asset-folder-1");
+    expect(
+      within(folderRow).queryByRole("button", { name: "更多操作" }),
+    ).toBeNull();
+
+    await user.click(within(fileRow).getByRole("button", { name: "更多操作" }));
+    await user.click(
+      within(await screen.findByRole("menu")).getByText("版本管理"),
+    );
+
+    expect(
+      await screen.findByText("版本管理：需求说明.pdf"),
+    ).toBeInTheDocument();
+    expect(listVersions).toHaveBeenCalledWith("p1", "file-1", {
+      limit: PROJECT_ASSET_VERSIONS_PAGE_SIZE,
+      offset: 0,
+    });
+    expect(
+      await screen.findByTestId("project-asset-version-ver-1"),
+    ).toBeInTheDocument();
+    expect((await screen.findAllByText("当前版")).length).toBeGreaterThan(0);
+  });
+
+  it("clears open version details when the project switches", async () => {
+    const user = userEvent.setup();
+    const { rerender } = renderAssets("p1");
+    await screen.findByText("需求说明.pdf");
+    await user.click(
+      within(screen.getByTestId("project-asset-file-1")).getByRole("button", {
+        name: "更多操作",
+      }),
+    );
+    await user.click(
+      within(await screen.findByRole("menu")).getByText("版本管理"),
+    );
+    expect(
+      await screen.findByText("版本管理：需求说明.pdf"),
+    ).toBeInTheDocument();
+
+    list.mockResolvedValue(listResponse([{ ...fileSpec, name: "新项目.pdf" }]));
+    usage.mockResolvedValue({ file_count: 1, total_bytes: 1 });
+    rerender(<ProjectAssets projectId="p2" />);
+
+    expect(await screen.findByText("新项目.pdf")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByText("版本管理：需求说明.pdf")).toBeNull(),
+    );
+    expect(screen.queryByTestId("project-asset-version-ver-1")).toBeNull();
+  });
+
+  it("rechecks project assets after one historical version returns 404", async () => {
+    const user = userEvent.setup();
+    const oldVersion = {
+      ...versionCurrent,
+      version_id: "ver-old",
+      is_current: false,
+    };
+    listVersions.mockResolvedValue(
+      versionListResponse([versionCurrent, oldVersion]),
+    );
+    downloadVersion.mockRejectedValueOnce(
+      new Error(
+        '404 - {"error":{"code":"NOT_FOUND","message":"missing object"}}',
+      ),
+    );
+    renderAssets();
+    await screen.findByText("需求说明.pdf");
+    await user.click(
+      within(screen.getByTestId("project-asset-file-1")).getByRole("button", {
+        name: "更多操作",
+      }),
+    );
+    await user.click(
+      within(await screen.findByRole("menu")).getByText("版本管理"),
+    );
+    await user.click(
+      await screen.findByTestId("project-asset-version-ver-old"),
+    );
+    await user.click(
+      within(screen.getByTestId("project-asset-version-detail")).getByRole(
+        "button",
+        { name: "下载该版本" },
+      ),
+    );
+
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText("需求说明.pdf")).toBeInTheDocument();
+    expect(screen.queryByText("项目不存在或你无权访问")).toBeNull();
+  });
+
+  it("keeps asset rows hidden when the version 404 recheck confirms revocation", async () => {
+    list
+      .mockResolvedValueOnce(listResponse([fileSpec]))
+      .mockRejectedValueOnce(
+        new Error('404 - {"error":{"code":"NOT_FOUND","message":"revoked"}}'),
+      );
+    listVersions.mockRejectedValueOnce(
+      new Error('404 - {"error":{"code":"NOT_FOUND","message":"revoked"}}'),
+    );
+    const user = userEvent.setup();
+    renderAssets();
+    await screen.findByText("需求说明.pdf");
+    await user.click(
+      within(screen.getByTestId("project-asset-file-1")).getByRole("button", {
+        name: "更多操作",
+      }),
+    );
+    await user.click(
+      within(await screen.findByRole("menu")).getByText("版本管理"),
+    );
+
+    expect(
+      await screen.findByText("项目不存在或你无权访问"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("需求说明.pdf")).toBeNull();
+    expect(list).toHaveBeenCalledTimes(2);
   });
 });
 

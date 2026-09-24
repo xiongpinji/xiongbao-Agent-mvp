@@ -16,9 +16,11 @@
  * - a 404 clears rows and usage and shows the no-access state; 409/413/403
  *   surface recoverable messages; filenames and MIME types are rendered as
  *   inert text from server metadata
+ * - a file row’s “版本管理” opens the wide PS-06B-1 version modal; folder rows
+ *   never expose version actions
  *
- * Version history, delete/restore and “add to task” have no safe backend yet
- * (023B / PS-05B), so they are not rendered as usable controls.
+ * Version management is live (PS-06B-1). Delete/recycle and “add to task” have
+ * no safe backend yet (023B / PS-05B), so they stay visibly unavailable.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -27,6 +29,7 @@ import {
   Alert,
   Breadcrumb,
   Button,
+  Dropdown,
   Input,
   Modal,
   Segmented,
@@ -41,11 +44,14 @@ import {
   FileText,
   Folder,
   FolderPlus,
+  History,
   ListPlus,
+  MoreHorizontal,
   RefreshCw,
   Upload as UploadIcon,
 } from "lucide-react";
 import { EmptyState } from "../../components/EmptyState";
+import ProjectAssetVersions from "./ProjectAssetVersions";
 import {
   PROJECT_ASSETS_PAGE_SIZE,
   projectAssetsApi,
@@ -198,6 +204,10 @@ export default function ProjectAssets({ projectId }: Props) {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [versionNode, setVersionNode] = useState<{
+    projectId: string;
+    node: ProjectAssetNode;
+  } | null>(null);
 
   /** Monotonic guards: late responses never overwrite fresher state. */
   const fetchSeq = useRef(0);
@@ -221,6 +231,7 @@ export default function ProjectAssets({ projectId }: Props) {
     setUploadError(null);
     setActionError(null);
     setDownloadingId(null);
+    setVersionNode(null);
     fetchSeq.current += 1;
     usageSeq.current += 1;
     mutationSeq.current += 1;
@@ -332,6 +343,7 @@ export default function ProjectAssets({ projectId }: Props) {
     setFolderOpen(false);
     setFolderSubmitting(false);
     setDownloadingId(null);
+    setVersionNode(null);
     setListState((previous) =>
       previous.key !== key
         ? previous
@@ -348,6 +360,29 @@ export default function ProjectAssets({ projectId }: Props) {
           },
     );
   }, []);
+
+  const openVersionModal = useCallback(
+    (node: ProjectAssetNode) => setVersionNode({ projectId, node }),
+    [projectId],
+  );
+  const closeVersionModal = useCallback(() => setVersionNode(null), []);
+  const handleVersionChanged = useCallback(
+    (originProjectId: string) => {
+      if (originProjectId === currentProjectId.current) reload();
+    },
+    [reload],
+  );
+  const handleVersionAccessLost = useCallback(
+    (err: unknown, originProjectId: string) => {
+      if (originProjectId !== currentProjectId.current) return;
+      applyNotFound(stateKey, err);
+      // A 404 may be one missing historical object. Recheck membership via
+      // the normal asset list before declaring the whole project inaccessible.
+      setListState(freshListState(stateKey));
+      reload();
+    },
+    [applyNotFound, reload, stateKey],
+  );
 
   const current = listState.key === stateKey ? listState : null;
   const items = current?.items ?? [];
@@ -627,6 +662,32 @@ export default function ProjectAssets({ projectId }: Props) {
         >
           {t("projects.assets.download", "下载")}
         </Button>
+        <Dropdown
+          trigger={["click"]}
+          placement="bottomRight"
+          menu={{
+            items: [
+              {
+                key: "download",
+                icon: <Download size={14} />,
+                label: t("projects.assets.download", "下载"),
+                onClick: () => void handleDownload(node),
+              },
+              {
+                key: "versions",
+                icon: <History size={14} />,
+                label: t("projects.assets.versionManage", "版本管理"),
+                onClick: () => openVersionModal(node),
+              },
+            ],
+          }}
+        >
+          <Button
+            size="small"
+            icon={<MoreHorizontal size={14} />}
+            aria-label={t("projects.assets.moreActions", "更多操作")}
+          />
+        </Dropdown>
       </div>
     );
   };
@@ -809,7 +870,7 @@ export default function ProjectAssets({ projectId }: Props) {
             <Text type="secondary" style={secondaryStyle}>
               {t(
                 "projects.assets.batchHint",
-                "版本历史、删除与「添加到任务」将在后续批次提供。",
+                "版本管理已开放；删除、回收与「添加到任务」将在后续批次提供。",
               )}
             </Text>
           </div>
@@ -948,6 +1009,17 @@ export default function ProjectAssets({ projectId }: Props) {
           />
         )}
       </Modal>
+
+      {versionNode?.projectId === projectId && (
+        <ProjectAssetVersions
+          key={`${projectId}\u0000${versionNode.node.node_id}`}
+          projectId={projectId}
+          node={versionNode.node}
+          onClose={closeVersionModal}
+          onChanged={handleVersionChanged}
+          onAccessLost={handleVersionAccessLost}
+        />
+      )}
     </div>
   );
 }

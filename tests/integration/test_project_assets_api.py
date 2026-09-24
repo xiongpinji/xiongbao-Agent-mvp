@@ -669,3 +669,496 @@ async def test_asset_responses_never_leak_paths_keys_or_secrets(
     # The upload payload carries only safe fields.
     assert set(payload) == _ITEM_KEYS | {"version"}
     assert set(payload["version"]) == _VERSION_KEYS
+
+
+# ---------------------------------------------------------------------------
+# PS-06B-1: version listing / new-version upload / restore / history download
+# ---------------------------------------------------------------------------
+
+_VERSION_ITEM_KEYS = {
+    "version_id",
+    "size_bytes",
+    "sha256",
+    "media_type",
+    "uploaded_by",
+    "created_at",
+    "is_current",
+}
+_VERSION_PAGE_KEYS = {"items", "total", "limit", "offset", "has_more"}
+
+
+async def _list_versions(
+    ctx: dict[str, Any],
+    auth: dict[str, str],
+    node_id: str,
+    *,
+    pid: str | None = None,
+    **params: Any,
+) -> Any:
+    return await ctx["client"].get(
+        f"/api/projects/{pid or ctx['pid']}/assets/{node_id}/versions",
+        headers=auth,
+        params=params or None,
+    )
+
+
+async def _upload_version(
+    ctx: dict[str, Any],
+    auth: dict[str, str],
+    node_id: str,
+    *,
+    filename: str = "whatever.bin",
+    data: bytes = b"next",
+    pid: str | None = None,
+    headers: dict[str, str] | None = None,
+) -> Any:
+    files = {"file": (filename, io.BytesIO(data), "application/octet-stream")}
+    return await ctx["client"].post(
+        f"/api/projects/{pid or ctx['pid']}/assets/{node_id}/versions",
+        headers={**auth, **(headers or {})},
+        files=files,
+    )
+
+
+async def _restore_version(
+    ctx: dict[str, Any],
+    auth: dict[str, str],
+    node_id: str,
+    version_id: str,
+    *,
+    pid: str | None = None,
+) -> Any:
+    return await ctx["client"].post(
+        f"/api/projects/{pid or ctx['pid']}/assets/{node_id}/versions/{version_id}/restore",
+        headers=auth,
+    )
+
+
+async def _download_version(
+    ctx: dict[str, Any],
+    auth: dict[str, str],
+    node_id: str,
+    version_id: str,
+    *,
+    pid: str | None = None,
+) -> Any:
+    return await ctx["client"].get(
+        f"/api/projects/{pid or ctx['pid']}/assets/{node_id}/versions/{version_id}/download",
+        headers=auth,
+    )
+
+
+async def _seeded_file(
+    ctx: dict[str, Any], *, name: str = "版本.txt", data: bytes = b"v1-bytes"
+) -> tuple[str, str]:
+    r = await _upload(ctx, ctx["owner_auth"], name=name, data=data)
+    assert r.status_code == 201, r.text
+    payload = r.json()
+    node_id = str(payload["node_id"])
+    version_id = str(payload["version"]["version_id"])
+    return node_id, version_id
+
+
+async def test_versions_openapi_surface(env_with_provider: Any) -> None:
+    _client, srv, _admin_auth = env_with_provider
+    spec = build_app(srv).openapi()
+    paths = spec["paths"]
+    versions_path = "/api/projects/{project_id}/assets/{node_id}/versions"
+    restore_path = "/api/projects/{project_id}/assets/{node_id}/versions/{version_id}/restore"
+    history_path = "/api/projects/{project_id}/assets/{node_id}/versions/{version_id}/download"
+    assert versions_path in paths and restore_path in paths and history_path in paths
+
+    list_schema = paths[versions_path]["get"]["responses"]["200"]["content"]["application/json"][
+        "schema"
+    ]
+    upload_schema = paths[versions_path]["post"]["responses"]["201"]["content"]["application/json"][
+        "schema"
+    ]
+    restore_schema = paths[restore_path]["post"]["responses"]["200"]["content"]["application/json"][
+        "schema"
+    ]
+    assert list_schema["$ref"].endswith("AssetVersionPageResponse")
+    assert upload_schema["$ref"].endswith("AssetUploadResponse")
+    assert restore_schema["$ref"].endswith("AssetUploadResponse")
+    for entry in (
+        paths[versions_path]["get"],
+        paths[versions_path]["post"],
+        paths[restore_path]["post"],
+        paths[history_path]["get"],
+    ):
+        assert entry["summary"]
+
+
+async def test_first_version_list_and_historical_download(env_with_provider: Any) -> None:
+    ctx = await _base(env_with_provider)
+    data = b"first-version-bytes"
+    node_id, v1 = await _seeded_file(ctx, name="报告.txt", data=data)
+
+    # The single 023A version lists without any data migration.
+    r = await _list_versions(ctx, ctx["member_auth"], node_id)
+    assert r.status_code == 200, r.text
+    page = r.json()
+    assert set(page) == _VERSION_PAGE_KEYS
+    assert page["total"] == 1 and page["has_more"] is False
+    assert page["limit"] == 50 and page["offset"] == 0
+    item = page["items"][0]
+    assert set(item) == _VERSION_ITEM_KEYS
+    assert item["version_id"] == v1
+    assert item["size_bytes"] == len(data)
+    assert item["sha256"] == hashlib.sha256(data).hexdigest()
+    assert item["media_type"] == "text/plain"
+    assert item["uploaded_by"] == ctx["owner_uid"]
+    assert item["is_current"] is True
+    assert item["created_at"] >= 0
+
+    # Historical download of the first version serves the exact bytes.
+    r = await _download_version(ctx, ctx["member_auth"], node_id, v1)
+    assert r.status_code == 200, r.text
+    assert r.content == data
+    assert r.headers["content-type"].startswith("application/octet-stream")
+    assert r.headers["x-content-type-options"] == "nosniff"
+    disposition = r.headers["content-disposition"]
+    assert disposition.startswith("attachment")
+    assert "filename*=UTF-8''" in disposition  # current node name, RFC 5987
+
+    # Uniform 404s: outsider, instance admin non-member, folder node, unknown
+    # node/version, and every route for an unknown project.
+    folder_r = await _mkfolder(ctx, ctx["owner_auth"], name="资料")
+    folder_id = folder_r.json()["node_id"]
+    unknown = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    for auth in (ctx["outsider_auth"], ctx["admin_auth"]):
+        responses = [
+            await _list_versions(ctx, auth, node_id),
+            await _download_version(ctx, auth, node_id, v1),
+            await _upload_version(ctx, auth, node_id),
+            await _restore_version(ctx, auth, node_id, v1),
+        ]
+        for resp in responses:
+            assert resp.status_code == 404, resp.text
+            assert resp.json()["error"]["code"] == "NOT_FOUND"
+    for resp in (
+        await _list_versions(ctx, ctx["owner_auth"], folder_id),
+        await _list_versions(ctx, ctx["owner_auth"], unknown),
+        await _download_version(ctx, ctx["owner_auth"], folder_id, v1),
+        await _download_version(ctx, ctx["owner_auth"], node_id, unknown),
+        await _download_version(ctx, ctx["owner_auth"], unknown, v1),
+        await _restore_version(ctx, ctx["owner_auth"], folder_id, v1),
+        await _restore_version(ctx, ctx["owner_auth"], node_id, unknown),
+        await _list_versions(ctx, ctx["owner_auth"], node_id, pid="ghost-project"),
+        await _download_version(ctx, ctx["owner_auth"], node_id, v1, pid="ghost-project"),
+        await _upload_version(ctx, ctx["owner_auth"], node_id, pid="ghost-project"),
+        await _restore_version(ctx, ctx["owner_auth"], node_id, v1, pid="ghost-project"),
+    ):
+        assert resp.status_code == 404, resp.text
+        assert resp.json()["error"]["code"] == "NOT_FOUND"
+
+
+async def test_versions_pagination_and_param_validation(env_with_provider: Any) -> None:
+    ctx = await _base(env_with_provider)
+    node_id, v1 = await _seeded_file(ctx, data=b"v1")
+    r = await _upload_version(ctx, ctx["member_auth"], node_id, data=b"v2-longer")
+    assert r.status_code == 201, r.text
+    v2 = r.json()["version"]["version_id"]
+    r = await _upload_version(ctx, ctx["owner_auth"], node_id, data=b"v3")
+    assert r.status_code == 201, r.text
+    v3 = r.json()["version"]["version_id"]
+
+    r = await _list_versions(ctx, ctx["owner_auth"], node_id)
+    page = r.json()
+    assert page["total"] == 3 and page["limit"] == 50 and page["has_more"] is False
+    # (created_at DESC, version_id DESC): newest first, exactly one current.
+    assert [i["version_id"] for i in page["items"]] == [v3, v2, v1]
+    assert [i["is_current"] for i in page["items"]] == [True, False, False]
+    assert [i["uploaded_by"] for i in page["items"]] == [
+        ctx["owner_uid"],
+        ctx["member_uid"],
+        ctx["owner_uid"],
+    ]
+
+    r = await _list_versions(ctx, ctx["owner_auth"], node_id, limit=2, offset=0)
+    page = r.json()
+    assert page["limit"] == 2 and page["has_more"] is True
+    assert [i["version_id"] for i in page["items"]] == [v3, v2]
+    r = await _list_versions(ctx, ctx["owner_auth"], node_id, limit=2, offset=2)
+    page = r.json()
+    assert [i["version_id"] for i in page["items"]] == [v1]
+    assert page["has_more"] is False
+    r = await _list_versions(ctx, ctx["owner_auth"], node_id, limit=100, offset=10)
+    assert r.json()["items"] == [] and r.json()["total"] == 3
+
+    # FastAPI rejects invalid pagination before the service runs.
+    for params in ({"limit": 0}, {"limit": 101}, {"offset": -1}):
+        r = await _list_versions(ctx, ctx["owner_auth"], node_id, **params)
+        assert r.status_code == 422, (params, r.text)
+
+
+async def test_new_version_upload_roundtrip(env_with_provider: Any) -> None:
+    ctx = await _base(env_with_provider)
+    srv = ctx["srv"]
+    pid = ctx["pid"]
+    first_data = b"the-original"
+    node_id, v1 = await _seeded_file(ctx, name="报告.txt", data=first_data)
+
+    second_data = b"a-longer-second-version"
+    # The multipart filename never renames the node nor selects a target path.
+    r = await _upload_version(
+        ctx, ctx["member_auth"], node_id, filename="../../恶意改名.bin", data=second_data
+    )
+    assert r.status_code == 201, r.text
+    payload = r.json()
+    assert set(payload) == _ITEM_KEYS | {"version"}
+    assert set(payload["version"]) == _VERSION_KEYS
+    assert payload["node_id"] == node_id
+    assert payload["name"] == "报告.txt"  # never renamed by the upload
+    assert payload["kind"] == "file"
+    assert payload["size_bytes"] == len(second_data)
+    assert payload["media_type"] == "text/plain"  # guessed from the NODE name
+    v2 = payload["version"]["version_id"]
+    assert v2 != v1
+    assert payload["version"]["size_bytes"] == len(second_data)
+    assert payload["version"]["sha256"] == hashlib.sha256(second_data).hexdigest()
+
+    # Exactly two immutable versions; old bytes survive untouched.
+    assert _asset_rows(srv, pid) == (2, 2)  # root + file node; v1 + v2
+    objects = _files_under(_assets_root(srv))
+    assert len(objects) == 2
+    assert _assets_root(srv) / pid / v1 in objects
+    assert (_assets_root(srv) / pid / v1).read_bytes() == first_data
+
+    # Current readers follow v2; the historical route still serves v1.
+    r = await _list(ctx, ctx["owner_auth"])
+    item = next(i for i in r.json()["items"] if i["node_id"] == node_id)
+    assert item["size_bytes"] == len(second_data)
+    assert item["name"] == "报告.txt"
+    r = await _usage(ctx, ctx["owner_auth"])
+    assert r.json() == {"file_count": 1, "total_bytes": len(second_data)}
+    r = await _download(ctx, ctx["owner_auth"], node_id)
+    assert r.status_code == 200 and r.content == second_data
+    r = await _download_version(ctx, ctx["member_auth"], node_id, v1)
+    assert r.status_code == 200 and r.content == first_data
+    r = await _download_version(ctx, ctx["member_auth"], node_id, v2)
+    assert r.status_code == 200 and r.content == second_data
+    r = await _list_versions(ctx, ctx["member_auth"], node_id)
+    assert [i["version_id"] for i in r.json()["items"]] == [v2, v1]
+    assert [i["is_current"] for i in r.json()["items"]] == [True, False]
+
+
+async def test_restore_version_roundtrip(env_with_provider: Any) -> None:
+    ctx = await _base(env_with_provider)
+    srv = ctx["srv"]
+    pid = ctx["pid"]
+    node_id, v1 = await _seeded_file(ctx, data=b"the-original")
+    r = await _upload_version(ctx, ctx["owner_auth"], node_id, data=b"the-second-version")
+    assert r.status_code == 201, r.text
+    v2 = r.json()["version"]["version_id"]
+
+    # Restore v1: pointer switch only — no new row, no copied bytes.
+    r = await _restore_version(ctx, ctx["member_auth"], node_id, v1)
+    assert r.status_code == 200, r.text
+    payload = r.json()
+    assert set(payload) == _ITEM_KEYS | {"version"}
+    assert payload["node_id"] == node_id and payload["name"] == "版本.txt"
+    assert payload["size_bytes"] == len(b"the-original")
+    assert payload["version"]["version_id"] == v1
+    assert payload["version"]["sha256"] == hashlib.sha256(b"the-original").hexdigest()
+    assert _asset_rows(srv, pid) == (2, 2)
+    assert len(_files_under(_assets_root(srv))) == 2
+    r = await _download(ctx, ctx["owner_auth"], node_id)
+    assert r.content == b"the-original"
+    r = await _usage(ctx, ctx["owner_auth"])
+    assert r.json() == {"file_count": 1, "total_bytes": len(b"the-original")}
+    r = await _list_versions(ctx, ctx["owner_auth"], node_id)
+    flags = {i["version_id"]: i["is_current"] for i in r.json()["items"]}
+    assert flags == {v1: True, v2: False}
+
+    # Repeat restore of the current version: idempotent 200, zero side effects.
+    r = await _restore_version(ctx, ctx["owner_auth"], node_id, v1)
+    assert r.status_code == 200, r.text
+    assert r.json()["version"]["version_id"] == v1
+    assert _asset_rows(srv, pid) == (2, 2)
+    assert len(_files_under(_assets_root(srv))) == 2
+
+    # Restore forward to v2 flips back, still without new rows or objects.
+    r = await _restore_version(ctx, ctx["owner_auth"], node_id, v2)
+    assert r.status_code == 200, r.text
+    assert r.json()["version"]["version_id"] == v2
+    assert _asset_rows(srv, pid) == (2, 2)
+    assert len(_files_under(_assets_root(srv))) == 2
+    r = await _download(ctx, ctx["owner_auth"], node_id)
+    assert r.content == b"the-second-version"
+
+
+async def test_removed_member_404_on_all_version_routes(env_with_provider: Any) -> None:
+    ctx = await _base(env_with_provider)
+    node_id, v1 = await _seeded_file(ctx, data=b"member-bytes")
+    r = await ctx["client"].delete(
+        f"/api/projects/{ctx['pid']}/members/{ctx['member_uid']}", headers=ctx["owner_auth"]
+    )
+    assert r.status_code == 204, r.text
+
+    responses = [
+        await _list_versions(ctx, ctx["member_auth"], node_id),
+        await _download_version(ctx, ctx["member_auth"], node_id, v1),
+        await _upload_version(ctx, ctx["member_auth"], node_id),
+        await _restore_version(ctx, ctx["member_auth"], node_id, v1),
+    ]
+    for resp in responses:
+        assert resp.status_code == 404, resp.text
+        assert resp.json()["error"]["code"] == "NOT_FOUND"
+    assert _asset_rows(ctx["srv"], ctx["pid"]) == (2, 1)
+
+    # The remaining owner keeps full version access.
+    r = await _list_versions(ctx, ctx["owner_auth"], node_id)
+    assert r.status_code == 200 and r.json()["total"] == 1
+    r = await _download_version(ctx, ctx["owner_auth"], node_id, v1)
+    assert r.status_code == 200 and r.content == b"member-bytes"
+
+
+async def test_archived_versions_reads_ok_writes_403(env_with_provider: Any) -> None:
+    ctx = await _base(env_with_provider)
+    srv = ctx["srv"]
+    node_id, v1 = await _seeded_file(ctx, data=b"before-archive")
+    r = await _upload_version(ctx, ctx["owner_auth"], node_id, data=b"second")
+    assert r.status_code == 201, r.text
+    v2 = r.json()["version"]["version_id"]
+    before = _asset_rows(srv, ctx["pid"])
+    with srv.services.db.transaction() as conn:
+        conn.execute("UPDATE project_spaces SET archived = 1 WHERE project_id = ?", (ctx["pid"],))
+
+    # Reads keep working on archived projects.
+    r = await _list_versions(ctx, ctx["member_auth"], node_id)
+    assert r.status_code == 200 and r.json()["total"] == 2
+    r = await _download_version(ctx, ctx["member_auth"], node_id, v1)
+    assert r.status_code == 200 and r.content == b"before-archive"
+
+    # Writes refuse with 403 — including restoring the ALREADY-CURRENT
+    # version: the archived check precedes the idempotent success.
+    r = await _upload_version(ctx, ctx["member_auth"], node_id, data=b"late")
+    assert r.status_code == 403, r.text
+    assert r.json()["error"]["code"] == "FORBIDDEN"
+    r = await _restore_version(ctx, ctx["member_auth"], node_id, v1)
+    assert r.status_code == 403, r.text
+    assert r.json()["error"]["code"] == "FORBIDDEN"
+    r = await _restore_version(ctx, ctx["member_auth"], node_id, v2)
+    assert r.status_code == 403, r.text
+    assert _asset_rows(srv, ctx["pid"]) == before
+    assert len(_files_under(_assets_root(srv))) == 2
+
+
+async def test_cross_node_version_and_missing_object_404(env_with_provider: Any) -> None:
+    ctx = await _base(env_with_provider)
+    srv = ctx["srv"]
+    pid = ctx["pid"]
+    node_a, v_a = await _seeded_file(ctx, name="A侧.txt", data=b"A-first")
+    r = await _upload_version(ctx, ctx["owner_auth"], node_a, data=b"A-second")
+    assert r.status_code == 201, r.text
+    v_a2 = r.json()["version"]["version_id"]
+    node_b, v_b = await _seeded_file(ctx, name="B侧.txt", data=b"B-bytes")
+
+    # A same-project version id belonging to ANOTHER node is a uniform 404.
+    for resp in (
+        await _download_version(ctx, ctx["owner_auth"], node_a, v_b),
+        await _download_version(ctx, ctx["owner_auth"], node_b, v_a),
+        await _restore_version(ctx, ctx["owner_auth"], node_a, v_b),
+        await _restore_version(ctx, ctx["owner_auth"], node_b, v_a2),
+    ):
+        assert resp.status_code == 404, resp.text
+        assert resp.json()["error"]["code"] == "NOT_FOUND"
+    assert _asset_rows(srv, pid) == (3, 3)  # root + A + B nodes; 3 versions
+
+    # Missing object on disk → uniform 404 for download AND restore; the
+    # current pointer never moves onto a version whose bytes are gone.
+    object_a1 = _assets_root(srv) / pid / v_a
+    object_a1.unlink()
+    r = await _download_version(ctx, ctx["owner_auth"], node_a, v_a)
+    assert r.status_code == 404 and r.json()["error"]["code"] == "NOT_FOUND"
+    r = await _restore_version(ctx, ctx["owner_auth"], node_a, v_a)
+    assert r.status_code == 404, r.text
+    assert r.json()["error"]["code"] == "NOT_FOUND"
+    # The still-current v2 downloads fine and remains current.
+    r = await _download(ctx, ctx["owner_auth"], node_a)
+    assert r.status_code == 200 and r.content == b"A-second"
+    r = await _list_versions(ctx, ctx["owner_auth"], node_a)
+    flags = {i["version_id"]: i["is_current"] for i in r.json()["items"]}
+    assert flags == {v_a2: True, v_a: False}
+
+
+async def test_version_upload_failure_windows(env_with_provider: Any, monkeypatch: Any) -> None:
+    ctx = await _base(env_with_provider)
+    srv = ctx["srv"]
+    pid = ctx["pid"]
+    node_id, v1 = await _seeded_file(ctx, data=b"the-original")
+
+    # (a) Oversize new version → 413, nothing written anywhere.
+    monkeypatch.setattr("octop.api.routers.project_assets._max_upload_bytes", lambda _server: 64)
+    r = await _upload_version(ctx, ctx["owner_auth"], node_id, data=b"z" * 65)
+    assert r.status_code == 413, r.text
+    assert r.json()["error"]["code"] == "PROJECT_ASSET_TOO_LARGE"
+    assert _asset_rows(srv, pid) == (2, 1)
+    assert len(_files_under(_assets_root(srv))) == 1
+    monkeypatch.undo()
+
+    # (b) Failure after disk publish, before DB commit: only the NEW object is
+    # cleaned; the old current version stays intact and downloadable.
+    def _boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("injected version failure")
+
+    monkeypatch.setattr("octop.infra.db.repos.project_assets._insert_asset_version", _boom)
+    with pytest.raises(RuntimeError, match="injected version failure"):
+        await _upload_version(ctx, ctx["owner_auth"], node_id, data=b"doomed-second")
+    assert _asset_rows(srv, pid) == (2, 1)
+    assert _files_under(_assets_root(srv)) == [_assets_root(srv) / pid / v1]
+    r = await _download(ctx, ctx["owner_auth"], node_id)
+    assert r.status_code == 200 and r.content == b"the-original"
+    monkeypatch.undo()
+
+    # (c) Failure after commit, before response: the switch IS durable (W4
+    # analog); a retry simply uploads another version.
+    r = await _upload_version(ctx, ctx["owner_auth"], node_id, data=b"committed-second")
+    assert r.status_code == 201, r.text
+    v2 = r.json()["version"]["version_id"]
+    monkeypatch.setattr("octop.api.routers.project_assets._upload_payload", _boom)
+    with pytest.raises(RuntimeError, match="injected version failure"):
+        await _upload_version(ctx, ctx["owner_auth"], node_id, data=b"third-body")
+    monkeypatch.undo()
+    # The pre-response-failure upload still committed and switched current.
+    assert _asset_rows(srv, pid) == (2, 3)
+    r = await _download(ctx, ctx["owner_auth"], node_id)
+    assert r.status_code == 200 and r.content == b"third-body"
+    r = await _list_versions(ctx, ctx["owner_auth"], node_id)
+    items = r.json()["items"]
+    assert items[0]["is_current"] is True
+    assert {i["version_id"] for i in items} >= {v1, v2}
+
+
+async def test_version_responses_never_leak_paths_keys_or_secrets(
+    env_with_provider: Any,
+) -> None:
+    ctx = await _base(env_with_provider)
+    srv = ctx["srv"]
+    pid = ctx["pid"]
+    node_id, v1 = await _seeded_file(ctx, data=b"leak-check-first")
+    r = await _upload_version(ctx, ctx["owner_auth"], node_id, data=b"leak-check-second")
+    assert r.status_code == 201, r.text
+    v2 = r.json()["version"]["version_id"]
+
+    texts = [r.text]
+    r = await _list_versions(ctx, ctx["owner_auth"], node_id)
+    texts.append(r.text)
+    r = await _restore_version(ctx, ctx["owner_auth"], node_id, v1)
+    texts.append(r.text)
+    r = await _download_version(ctx, ctx["owner_auth"], node_id, v2)
+    texts.append(str(dict(r.headers)))
+
+    home_root = str(srv.services.paths.root)
+    for text in texts:
+        for secret in (
+            home_root,
+            "project-assets",
+            "object_key",
+            "_tmp",
+            ".part",
+            f"{pid}/{v1}",
+            f"{pid}/{v2}",
+        ):
+            assert secret not in text, secret

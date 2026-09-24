@@ -1,4 +1,4 @@
-"""HTTP API for secure project assets (PS-06A / 023A).
+"""HTTP API for secure project assets (PS-06A / 023A + PS-06B-1).
 
 Thin transport only: authorization, naming, pagination, and the publish
 protocol live in :class:`octop.infra.projects.assets.ProjectAssetService`
@@ -6,10 +6,13 @@ protocol live in :class:`octop.infra.projects.assets.ProjectAssetService`
 The operator is always ``current_user.id`` — uploads accept no actor field,
 extra body fields are rejected outright, and neither project-admin nor
 instance-admin identity bypasses membership: outsiders and unknown projects
-share one uniform 404. Node ids, object keys, and download URLs are never
-authorization credentials. Downloads always answer a forced attachment with
-conservative ``application/octet-stream`` + ``nosniff``; real disk paths and
-object keys never appear in any response.
+share one uniform 404. Node ids, version ids, object keys, and download URLs
+are never authorization credentials. Downloads (current and historical)
+always answer a forced attachment with conservative ``application/octet-
+stream`` + ``nosniff``; real disk paths and object keys never appear in any
+response. The PS-06B-1 version routes append after the 023A static routes so
+``/assets/usage``, ``/assets/folders``, and ``/assets/upload`` are never
+shadowed by a ``/{node_id}`` segment.
 
 All disk and sync-DB work runs in the default executor so the event loop
 stays responsive during large uploads.
@@ -35,10 +38,12 @@ from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.projects.asset_storage import AssetStorageError, open_regular_file_no_follow
 from octop.infra.projects.assets import (
     ASSET_NAME_MAX_LENGTH,
+    DEFAULT_VERSION_PAGE_LIMIT,
     AssetDownloadView,
     AssetNodeView,
     AssetPage,
     AssetUsageView,
+    AssetVersionPageView,
     ProjectAssetService,
     UploadedAssetView,
 )
@@ -129,6 +134,34 @@ class AssetUsageResponse(BaseModel):
     total_bytes: int
 
 
+class AssetVersionItemResponse(BaseModel):
+    """One immutable version's safe metadata (PS-06B-1).
+
+    ``uploaded_by`` is a nullable opaque user id; no object key, path, or
+    username ever appears here.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    version_id: str
+    size_bytes: int
+    sha256: str
+    media_type: str | None
+    uploaded_by: int | None
+    created_at: int
+    is_current: bool
+
+
+class AssetVersionPageResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[AssetVersionItemResponse]
+    total: int
+    limit: int
+    offset: int
+    has_more: bool
+
+
 class CreateFolderBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -182,6 +215,54 @@ def _upload_payload(view: UploadedAssetView) -> AssetUploadResponse:
             sha256=view.version.sha256,
             media_type=view.version.media_type,
         ),
+    )
+
+
+def _version_page_payload(page: AssetVersionPageView) -> AssetVersionPageResponse:
+    return AssetVersionPageResponse(
+        items=[
+            AssetVersionItemResponse(
+                version_id=item.version_id,
+                size_bytes=item.size_bytes,
+                sha256=item.sha256,
+                media_type=item.media_type,
+                uploaded_by=item.uploaded_by,
+                created_at=item.created_at,
+                is_current=item.is_current,
+            )
+            for item in page.items
+        ],
+        total=page.total,
+        limit=page.limit,
+        offset=page.offset,
+        has_more=page.has_more,
+    )
+
+
+async def _attachment_response(
+    loop: asyncio.AbstractEventLoop, view: AssetDownloadView
+) -> StreamingResponse:
+    """Shared download tail: no-follow open, size probe, forced attachment.
+
+    Used by both the current and the historical (PS-06B-1) download routes;
+    the stream is closed by a background task after the last byte.
+    """
+    try:
+        stream = await loop.run_in_executor(None, partial(open_regular_file_no_follow, view.path))
+    except AssetStorageError as exc:
+        raise OctopError(ErrorCode.NOT_FOUND, "asset not found") from exc
+    if os.fstat(stream.fileno()).st_size != view.size_bytes:
+        stream.close()
+        raise OctopError(ErrorCode.NOT_FOUND, "asset not found")
+    return StreamingResponse(
+        _download_chunks(stream),
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": content_disposition(view.filename, disposition="attachment"),
+            "X-Content-Type-Options": "nosniff",
+            "Content-Length": str(view.size_bytes),
+        },
+        background=BackgroundTask(stream.close),
     )
 
 
@@ -342,20 +423,148 @@ async def download_asset(
     view: AssetDownloadView = await loop.run_in_executor(
         None, partial(service.prepare_download, project_id, user_id=user.id, node_id=node_id)
     )
-    try:
-        stream = await loop.run_in_executor(None, partial(open_regular_file_no_follow, view.path))
-    except AssetStorageError as exc:
-        raise OctopError(ErrorCode.NOT_FOUND, "asset not found") from exc
-    if os.fstat(stream.fileno()).st_size != view.size_bytes:
-        stream.close()
-        raise OctopError(ErrorCode.NOT_FOUND, "asset not found")
-    return StreamingResponse(
-        _download_chunks(stream),
-        media_type="application/octet-stream",
-        headers={
-            "Content-Disposition": content_disposition(view.filename, disposition="attachment"),
-            "X-Content-Type-Options": "nosniff",
-            "Content-Length": str(view.size_bytes),
-        },
-        background=BackgroundTask(stream.close),
+    return await _attachment_response(loop, view)
+
+
+@router.get(
+    "/assets/{node_id}/versions",
+    response_model=AssetVersionPageResponse,
+    summary="List the immutable versions of one asset file (members only)",
+)
+async def list_asset_versions(
+    project_id: str,
+    node_id: str,
+    server: OctopServer = Depends(get_server),
+    user: User = Depends(current_user),
+    limit: int = Query(DEFAULT_VERSION_PAGE_LIMIT, ge=1, le=MAX_PAGE_LIMIT),
+    offset: int = Query(0, ge=0),
+) -> AssetVersionPageResponse:
+    """Full deterministic ``(created_at DESC, version_id DESC)`` order; the
+    count and the page come from the same membership-locked transaction.
+    ``uploaded_by`` is a nullable opaque user id. Folder nodes, foreign or
+    unknown node/version ids, and non-members (instance admins included)
+    share the uniform 404."""
+    service = _asset_service(server)
+    loop = asyncio.get_running_loop()
+    page: AssetVersionPageView = await loop.run_in_executor(
+        None,
+        partial(
+            service.list_versions,
+            project_id,
+            user_id=user.id,
+            node_id=node_id,
+            limit=limit,
+            offset=offset,
+        ),
     )
+    return _version_page_payload(page)
+
+
+@router.post(
+    "/assets/{node_id}/versions",
+    status_code=201,
+    response_model=AssetUploadResponse,
+    summary="Upload a new version of one asset file (live projects only)",
+)
+async def upload_asset_version(
+    project_id: str,
+    node_id: str,
+    request: Request,
+    file: UploadFile = File(description="New version bytes for the existing file node"),
+    server: OctopServer = Depends(get_server),
+    user: User = Depends(current_user),
+) -> AssetUploadResponse:
+    """Same 023A cap, streaming write, atomic publish, and single DB switch
+    transaction. The multipart filename is fully ignored: it never renames
+    the node and never selects a path — MIME is guessed from the existing
+    node name. Failures leave no visible half-version; only this request's
+    fresh object is cleaned. Archived projects answer 403, oversize 413."""
+    max_bytes = _max_upload_bytes(server)
+    declared_total = request.headers.get("content-length")
+    if (
+        declared_total is not None
+        and declared_total.isdigit()
+        and int(declared_total) > max_bytes + _MULTIPART_OVERHEAD_ALLOWANCE
+    ):
+        raise _too_large(max_bytes)
+    declared = _declared_size(file)
+    if declared is not None and declared > max_bytes:
+        raise _too_large(max_bytes)
+    service = _asset_service(server)
+    stream = file.file
+    loop = asyncio.get_running_loop()
+    view = await loop.run_in_executor(
+        None,
+        partial(
+            service.upload_new_version,
+            project_id,
+            user_id=user.id,
+            node_id=node_id,
+            stream=stream,
+            max_bytes=max_bytes,
+        ),
+    )
+    return _upload_payload(view)
+
+
+@router.post(
+    "/assets/{node_id}/versions/{version_id}/restore",
+    response_model=AssetUploadResponse,
+    summary="Restore one existing version as current (live projects only)",
+)
+async def restore_asset_version(
+    project_id: str,
+    node_id: str,
+    version_id: str,
+    server: OctopServer = Depends(get_server),
+    user: User = Depends(current_user),
+) -> AssetUploadResponse:
+    """Pointer switch only: no new version row and no copied bytes.
+    Restoring the already-current version is an idempotent 200 — but the
+    membership and archived gates run first, so archived projects answer 403
+    even then. A non-current target whose private object is missing or unsafe
+    answers the uniform 404 and never becomes current."""
+    service = _asset_service(server)
+    loop = asyncio.get_running_loop()
+    view = await loop.run_in_executor(
+        None,
+        partial(
+            service.restore_version,
+            project_id,
+            user_id=user.id,
+            node_id=node_id,
+            version_id=version_id,
+        ),
+    )
+    return _upload_payload(view)
+
+
+@router.get(
+    "/assets/{node_id}/versions/{version_id}/download",
+    summary="Download one historical version's bytes (members only)",
+)
+async def download_asset_version(
+    project_id: str,
+    node_id: str,
+    version_id: str,
+    server: OctopServer = Depends(get_server),
+    user: User = Depends(current_user),
+) -> StreamingResponse:
+    """Forced attachment + ``nosniff`` stream of the selected version's own
+    immutable bytes; the download filename is the CURRENT node name. The
+    server enforces the full ``(project, node, version)`` triple, so a
+    same-project version of another file answers the uniform 404, as do
+    revoked members, missing objects, and symlink swaps."""
+    service = _asset_service(server)
+    loop = asyncio.get_running_loop()
+    view: AssetDownloadView = await loop.run_in_executor(
+        None,
+        partial(
+            service.prepare_version_download,
+            project_id,
+            user_id=user.id,
+            node_id=node_id,
+            version_id=version_id,
+        ),
+    )
+    return await _attachment_response(loop, view)

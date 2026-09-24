@@ -1828,3 +1828,1401 @@ def test_service_search_casefold_expansion_too_long_is_422(
         service.list_assets(pid, user_id=member_id, q="İ" * 120)
     assert excinfo.value.code == ErrorCode.PROJECT_ASSET_INVALID
     assert excinfo.value.status == 422
+
+
+# ---------------------------------------------------------------------------
+# PS-06B-1 helpers: version listing / new-version upload / restore
+# ---------------------------------------------------------------------------
+
+
+def _seed_version_at(
+    db: SqlitePool,
+    *,
+    project_id: str,
+    node_id: str,
+    size_bytes: int = 10,
+    sha256: str = "0" * 64,
+    created_at: int = 0,
+    is_current: int = 0,
+    uploaded_by: int | None = None,
+    media_type: str | None = None,
+) -> str:
+    """Seed one immutable version row with an explicit created_at/sha."""
+    version_id = new_ulid()
+    with db.transaction() as conn:
+        conn.execute(
+            "INSERT INTO project_asset_versions("
+            "version_id, project_id, node_id, object_key, size_bytes, sha256, "
+            "media_type, uploaded_by, created_at, is_current"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                version_id,
+                project_id,
+                node_id,
+                make_object_key(project_id, version_id),
+                size_bytes,
+                sha256,
+                media_type,
+                uploaded_by,
+                created_at,
+                is_current,
+            ),
+        )
+    return version_id
+
+
+def _commit_new_version(
+    repo: ProjectAssetRepo,
+    project_id: str,
+    actor_user_id: int,
+    node_id: str,
+    *,
+    size_bytes: int = 5,
+    sha256: str | None = None,
+    media_type: str | None = "text/plain",
+) -> Any:
+    version_id = repo.new_version_id()
+    return repo.commit_new_version(
+        project_id=project_id,
+        actor_user_id=actor_user_id,
+        node_id=node_id,
+        media_type=media_type,
+        version_id=version_id,
+        object_key=make_object_key(project_id, version_id),
+        size_bytes=size_bytes,
+        sha256=sha256 or hashlib.sha256(b"hello").hexdigest(),
+    )
+
+
+def _current_versions(db: SqlitePool, project_id: str, node_id: str) -> list[sqlite3.Row]:
+    with db.connect() as conn:
+        return conn.execute(
+            "SELECT version_id FROM project_asset_versions "
+            "WHERE project_id = ? AND node_id = ? AND is_current = 1",
+            (project_id, node_id),
+        ).fetchall()
+
+
+def _upload_new_version(
+    service: ProjectAssetService,
+    project_id: str,
+    user_id: int,
+    node_id: str,
+    *,
+    data: bytes = b"second",
+    max_bytes: int = _MAX_BYTES,
+) -> Any:
+    return service.upload_new_version(
+        project_id,
+        user_id=user_id,
+        node_id=node_id,
+        stream=io.BytesIO(data),
+        max_bytes=max_bytes,
+    )
+
+
+# ---------------------------------------------------------------------------
+# PS-06B-1 repo: version listing
+# ---------------------------------------------------------------------------
+
+
+def test_list_versions_single_023a_version(
+    repo: ProjectAssetRepo, pid: str, member_id: int
+) -> None:
+    """A 023A single-version file lists its one version with safe metadata."""
+    root = repo.ensure_root(pid)
+    assert root is not None
+    commit = _commit_file(repo, pid, member_id, root, name="a.txt", size_bytes=5)
+    assert commit.outcome == "committed" and commit.node is not None and commit.version
+    listed = repo.list_versions(
+        pid, user_id=member_id, node_id=commit.node.node_id, limit=50, offset=0
+    )
+    assert listed is not None
+    rows, total = listed
+    assert total == 1 and len(rows) == 1
+    row = rows[0]
+    assert row.version_id == commit.version.version_id
+    assert row.size_bytes == 5
+    assert row.sha256 == commit.version.sha256
+    assert row.media_type == "text/plain"
+    assert row.uploaded_by == member_id
+    assert row.is_current is True
+    assert row.created_at >= 0
+    # The listing row never carries the private object key.
+    assert not hasattr(row, "object_key")
+
+
+def test_list_versions_uniform_none_sentinels(
+    repo: ProjectAssetRepo,
+    projects: ProjectRepo,
+    pid: str,
+    member_id: int,
+    outsider_id: int,
+    owner_id: int,
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    commit = _commit_file(repo, pid, member_id, root, name="a.txt")
+    assert commit.node is not None
+    node_id = commit.node.node_id
+    folder = repo.create_folder(
+        project_id=pid, actor_user_id=member_id, parent_node_id=root, name="资料", name_key="资料"
+    )
+    assert folder.row is not None
+
+    def _list(project_id: str, user_id: int, target: str) -> Any:
+        return repo.list_versions(project_id, user_id=user_id, node_id=target, limit=50, offset=0)
+
+    # Non-member, unknown project, folder node, hidden root, unknown node.
+    assert _list(pid, outsider_id, node_id) is None
+    assert _list("ghost-project", member_id, node_id) is None
+    assert _list(pid, member_id, folder.row.node_id) is None
+    assert _list(pid, member_id, root) is None
+    assert _list(pid, member_id, new_ulid()) is None
+    # A node id from another project never lists under this one, even for a
+    # member of both projects.
+    other = projects.create_with_owner(creator_user_id=owner_id, name="别的项目V")
+    projects.add_member(other.project_id, member_id, role="member")
+    other_root = repo.ensure_root(other.project_id)
+    assert other_root is not None
+    other_commit = _commit_file(repo, other.project_id, owner_id, other_root, name="b.txt")
+    assert other_commit.node is not None
+    assert _list(pid, member_id, other_commit.node.node_id) is None
+    assert _list(other.project_id, member_id, node_id) is None
+    # The member still lists their own project's node.
+    assert _list(pid, member_id, node_id) is not None
+
+
+def test_list_versions_total_order_and_stable_pagination(
+    repo: ProjectAssetRepo, db: SqlitePool, pid: str, member_id: int
+) -> None:
+    """(created_at DESC, version_id DESC) is a full order: same-second rows
+    page without duplicates or skips."""
+    root = _seed_root(db, pid)
+    file_node = _seed_node(db, project_id=pid, parent_node_id=root, kind="file", name="a.txt")
+    # All seeded with created_at = 0 → the version_id tiebreak decides.
+    ids = [
+        _seed_version_at(db, project_id=pid, node_id=file_node, size_bytes=i) for i in range(1, 6)
+    ]
+    newest = _seed_version_at(
+        db, project_id=pid, node_id=file_node, size_bytes=99, created_at=1000, is_current=1
+    )
+    expected = [newest, *sorted(ids, reverse=True)]
+
+    listed = repo.list_versions(pid, user_id=member_id, node_id=file_node, limit=50, offset=0)
+    assert listed is not None
+    rows, total = listed
+    assert total == 6
+    assert [r.version_id for r in rows] == expected
+
+    seen: list[str] = []
+    offset = 0
+    while True:
+        listed = repo.list_versions(
+            pid, user_id=member_id, node_id=file_node, limit=2, offset=offset
+        )
+        assert listed is not None
+        page_rows, page_total = listed
+        assert page_total == 6
+        seen.extend(r.version_id for r in page_rows)
+        if len(page_rows) < 2:
+            break
+        offset += 2
+    assert seen == expected
+    # Beyond the end: empty page, stable total.
+    listed = repo.list_versions(pid, user_id=member_id, node_id=file_node, limit=50, offset=10)
+    assert listed is not None
+    assert listed[0] == [] and listed[1] == 6
+
+
+# ---------------------------------------------------------------------------
+# PS-06B-1 repo: historical download + restore pre-read containment
+# ---------------------------------------------------------------------------
+
+
+def test_get_version_download_triple_containment(
+    repo: ProjectAssetRepo,
+    db: SqlitePool,
+    projects: ProjectRepo,
+    pid: str,
+    member_id: int,
+    outsider_id: int,
+    owner_id: int,
+) -> None:
+    root = _seed_root(db, pid)
+    node_a = _seed_node(db, project_id=pid, parent_node_id=root, kind="file", name="a.txt")
+    node_b = _seed_node(db, project_id=pid, parent_node_id=root, kind="file", name="b.txt")
+    folder = _seed_node(db, project_id=pid, parent_node_id=root)
+    v_a1 = _seed_version_at(db, project_id=pid, node_id=node_a, size_bytes=1)
+    v_a2 = _seed_version_at(db, project_id=pid, node_id=node_a, size_bytes=2, is_current=1)
+    v_b = _seed_version_at(db, project_id=pid, node_id=node_b, size_bytes=3, is_current=1)
+
+    row = repo.get_version_download(pid, user_id=member_id, node_id=node_a, version_id=v_a1)
+    assert row is not None
+    assert row.name == "a.txt"
+    assert row.version_id == v_a1
+    assert row.size_bytes == 1
+    assert row.object_key == make_object_key(pid, v_a1)
+    # The current version is downloadable through the same path.
+    assert (
+        repo.get_version_download(pid, user_id=member_id, node_id=node_a, version_id=v_a2)
+        is not None
+    )
+    # Same-project version belonging to ANOTHER node → uniform None (404).
+    assert repo.get_version_download(pid, user_id=member_id, node_id=node_a, version_id=v_b) is None
+    assert (
+        repo.get_version_download(pid, user_id=member_id, node_id=node_b, version_id=v_a1) is None
+    )
+    # Folder nodes, unknown versions/nodes, non-members, unknown projects.
+    assert (
+        repo.get_version_download(pid, user_id=member_id, node_id=folder, version_id=v_a1) is None
+    )
+    assert (
+        repo.get_version_download(pid, user_id=member_id, node_id=node_a, version_id=new_ulid())
+        is None
+    )
+    assert (
+        repo.get_version_download(pid, user_id=member_id, node_id=new_ulid(), version_id=v_a1)
+        is None
+    )
+    assert (
+        repo.get_version_download(pid, user_id=outsider_id, node_id=node_a, version_id=v_a1) is None
+    )
+    ghost_row = repo.get_version_download(
+        "ghost-project", user_id=member_id, node_id=node_a, version_id=v_a1
+    )
+    assert ghost_row is None
+    # Cross-project: a node/version pair from another project never resolves.
+    other = projects.create_with_owner(creator_user_id=owner_id, name="别的项目D")
+    projects.add_member(other.project_id, member_id, role="member")
+    other_root = _seed_root(db, other.project_id)
+    other_node = _seed_node(
+        db, project_id=other.project_id, parent_node_id=other_root, kind="file", name="c.txt"
+    )
+    other_v = _seed_version_at(db, project_id=other.project_id, node_id=other_node, is_current=1)
+    cross_row = repo.get_version_download(
+        other.project_id, user_id=member_id, node_id=node_a, version_id=v_a1
+    )
+    assert cross_row is None
+    assert (
+        repo.get_version_download(pid, user_id=member_id, node_id=other_node, version_id=other_v)
+        is None
+    )
+
+
+def test_get_node_version_pair_and_containment(
+    repo: ProjectAssetRepo, db: SqlitePool, pid: str, member_id: int, outsider_id: int
+) -> None:
+    root = _seed_root(db, pid)
+    node_a = _seed_node(db, project_id=pid, parent_node_id=root, kind="file", name="a.txt")
+    node_b = _seed_node(db, project_id=pid, parent_node_id=root, kind="file", name="b.txt")
+    folder = _seed_node(db, project_id=pid, parent_node_id=root)
+    v_a = _seed_version_at(db, project_id=pid, node_id=node_a, size_bytes=7, is_current=1)
+    v_b = _seed_version_at(db, project_id=pid, node_id=node_b, is_current=1)
+
+    pair = repo.get_node_version(pid, user_id=member_id, node_id=node_a, version_id=v_a)
+    assert pair is not None
+    node, version = pair
+    assert node.node_id == node_a and node.kind == "file"
+    assert version.version_id == v_a and version.node_id == node_a
+    assert version.size_bytes == 7 and version.is_current is True
+    assert version.object_key == make_object_key(pid, v_a)
+    # Same-project other-node version, folder, unknowns, outsider → None.
+    assert repo.get_node_version(pid, user_id=member_id, node_id=node_a, version_id=v_b) is None
+    assert repo.get_node_version(pid, user_id=member_id, node_id=folder, version_id=v_a) is None
+    assert (
+        repo.get_node_version(pid, user_id=member_id, node_id=node_a, version_id=new_ulid()) is None
+    )
+    assert repo.get_node_version(pid, user_id=member_id, node_id=new_ulid(), version_id=v_a) is None
+    assert repo.get_node_version(pid, user_id=outsider_id, node_id=node_a, version_id=v_a) is None
+
+
+# ---------------------------------------------------------------------------
+# PS-06B-1 repo: current-version switch writes
+# ---------------------------------------------------------------------------
+
+
+def test_commit_new_version_flips_current_and_preserves_old(
+    repo: ProjectAssetRepo, db: SqlitePool, pid: str, member_id: int, other_member_id: int
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    first = _commit_file(repo, pid, member_id, root, name="a.txt", size_bytes=5)
+    assert first.outcome == "committed" and first.node is not None and first.version is not None
+    node_id = first.node.node_id
+    old_version_id = first.version.version_id
+    old_object_key = first.version.object_key
+    old_sha = first.version.sha256
+
+    new_sha = hashlib.sha256(b"world").hexdigest()
+    second = _commit_new_version(repo, pid, other_member_id, node_id, size_bytes=5, sha256=new_sha)
+    assert second.outcome == "committed"
+    assert second.node is not None and second.version is not None
+    assert second.node.node_id == node_id
+    assert second.node.name == "a.txt"  # the node display name never changed
+    assert second.version.version_id != old_version_id
+    assert second.version.is_current is True
+    assert second.version.sha256 == new_sha
+    assert second.version.uploaded_by == other_member_id
+    assert second.node.updated_at >= first.node.updated_at
+
+    versions = _version_rows(db, pid)
+    assert len(versions) == 2  # exactly two immutable versions
+    assert len(_current_versions(db, pid, node_id)) == 1
+    by_id = {r["version_id"]: r for r in versions}
+    # The old row is untouched except for the current pointer.
+    assert by_id[old_version_id]["object_key"] == old_object_key
+    assert by_id[old_version_id]["sha256"] == old_sha
+    assert by_id[old_version_id]["is_current"] == 0
+    assert by_id[second.version.version_id]["is_current"] == 1
+    # Current-version readers follow the new version.
+    download = repo.get_download(pid, user_id=member_id, node_id=node_id)
+    assert download is not None and download.version_id == second.version.version_id
+    assert repo.usage(pid, user_id=member_id) == (1, 5)
+
+
+def test_commit_new_version_rejections_write_nothing(
+    repo: ProjectAssetRepo,
+    db: SqlitePool,
+    projects: ProjectRepo,
+    pid: str,
+    member_id: int,
+    outsider_id: int,
+    owner_id: int,
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    first = _commit_file(repo, pid, member_id, root, name="a.txt", size_bytes=5)
+    assert first.node is not None and first.version is not None
+    node_id = first.node.node_id
+    folder = repo.create_folder(
+        project_id=pid, actor_user_id=member_id, parent_node_id=root, name="资料", name_key="资料"
+    )
+    assert folder.row is not None
+
+    # Non-member → not_member, nothing written.
+    assert _commit_new_version(repo, pid, 999999, node_id).outcome == "not_member"
+    assert outsider_id != member_id
+    assert _commit_new_version(repo, pid, outsider_id, node_id).outcome == "not_member"
+    # Folder node / unknown node / cross-project node → node_missing.
+    assert _commit_new_version(repo, pid, member_id, folder.row.node_id).outcome == "node_missing"
+    assert _commit_new_version(repo, pid, member_id, new_ulid()).outcome == "node_missing"
+    other = projects.create_with_owner(creator_user_id=owner_id, name="别的项目N")
+    other_root = repo.ensure_root(other.project_id)
+    assert other_root is not None
+    other_commit = _commit_file(repo, other.project_id, owner_id, other_root, name="b.txt")
+    assert other_commit.node is not None
+    projects.add_member(other.project_id, member_id, role="member")
+    assert (
+        _commit_new_version(repo, pid, member_id, other_commit.node.node_id).outcome
+        == "node_missing"
+    )
+    # Still exactly one committed current version.
+    assert len(_version_rows(db, pid)) == 1
+    assert len(_current_versions(db, pid, node_id)) == 1
+
+    # Archived project → archived, nothing written.
+    _archive(db, pid)
+    assert _commit_new_version(repo, pid, member_id, node_id).outcome == "archived"
+    assert len(_version_rows(db, pid)) == 1
+    assert _current_versions(db, pid, node_id)[0]["version_id"] == first.version.version_id
+
+
+def test_restore_version_switches_without_new_row(
+    repo: ProjectAssetRepo, db: SqlitePool, pid: str, member_id: int
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    first = _commit_file(repo, pid, member_id, root, name="a.txt", size_bytes=5)
+    assert first.node is not None and first.version is not None
+    node_id = first.node.node_id
+    v1 = first.version.version_id
+    second = _commit_new_version(repo, pid, member_id, node_id, size_bytes=6)
+    assert second.outcome == "committed" and second.version is not None
+    v2 = second.version.version_id
+
+    restored = repo.restore_version(
+        project_id=pid, actor_user_id=member_id, node_id=node_id, version_id=v1
+    )
+    assert restored.outcome == "committed"
+    assert restored.node is not None and restored.version is not None
+    assert restored.version.version_id == v1
+    assert restored.version.is_current is True
+    assert restored.version.object_key == make_object_key(pid, v1)
+    assert second.node is not None
+    assert restored.node.updated_at >= second.node.updated_at
+    # No new rows, no copied bytes: still exactly two versions, one current.
+    assert len(_version_rows(db, pid)) == 2
+    current = _current_versions(db, pid, node_id)
+    assert [r["version_id"] for r in current] == [v1]
+    download = repo.get_download(pid, user_id=member_id, node_id=node_id)
+    assert download is not None and download.version_id == v1
+
+    # Repeat restore is idempotent at the repo level.
+    again = repo.restore_version(
+        project_id=pid, actor_user_id=member_id, node_id=node_id, version_id=v1
+    )
+    assert again.outcome == "committed"
+    assert len(_version_rows(db, pid)) == 2
+    assert [r["version_id"] for r in _current_versions(db, pid, node_id)] == [v1]
+    # Restoring forward to v2 flips again.
+    forward = repo.restore_version(
+        project_id=pid, actor_user_id=member_id, node_id=node_id, version_id=v2
+    )
+    assert forward.outcome == "committed"
+    assert [r["version_id"] for r in _current_versions(db, pid, node_id)] == [v2]
+    assert len(_version_rows(db, pid)) == 2
+
+
+def test_restore_version_rejections_and_rollback(
+    repo: ProjectAssetRepo,
+    db: SqlitePool,
+    projects: ProjectRepo,
+    pid: str,
+    member_id: int,
+    outsider_id: int,
+    owner_id: int,
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    first = _commit_file(repo, pid, member_id, root, name="a.txt", size_bytes=5)
+    assert first.node is not None and first.version is not None
+    node_id = first.node.node_id
+    v1 = first.version.version_id
+    second = _commit_new_version(repo, pid, member_id, node_id, size_bytes=6)
+    assert second.outcome == "committed" and second.version is not None
+    other_file = _commit_file(repo, pid, member_id, root, name="b.txt", size_bytes=3)
+    assert other_file.node is not None and other_file.version is not None
+    v_other = other_file.version.version_id
+    folder = repo.create_folder(
+        project_id=pid, actor_user_id=member_id, parent_node_id=root, name="资料", name_key="资料"
+    )
+    assert folder.row is not None
+
+    def _restore(project_id: str, user_id: int, node: str, version: str) -> str:
+        return repo.restore_version(
+            project_id=project_id, actor_user_id=user_id, node_id=node, version_id=version
+        ).outcome
+
+    # Non-member / outsider.
+    assert _restore(pid, 999999, node_id, v1) == "not_member"
+    assert _restore(pid, outsider_id, node_id, v1) == "not_member"
+    # Folder node, unknown node, unknown version.
+    assert _restore(pid, member_id, folder.row.node_id, v1) == "node_missing"
+    assert _restore(pid, member_id, new_ulid(), v1) == "node_missing"
+    assert _restore(pid, member_id, node_id, new_ulid()) == "version_missing"
+    # Same-project version belonging to ANOTHER file node.
+    assert _restore(pid, member_id, node_id, v_other) == "version_missing"
+    # Cross-project version id.
+    other = projects.create_with_owner(creator_user_id=owner_id, name="别的项目R")
+    other_root = repo.ensure_root(other.project_id)
+    assert other_root is not None
+    other_commit = _commit_file(repo, other.project_id, owner_id, other_root, name="c.txt")
+    assert other_commit.node is not None and other_commit.version is not None
+    projects.add_member(other.project_id, member_id, role="member")
+    assert _restore(pid, member_id, node_id, other_commit.version.version_id) == "version_missing"
+    assert _restore(other.project_id, member_id, other_commit.node.node_id, v1) == "version_missing"
+
+    # Every rejection left the current pointer on v2 (the second version).
+    current_ids = [r["version_id"] for r in _current_versions(db, pid, node_id)]
+    assert current_ids == [second.version.version_id]
+    assert len(_version_rows(db, pid)) == 3  # a.txt v1 + v2, b.txt v1
+
+    # Archived project → archived, pointer untouched.
+    _archive(db, pid)
+    assert _restore(pid, member_id, node_id, v1) == "archived"
+    still_current = [r["version_id"] for r in _current_versions(db, pid, node_id)]
+    assert still_current == [second.version.version_id]
+
+
+# ---------------------------------------------------------------------------
+# PS-06B-1 repo: dual-dialect lock order (static; no live PostgreSQL)
+# ---------------------------------------------------------------------------
+
+
+class _SwitchCursor:
+    def __init__(self, row: dict[str, Any] | None) -> None:
+        self._row = row
+
+    def fetchone(self) -> dict[str, Any] | None:
+        return self._row
+
+    def fetchall(self) -> list[dict[str, Any]]:
+        return [self._row] if self._row is not None else []
+
+
+class _SwitchConn:
+    """Fake connection answering the version-switch SELECTs with fixed rows."""
+
+    def __init__(self, node_row: dict[str, Any], version_row: dict[str, Any]) -> None:
+        self.statements: list[str] = []
+        self._node_row = node_row
+        self._version_row = version_row
+
+    def execute(self, sql: str, params: Any = None) -> _SwitchCursor:
+        self.statements.append(sql)
+        if "FROM project_members" in sql:
+            return _SwitchCursor({"role": "member"})
+        if "FROM project_spaces" in sql:
+            return _SwitchCursor({"archived": 0})
+        if "FROM project_asset_nodes" in sql:
+            return _SwitchCursor(self._node_row)
+        if "FROM project_asset_versions" in sql:
+            return _SwitchCursor(self._version_row)
+        return _SwitchCursor(None)
+
+
+class _SwitchTxn:
+    def __init__(self, conn: _SwitchConn) -> None:
+        self._conn = conn
+
+    def __enter__(self) -> _SwitchConn:
+        return self._conn
+
+    def __exit__(self, *exc_info: object) -> bool:
+        return False
+
+
+class _SwitchPool:
+    def __init__(self, dialect: str, conn: _SwitchConn) -> None:
+        self.dialect = dialect
+        self.conn = conn
+
+    def transaction(self) -> _SwitchTxn:
+        return _SwitchTxn(self.conn)
+
+    def connect(self) -> _SwitchTxn:
+        return _SwitchTxn(self.conn)
+
+    def close(self) -> None:
+        pass
+
+
+_FAKE_PID = new_ulid()
+_FAKE_NODE = new_ulid()
+_FAKE_VERSION = new_ulid()
+_FAKE_NODE_ROW: dict[str, Any] = {
+    "node_id": _FAKE_NODE,
+    "project_id": _FAKE_PID,
+    "parent_node_id": new_ulid(),
+    "kind": "file",
+    "name": "a.txt",
+    "name_key": "a.txt",
+    "created_by": None,
+    "created_at": 0,
+    "updated_at": 0,
+}
+_FAKE_VERSION_ROW: dict[str, Any] = {
+    "version_id": _FAKE_VERSION,
+    "project_id": _FAKE_PID,
+    "node_id": _FAKE_NODE,
+    "object_key": f"{_FAKE_PID}/{_FAKE_VERSION}",
+    "size_bytes": 5,
+    "sha256": "0" * 64,
+    "media_type": None,
+    "uploaded_by": None,
+    "created_at": 0,
+    "is_current": 1,
+}
+
+
+def _fake_repo(dialect: str) -> tuple[ProjectAssetRepo, _SwitchConn]:
+    conn = _SwitchConn(dict(_FAKE_NODE_ROW), dict(_FAKE_VERSION_ROW))
+    pool = _SwitchPool(dialect, conn)
+    return ProjectAssetRepo(cast(Any, pool)), conn
+
+
+def _first_index(statements: list[str], needle: str) -> int:
+    return next(i for i, s in enumerate(statements) if needle in s)
+
+
+def test_postgres_new_version_lock_order_member_then_node_for_update() -> None:
+    """PG: member row FOR SHARE → node row FOR UPDATE → archived check →
+    reset old current → insert new current → touch node.
+
+    NOTE: static dual-dialect assertion only — no live PostgreSQL was run.
+    """
+    repo, conn = _fake_repo("postgresql")
+    result = repo.commit_new_version(
+        project_id=_FAKE_PID,
+        actor_user_id=7,
+        node_id=_FAKE_NODE,
+        media_type=None,
+        version_id=_FAKE_VERSION,
+        object_key=f"{_FAKE_PID}/{_FAKE_VERSION}",
+        size_bytes=5,
+        sha256="0" * 64,
+    )
+    assert result.outcome == "committed"
+    stmts = conn.statements
+    i_member = _first_index(stmts, "FROM project_members")
+    i_node = _first_index(stmts, "FROM project_asset_nodes")
+    i_archived = _first_index(stmts, "FROM project_spaces")
+    i_reset = _first_index(stmts, "SET is_current = 0")
+    i_insert = _first_index(stmts, "INSERT INTO project_asset_versions")
+    i_touch = _first_index(stmts, "SET updated_at")
+    assert stmts[i_member].endswith("FOR SHARE")
+    assert stmts[i_node].endswith("FOR UPDATE")
+    # Lock order: member row first, then the node row.
+    assert i_member < i_node
+    assert i_node < i_archived < i_reset < i_insert < i_touch
+
+
+def test_postgres_restore_lock_order_and_triple_containment() -> None:
+    """PG restore: same member→node lock order; the target version is fetched
+    with the full (project_id, node_id, version_id) triple before any write."""
+    repo, conn = _fake_repo("postgresql")
+    conn._version_row["is_current"] = 0
+    result = repo.restore_version(
+        project_id=_FAKE_PID, actor_user_id=7, node_id=_FAKE_NODE, version_id=_FAKE_VERSION
+    )
+    assert result.outcome == "committed"
+    stmts = conn.statements
+    i_member = _first_index(stmts, "FROM project_members")
+    i_node = _first_index(stmts, "FROM project_asset_nodes")
+    i_target = _first_index(stmts, "node_id = ? AND version_id = ?")
+    i_reset = _first_index(stmts, "SET is_current = 0")
+    i_mark = _first_index(stmts, "SET is_current = 1")
+    i_touch = _first_index(stmts, "SET updated_at")
+    assert stmts[i_member].endswith("FOR SHARE")
+    assert stmts[i_node].endswith("FOR UPDATE")
+    assert i_member < i_node < i_target < i_reset < i_mark < i_touch
+    # The containment read is triple-scoped.
+    assert "WHERE project_id = ? AND node_id = ? AND version_id = ?" in stmts[i_target]
+
+
+def test_postgres_restore_current_rechecks_gates_without_writes() -> None:
+    """An idempotent restore still locks authorization and archive state."""
+    repo, conn = _fake_repo("postgresql")
+    result = repo.restore_version(
+        project_id=_FAKE_PID, actor_user_id=7, node_id=_FAKE_NODE, version_id=_FAKE_VERSION
+    )
+    assert result.outcome == "committed"
+    stmts = conn.statements
+    assert _first_index(stmts, "FROM project_members") < _first_index(stmts, "FROM project_spaces")
+    assert _first_index(stmts, "FROM project_spaces") < _first_index(
+        stmts, "node_id = ? AND version_id = ?"
+    )
+    assert all("SET is_current" not in stmt and "SET updated_at" not in stmt for stmt in stmts)
+
+
+def test_sqlite_version_switch_uses_no_row_lock_clauses() -> None:
+    """SQLite serializes via BEGIN IMMEDIATE — no FOR SHARE/FOR UPDATE text."""
+    for run, restoring in (
+        (
+            lambda r: r.commit_new_version(
+                project_id=_FAKE_PID,
+                actor_user_id=7,
+                node_id=_FAKE_NODE,
+                media_type=None,
+                version_id=_FAKE_VERSION,
+                object_key=f"{_FAKE_PID}/{_FAKE_VERSION}",
+                size_bytes=5,
+                sha256="0" * 64,
+            ),
+            False,
+        ),
+        (
+            lambda r: r.restore_version(
+                project_id=_FAKE_PID, actor_user_id=7, node_id=_FAKE_NODE, version_id=_FAKE_VERSION
+            ),
+            True,
+        ),
+    ):
+        repo, conn = _fake_repo("sqlite")
+        if restoring:
+            conn._version_row["is_current"] = 0
+        assert run(repo).outcome == "committed"
+        assert all(not s.endswith("FOR SHARE") for s in conn.statements)
+        assert all(not s.endswith("FOR UPDATE") for s in conn.statements)
+        assert any("SET is_current = 0" in s for s in conn.statements)
+
+
+# ---------------------------------------------------------------------------
+# PS-06B-1 service: listing + historical download
+# ---------------------------------------------------------------------------
+
+
+def test_service_list_versions_page_shape_and_validation(
+    service: ProjectAssetService, pid: str, member_id: int
+) -> None:
+    first = _upload(service, pid, member_id, name="报告.txt", data=b"hello")
+    page = service.list_versions(pid, user_id=member_id, node_id=first.node.node_id)
+    assert page.total == 1 and page.limit == 50 and page.offset == 0
+    assert page.has_more is False
+    item = page.items[0]
+    assert item.version_id == first.version.version_id
+    assert item.size_bytes == 5
+    assert item.sha256 == first.version.sha256
+    assert item.media_type == "text/plain"
+    assert item.uploaded_by == member_id
+    assert item.is_current is True
+    # No private storage details ever reach the view.
+    assert not hasattr(item, "object_key")
+    assert str(service._storage.root) not in repr(page)
+
+    with pytest.raises(ValueError):
+        service.list_versions(pid, user_id=member_id, node_id=first.node.node_id, limit=0)
+    with pytest.raises(ValueError):
+        service.list_versions(pid, user_id=member_id, node_id=first.node.node_id, limit=101)
+    with pytest.raises(ValueError):
+        service.list_versions(pid, user_id=member_id, node_id=first.node.node_id, offset=-1)
+
+
+def test_service_list_versions_uniform_404s(
+    service: ProjectAssetService,
+    projects: ProjectRepo,
+    pid: str,
+    member_id: int,
+    outsider_id: int,
+    owner_id: int,
+) -> None:
+    first = _upload(service, pid, member_id, name="a.txt", data=b"x")
+    folder = service.create_folder(pid, user_id=member_id, name="资料")
+
+    with pytest.raises(OctopError) as excinfo:
+        service.list_versions(pid, user_id=outsider_id, node_id=first.node.node_id)
+    assert excinfo.value.code == ErrorCode.NOT_FOUND and excinfo.value.status == 404
+    with pytest.raises(OctopError) as excinfo:
+        service.list_versions("ghost-project", user_id=member_id, node_id=first.node.node_id)
+    assert excinfo.value.code == ErrorCode.NOT_FOUND
+    for bad_node in (folder.node_id, new_ulid()):
+        with pytest.raises(OctopError) as excinfo:
+            service.list_versions(pid, user_id=member_id, node_id=bad_node)
+        assert excinfo.value.code == ErrorCode.NOT_FOUND
+        assert excinfo.value.message == "asset not found"
+    # Cross-project node id → uniform 404.
+    other = projects.create_with_owner(creator_user_id=owner_id, name="别的项目L")
+    projects.add_member(other.project_id, member_id, role="member")
+    other_file = _upload(service, other.project_id, owner_id, name="b.txt", data=b"y")
+    with pytest.raises(OctopError) as excinfo:
+        service.list_versions(pid, user_id=member_id, node_id=other_file.node.node_id)
+    assert excinfo.value.code == ErrorCode.NOT_FOUND
+
+
+def test_service_prepare_version_download_current_and_history(
+    service: ProjectAssetService, pid: str, member_id: int, outsider_id: int
+) -> None:
+    first = _upload(service, pid, member_id, name="报告.txt", data=b"first-bytes")
+    second = _upload_new_version(service, pid, member_id, first.node.node_id, data=b"222")
+
+    view = service.prepare_version_download(
+        pid, user_id=member_id, node_id=first.node.node_id, version_id=first.version.version_id
+    )
+    assert view.filename == "报告.txt"  # the CURRENT node name
+    assert view.size_bytes == len(b"first-bytes")
+    assert view.path.read_bytes() == b"first-bytes"
+    current = service.prepare_version_download(
+        pid, user_id=member_id, node_id=first.node.node_id, version_id=second.version.version_id
+    )
+    assert current.path.read_bytes() == b"222"
+    # The view never carries the object key or absolute root path fields.
+    assert str(service._storage.root) not in repr(view.filename)
+
+    with pytest.raises(OctopError) as excinfo:
+        service.prepare_version_download(
+            pid,
+            user_id=outsider_id,
+            node_id=first.node.node_id,
+            version_id=first.version.version_id,
+        )
+    assert excinfo.value.code == ErrorCode.NOT_FOUND
+    # Unknown version → uniform 404.
+    with pytest.raises(OctopError) as excinfo:
+        service.prepare_version_download(
+            pid, user_id=member_id, node_id=first.node.node_id, version_id=new_ulid()
+        )
+    assert excinfo.value.code == ErrorCode.NOT_FOUND
+    # Missing object on disk → uniform 404.
+    view.path.unlink()
+    with pytest.raises(OctopError) as excinfo:
+        service.prepare_version_download(
+            pid, user_id=member_id, node_id=first.node.node_id, version_id=first.version.version_id
+        )
+    assert excinfo.value.code == ErrorCode.NOT_FOUND
+
+
+# ---------------------------------------------------------------------------
+# PS-06B-1 service: new-version upload
+# ---------------------------------------------------------------------------
+
+
+def test_service_upload_new_version_full_flow(
+    service: ProjectAssetService,
+    storage: ProjectAssetStorage,
+    db: SqlitePool,
+    pid: str,
+    member_id: int,
+    other_member_id: int,
+) -> None:
+    first = _upload(service, pid, member_id, name="报告.txt", data=b"first-bytes")
+    node_id = first.node.node_id
+    v1 = first.version.version_id
+
+    # The multipart filename never renames the node or selects a target path.
+    view = service.upload_new_version(
+        pid,
+        user_id=other_member_id,
+        node_id=node_id,
+        stream=io.BytesIO(b"second-bytes-longer"),
+        max_bytes=_MAX_BYTES,
+    )
+    assert view.node.node_id == node_id
+    assert view.node.name == "报告.txt"
+    assert view.node.kind == "file"
+    assert view.node.size_bytes == len(b"second-bytes-longer")
+    assert view.node.media_type == "text/plain"  # inferred from the NODE name
+    assert view.version.version_id != v1
+    assert view.version.size_bytes == len(b"second-bytes-longer")
+    assert view.version.sha256 == hashlib.sha256(b"second-bytes-longer").hexdigest()
+    assert not hasattr(view.node, "object_key") and not hasattr(view.version, "object_key")
+
+    # Exactly two immutable version rows, exactly one current.
+    assert len(_version_rows(db, pid)) == 2
+    assert len(_current_versions(db, pid, node_id)) == 1
+    # Old bytes survive untouched at their own object.
+    old_path = storage.final_path(pid, v1)
+    assert old_path.read_bytes() == b"first-bytes"
+    assert len(_files_under(storage.root)) == 2
+    # Current list/download/usage follow the new version.
+    page = service.list_assets(pid, user_id=member_id)
+    assert page.items[0].size_bytes == len(b"second-bytes-longer")
+    usage = service.get_usage(pid, user_id=member_id)
+    assert (usage.file_count, usage.total_bytes) == (1, len(b"second-bytes-longer"))
+    current = service.prepare_download(pid, user_id=member_id, node_id=node_id)
+    assert current.path.read_bytes() == b"second-bytes-longer"
+    listed = service.list_versions(pid, user_id=member_id, node_id=node_id)
+    assert listed.total == 2
+    assert [i.version_id for i in listed.items] == [view.version.version_id, v1]
+    assert [i.is_current for i in listed.items] == [True, False]
+    # Historical download still serves the old bytes.
+    old_view = service.prepare_version_download(
+        pid, user_id=member_id, node_id=node_id, version_id=v1
+    )
+    assert old_view.path.read_bytes() == b"first-bytes"
+
+
+def test_service_upload_new_version_rejections(
+    service: ProjectAssetService,
+    storage: ProjectAssetStorage,
+    db: SqlitePool,
+    projects: ProjectRepo,
+    pid: str,
+    member_id: int,
+    outsider_id: int,
+    owner_id: int,
+) -> None:
+    first = _upload(service, pid, member_id, name="a.txt", data=b"first")
+    node_id = first.node.node_id
+    folder = service.create_folder(pid, user_id=member_id, name="资料")
+
+    def _expect_404(user_id: int, target: str, project_id: str = pid) -> None:
+        with pytest.raises(OctopError) as excinfo:
+            _upload_new_version(service, project_id, user_id, target, data=b"x")
+        assert excinfo.value.code == ErrorCode.NOT_FOUND
+
+    _expect_404(outsider_id, node_id)
+    _expect_404(member_id, node_id, project_id="ghost-project")
+    _expect_404(member_id, folder.node_id)
+    _expect_404(member_id, new_ulid())
+    other = projects.create_with_owner(creator_user_id=owner_id, name="别的项目U")
+    projects.add_member(other.project_id, member_id, role="member")
+    other_file = _upload(service, other.project_id, owner_id, name="b.txt", data=b"y")
+    _expect_404(member_id, other_file.node.node_id)
+    prior_objects = set(_files_under(storage.root))
+
+    # Oversize → 413, nothing new anywhere.
+    with pytest.raises(OctopError) as excinfo:
+        _upload_new_version(service, pid, member_id, node_id, data=b"z" * 200, max_bytes=100)
+    assert excinfo.value.code == ErrorCode.PROJECT_ASSET_TOO_LARGE
+    assert excinfo.value.status == 413
+
+    assert len(_version_rows(db, pid)) == 1
+    assert _current_versions(db, pid, node_id)[0]["version_id"] == first.version.version_id
+    assert set(_files_under(storage.root)) == prior_objects
+
+    # Removed member → uniform 404.
+    removed = projects.remove_member(project_id=pid, user_id=member_id, actor_user_id=owner_id)
+    assert removed.outcome == "removed"
+    with pytest.raises(OctopError) as excinfo:
+        _upload_new_version(service, pid, member_id, node_id, data=b"late")
+    assert excinfo.value.code == ErrorCode.NOT_FOUND
+
+    # Archived project → 403 for the remaining owner.
+    _archive(db, pid)
+    with pytest.raises(OctopError) as excinfo:
+        _upload_new_version(service, pid, owner_id, node_id, data=b"late")
+    assert excinfo.value.code == ErrorCode.FORBIDDEN and excinfo.value.status == 403
+    assert len(_version_rows(db, pid)) == 1
+    assert set(_files_under(storage.root)) == prior_objects
+
+
+def test_service_upload_new_version_failure_windows(
+    service: ProjectAssetService,
+    storage: ProjectAssetStorage,
+    db: SqlitePool,
+    pid: str,
+    member_id: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = _upload(service, pid, member_id, name="a.txt", data=b"first")
+    node_id = first.node.node_id
+    v1 = first.version.version_id
+    v1_path = storage.final_path(pid, v1)
+
+    # Publish fails → temp discarded, no new final, nothing changed.
+    def _boom_publish(*args: object, **kwargs: object) -> Any:
+        raise RuntimeError("injected publish failure")
+
+    monkeypatch.setattr(storage, "publish", _boom_publish)
+    with pytest.raises(RuntimeError, match="injected publish failure"):
+        _upload_new_version(service, pid, member_id, node_id, data=b"second")
+    assert len(_version_rows(db, pid)) == 1
+    assert _current_versions(db, pid, node_id)[0]["version_id"] == v1
+    assert _files_under(storage.root) == [v1_path]
+    monkeypatch.undo()
+
+    # W3 analog: publish succeeded, DB commit fails → only the NEW final is
+    # cleaned; the old version stays current and downloadable.
+    monkeypatch.setattr("octop.infra.db.repos.project_assets._insert_asset_version", _boom)
+    with pytest.raises(RuntimeError, match="injected failure"):
+        _upload_new_version(service, pid, member_id, node_id, data=b"second")
+    assert len(_version_rows(db, pid)) == 1
+    assert _current_versions(db, pid, node_id)[0]["version_id"] == v1
+    assert _files_under(storage.root) == [v1_path]
+    assert v1_path.read_bytes() == b"first"
+    view = service.prepare_download(pid, user_id=member_id, node_id=node_id)
+    assert view.path.read_bytes() == b"first"
+    monkeypatch.undo()
+
+    # After the injected failures clear, the second version commits normally.
+    second = _upload_new_version(service, pid, member_id, node_id, data=b"second")
+    assert len(_version_rows(db, pid)) == 2
+    assert _current_versions(db, pid, node_id)[0]["version_id"] == second.version.version_id
+    assert len(_files_under(storage.root)) == 2
+
+
+# ---------------------------------------------------------------------------
+# PS-06B-1 service: restore
+# ---------------------------------------------------------------------------
+
+
+def test_service_restore_version_full_flow(
+    service: ProjectAssetService,
+    storage: ProjectAssetStorage,
+    db: SqlitePool,
+    pid: str,
+    member_id: int,
+    other_member_id: int,
+) -> None:
+    first = _upload(service, pid, member_id, name="报告.txt", data=b"first-bytes")
+    node_id = first.node.node_id
+    v1 = first.version.version_id
+    second = _upload_new_version(service, pid, member_id, node_id, data=b"second-bytes-longer")
+    v2 = second.version.version_id
+
+    restored = service.restore_version(pid, user_id=other_member_id, node_id=node_id, version_id=v1)
+    # Same safe DTO shape as the new-version upload response.
+    assert restored.node.node_id == node_id
+    assert restored.node.name == "报告.txt"
+    assert restored.node.size_bytes == len(b"first-bytes")
+    assert restored.node.media_type == "text/plain"
+    assert restored.version.version_id == v1
+    assert restored.version.sha256 == hashlib.sha256(b"first-bytes").hexdigest()
+    # No new rows, no copied bytes.
+    assert len(_version_rows(db, pid)) == 2
+    assert len(_files_under(storage.root)) == 2
+    assert _current_versions(db, pid, node_id)[0]["version_id"] == v1
+    # Current download/usage/list follow the restored version.
+    assert (
+        service.prepare_download(pid, user_id=member_id, node_id=node_id).path.read_bytes()
+        == b"first-bytes"
+    )
+    usage = service.get_usage(pid, user_id=member_id)
+    assert usage.total_bytes == len(b"first-bytes")
+    listed = service.list_versions(pid, user_id=member_id, node_id=node_id)
+    flags = {i.version_id: i.is_current for i in listed.items}
+    assert flags == {v1: True, v2: False}
+
+    # Repeat restore of the current version is an idempotent success.
+    before = [tuple(r) for r in _version_rows(db, pid)]
+    again = service.restore_version(pid, user_id=member_id, node_id=node_id, version_id=v1)
+    assert again.version.version_id == v1
+    assert [tuple(r) for r in _version_rows(db, pid)] == before
+    assert len(_files_under(storage.root)) == 2
+    # Restoring forward flips back to v2 without new rows either.
+    forward = service.restore_version(pid, user_id=member_id, node_id=node_id, version_id=v2)
+    assert forward.version.version_id == v2
+    assert len(_version_rows(db, pid)) == 2
+    assert _current_versions(db, pid, node_id)[0]["version_id"] == v2
+
+
+def test_service_restore_version_uniform_404s_and_403(
+    service: ProjectAssetService,
+    db: SqlitePool,
+    projects: ProjectRepo,
+    pid: str,
+    member_id: int,
+    other_member_id: int,
+    outsider_id: int,
+    owner_id: int,
+) -> None:
+    first = _upload(service, pid, member_id, name="a.txt", data=b"first")
+    node_id = first.node.node_id
+    v1 = first.version.version_id
+    second = _upload_new_version(service, pid, member_id, node_id, data=b"second")
+    other_file = _upload(service, pid, member_id, name="b.txt", data=b"other")
+    folder = service.create_folder(pid, user_id=member_id, name="资料")
+
+    def _expect_404(user_id: int, node: str, version: str, project_id: str = pid) -> None:
+        with pytest.raises(OctopError) as excinfo:
+            service.restore_version(project_id, user_id=user_id, node_id=node, version_id=version)
+        assert excinfo.value.code == ErrorCode.NOT_FOUND
+
+    _expect_404(outsider_id, node_id, v1)
+    _expect_404(member_id, node_id, v1, project_id="ghost-project")
+    _expect_404(member_id, folder.node_id, v1)
+    _expect_404(member_id, new_ulid(), v1)
+    _expect_404(member_id, node_id, new_ulid())
+    # Same-project version belonging to another node.
+    _expect_404(member_id, node_id, other_file.version.version_id)
+    _expect_404(member_id, other_file.node.node_id, v1)
+    # Cross-project node/version.
+    other = projects.create_with_owner(creator_user_id=owner_id, name="别的项目S")
+    projects.add_member(other.project_id, member_id, role="member")
+    other_upload = _upload(service, other.project_id, owner_id, name="c.txt", data=b"z")
+    _expect_404(member_id, node_id, other_upload.version.version_id)
+    _expect_404(member_id, other_upload.node.node_id, v1, project_id=other.project_id)
+
+    # Removed member → uniform 404 on restore (and the pointer never moved).
+    removed = projects.remove_member(
+        project_id=pid, user_id=other_member_id, actor_user_id=owner_id
+    )
+    assert removed.outcome == "removed"
+    _expect_404(other_member_id, node_id, v1)
+    assert _current_versions(db, pid, node_id)[0]["version_id"] == second.version.version_id
+
+    # Archived project → 403 for write ops; reads keep working. 403 precedes
+    # the idempotent success: restoring the ALREADY-CURRENT version is 403 too.
+    _archive(db, pid)
+    with pytest.raises(OctopError) as excinfo:
+        service.restore_version(pid, user_id=member_id, node_id=node_id, version_id=v1)
+    assert excinfo.value.code == ErrorCode.FORBIDDEN and excinfo.value.status == 403
+    with pytest.raises(OctopError) as excinfo:
+        service.restore_version(
+            pid, user_id=member_id, node_id=node_id, version_id=second.version.version_id
+        )
+    assert excinfo.value.code == ErrorCode.FORBIDDEN
+    page = service.list_versions(pid, user_id=member_id, node_id=node_id)
+    assert page.total == 2
+    view = service.prepare_version_download(pid, user_id=member_id, node_id=node_id, version_id=v1)
+    assert view.path.read_bytes() == b"first"
+    assert _current_versions(db, pid, node_id)[0]["version_id"] == second.version.version_id
+
+
+def test_service_restore_missing_or_symlinked_object_never_becomes_current(
+    service: ProjectAssetService,
+    storage: ProjectAssetStorage,
+    db: SqlitePool,
+    pid: str,
+    member_id: int,
+) -> None:
+    first = _upload(service, pid, member_id, name="a.txt", data=b"first")
+    node_id = first.node.node_id
+    v1 = first.version.version_id
+    second = _upload_new_version(service, pid, member_id, node_id, data=b"second")
+    v1_path = storage.final_path(pid, v1)
+
+    # Missing object at check time → uniform 404, current pointer untouched.
+    v1_path.unlink()
+    with pytest.raises(OctopError) as excinfo:
+        service.restore_version(pid, user_id=member_id, node_id=node_id, version_id=v1)
+    assert excinfo.value.code == ErrorCode.NOT_FOUND
+    assert _current_versions(db, pid, node_id)[0]["version_id"] == second.version.version_id
+    # The still-current version downloads fine.
+    assert (
+        service.prepare_download(pid, user_id=member_id, node_id=node_id).path.read_bytes()
+        == b"second"
+    )
+
+
+def test_restore_current_rechecks_archive_after_the_initial_read(
+    service: ProjectAssetService,
+    repo: ProjectAssetRepo,
+    db: SqlitePool,
+    pid: str,
+    member_id: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = _upload(service, pid, member_id, name="a.txt", data=b"first")
+    original_read = repo.get_node_version
+
+    def read_then_archive(*args: Any, **kwargs: Any) -> Any:
+        pair = original_read(*args, **kwargs)
+        _archive(db, pid)
+        return pair
+
+    monkeypatch.setattr(repo, "get_node_version", read_then_archive)
+    with pytest.raises(OctopError) as excinfo:
+        service.restore_version(
+            pid,
+            user_id=member_id,
+            node_id=first.node.node_id,
+            version_id=first.version.version_id,
+        )
+    assert excinfo.value.code == ErrorCode.FORBIDDEN
+
+
+def test_restore_rejects_a_truncated_historical_object(
+    service: ProjectAssetService,
+    storage: ProjectAssetStorage,
+    db: SqlitePool,
+    pid: str,
+    member_id: int,
+) -> None:
+    first = _upload(service, pid, member_id, name="a.txt", data=b"first")
+    second = _upload_new_version(service, pid, member_id, first.node.node_id, data=b"second")
+    storage.final_path(pid, first.version.version_id).write_bytes(b"x")
+
+    with pytest.raises(OctopError) as excinfo:
+        service.restore_version(
+            pid,
+            user_id=member_id,
+            node_id=first.node.node_id,
+            version_id=first.version.version_id,
+        )
+    assert excinfo.value.code == ErrorCode.NOT_FOUND
+    assert (
+        _current_versions(db, pid, first.node.node_id)[0]["version_id"] == second.version.version_id
+    )
+
+
+def test_missing_version_object_does_not_log_a_private_path(
+    service: ProjectAssetService,
+    storage: ProjectAssetStorage,
+    pid: str,
+    member_id: int,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    first = _upload(service, pid, member_id, name="a.txt", data=b"first")
+    storage.final_path(pid, first.version.version_id).unlink()
+    with pytest.raises(OctopError):
+        service.prepare_version_download(
+            pid,
+            user_id=member_id,
+            node_id=first.node.node_id,
+            version_id=first.version.version_id,
+        )
+    assert all(record.exc_info is None for record in caplog.records)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="symlink creation is POSIX-only here")
+def test_service_restore_symlinked_object_never_becomes_current(
+    service: ProjectAssetService,
+    storage: ProjectAssetStorage,
+    db: SqlitePool,
+    tmp_path: Path,
+    pid: str,
+    member_id: int,
+) -> None:
+    first = _upload(service, pid, member_id, name="a.txt", data=b"first")
+    node_id = first.node.node_id
+    v1 = first.version.version_id
+    second = _upload_new_version(service, pid, member_id, node_id, data=b"second")
+    v1_path = storage.final_path(pid, v1)
+    secret = tmp_path / "secret.txt"
+    secret.write_bytes(b"TOP-SECRET")
+    v1_path.unlink()
+    os.symlink(secret, v1_path)
+
+    with pytest.raises(OctopError) as excinfo:
+        service.restore_version(pid, user_id=member_id, node_id=node_id, version_id=v1)
+    assert excinfo.value.code == ErrorCode.NOT_FOUND
+    assert _current_versions(db, pid, node_id)[0]["version_id"] == second.version.version_id
+    # Historical download of the tampered object also fails closed.
+    with pytest.raises(OctopError) as excinfo:
+        service.prepare_version_download(pid, user_id=member_id, node_id=node_id, version_id=v1)
+    assert excinfo.value.code == ErrorCode.NOT_FOUND
+
+
+# ---------------------------------------------------------------------------
+# PS-06B-1: concurrency, task-share boundary
+# ---------------------------------------------------------------------------
+
+
+def test_concurrent_new_version_and_restore_leave_exactly_one_current(
+    service: ProjectAssetService,
+    repo: ProjectAssetRepo,
+    db: SqlitePool,
+    storage: ProjectAssetStorage,
+    pid: str,
+    member_id: int,
+    other_member_id: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = _upload(service, pid, member_id, name="race.txt", data=b"v1")
+    node_id = first.node.node_id
+    v1 = first.version.version_id
+    # v2 becomes current so the racing restore of v1 takes the real switch
+    # path (and not the side-effect-free idempotent one).
+    _upload_new_version(service, pid, member_id, node_id, data=b"v2")
+    barrier = Barrier(2, timeout=15)
+    original_commit = repo.commit_new_version
+    original_restore = repo.restore_version
+
+    def synced_commit(**kwargs: Any) -> Any:
+        barrier.wait()
+        return original_commit(**kwargs)
+
+    def synced_restore(**kwargs: Any) -> Any:
+        barrier.wait()
+        return original_restore(**kwargs)
+
+    monkeypatch.setattr(repo, "commit_new_version", synced_commit)
+    monkeypatch.setattr(repo, "restore_version", synced_restore)
+
+    def upload_side() -> Any:
+        return _upload_new_version(service, pid, member_id, node_id, data=b"v3-concurrent")
+
+    def restore_side() -> Any:
+        return service.restore_version(pid, user_id=other_member_id, node_id=node_id, version_id=v1)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(upload_side), executor.submit(restore_side)]
+        results = [future.result(timeout=30) for future in futures]
+
+    assert all(not isinstance(item, Exception) for item in results)
+    versions = _version_rows(db, pid)
+    assert len(versions) == 3  # the upload added exactly one row; restore none
+    current = _current_versions(db, pid, node_id)
+    assert len(current) == 1
+    assert current[0]["version_id"] in {v1, results[0].version.version_id}
+    # All three physical objects survive whichever interleaving won.
+    assert len(_files_under(storage.root)) == 3
+
+
+def test_concurrent_new_version_uploads_serialize(
+    service: ProjectAssetService,
+    repo: ProjectAssetRepo,
+    db: SqlitePool,
+    pid: str,
+    member_id: int,
+    other_member_id: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = _upload(service, pid, member_id, name="race2.txt", data=b"v1")
+    node_id = first.node.node_id
+    barrier = Barrier(2, timeout=15)
+    original_commit = repo.commit_new_version
+
+    def synced_commit(**kwargs: Any) -> Any:
+        barrier.wait()
+        return original_commit(**kwargs)
+
+    monkeypatch.setattr(repo, "commit_new_version", synced_commit)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(_upload_new_version, service, pid, member_id, node_id, data=b"v2a"),
+            executor.submit(
+                _upload_new_version, service, pid, other_member_id, node_id, data=b"v2b"
+            ),
+        ]
+        results = [future.result(timeout=30) for future in futures]
+
+    assert len(_version_rows(db, pid)) == 3
+    current = _current_versions(db, pid, node_id)
+    assert len(current) == 1
+    assert current[0]["version_id"] in {r.version.version_id for r in results}
+
+
+def _seed_task_share(db: SqlitePool, *, project_id: str, owner_id: int, grantee_id: int) -> str:
+    """Seed agent + thread + task link + 024 card share + 025 text grant."""
+    agent_id = new_ulid()
+    thread_id = new_ulid()
+    with db.transaction() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO agents(agent_id, user_id, name, created_at, updated_at) "
+            "VALUES (?, ?, 'bot', 0, 0)",
+            (agent_id, owner_id),
+        )
+        conn.execute(
+            "INSERT INTO threads("
+            "thread_id, agent_id, user_id, channel_type, session_key, last_active, created_at"
+            ") VALUES (?, ?, ?, 'dashboard', ?, 0, 0)",
+            (thread_id, agent_id, owner_id, f"{agent_id}:dashboard:{owner_id}:dm"),
+        )
+        conn.execute(
+            "INSERT INTO project_task_links("
+            "project_id, thread_id, owner_user_id, source, created_at"
+            ") VALUES (?, ?, ?, 'manual', 0)",
+            (project_id, thread_id, owner_id),
+        )
+        conn.execute(
+            "INSERT INTO project_task_shares("
+            "project_id, thread_id, grantee_user_id, granted_by_user_id, role, granted_at"
+            ") VALUES (?, ?, ?, ?, 'reader', 0)",
+            (project_id, thread_id, grantee_id, owner_id),
+        )
+        conn.execute(
+            "INSERT INTO project_task_content_grants("
+            "project_id, thread_id, grantee_user_id, granted_by_user_id, granted_at"
+            ") VALUES (?, ?, ?, ?, 0)",
+            (project_id, thread_id, grantee_id, owner_id),
+        )
+    return thread_id
+
+
+def test_task_shares_never_authorize_asset_versions(
+    service: ProjectAssetService,
+    db: SqlitePool,
+    projects: ProjectRepo,
+    pid: str,
+    owner_id: int,
+    member_id: int,
+    outsider_id: int,
+) -> None:
+    """024 card / 025 text grants are not an asset ACL: version endpoints read
+    ONLY the current project_members row."""
+    first = _upload(service, pid, owner_id, name="共享任务.txt", data=b"v1")
+    node_id = first.node.node_id
+    v1 = first.version.version_id
+    thread_id = _seed_task_share(db, project_id=pid, owner_id=owner_id, grantee_id=member_id)
+
+    # The grantee's access is identical to plain membership (no extra reach).
+    page = service.list_versions(pid, user_id=member_id, node_id=node_id)
+    assert page.total == 1
+    # An outsider can never hold a share row (composite FK to project_members).
+    with db.connect() as conn, pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO project_task_shares("
+            "project_id, thread_id, grantee_user_id, granted_by_user_id, role, granted_at"
+            ") VALUES (?, ?, ?, ?, 'reader', 0)",
+            (pid, thread_id, outsider_id, owner_id),
+        )
+    # Removing the membership cascades the share/grant away, and every asset
+    # version operation for the removed grantee becomes a uniform 404 even
+    # though the grants existed moments ago.
+    removed = projects.remove_member(project_id=pid, user_id=member_id, actor_user_id=owner_id)
+    assert removed.outcome == "removed"
+    with db.connect() as conn:
+        shares = conn.execute(
+            "SELECT COUNT(*) AS n FROM project_task_shares WHERE project_id = ?", (pid,)
+        ).fetchone()
+        grants = conn.execute(
+            "SELECT COUNT(*) AS n FROM project_task_content_grants WHERE project_id = ?", (pid,)
+        ).fetchone()
+    assert int(shares["n"]) == 0 and int(grants["n"]) == 0
+    for op in (
+        lambda: service.list_versions(pid, user_id=member_id, node_id=node_id),
+        lambda: service.prepare_version_download(
+            pid, user_id=member_id, node_id=node_id, version_id=v1
+        ),
+        lambda: service.restore_version(pid, user_id=member_id, node_id=node_id, version_id=v1),
+        lambda: _upload_new_version(service, pid, member_id, node_id, data=b"late"),
+    ):
+        with pytest.raises(OctopError) as excinfo:
+            op()
+        assert excinfo.value.code == ErrorCode.NOT_FOUND
+    # The owner keeps full access.
+    assert service.list_versions(pid, user_id=owner_id, node_id=node_id).total == 1
