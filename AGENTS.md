@@ -219,9 +219,10 @@ New agents additionally keep system-scoped files under `{workspace}/.octop/` (e.
 **Chat attachments:** Dashboard uploads go to `{workspace}/inbound/` via `api/common/attachments.py` + `api/routers/uploads.py`, not a separate `~/.octop/uploads/` store.
 
 **Database:** SQLite and PostgreSQL share one schema. Add or change tables via a numbered pair
-`infra/db/migrations/00N_description.sql` **and** `00N_description.pg.sql`, then bump the
-version assertion in `tests/unit/db/test_db_pool.py` (currently `v == 7`). Rebuilds that SQLite
-cannot express as `ALTER` live in `infra/db/migrate.py` helpers and must stay idempotent.
+`infra/db/migrations/00N_description.sql` **and** `00N_description.pg.sql`. The pool tests
+derive the expected watermark from `_max_discovered_version`; add focused fresh/upgrade and
+idempotency tests for each new migration rather than hard-coding a version number. Rebuilds that
+SQLite cannot express as `ALTER` live in `infra/db/migrate.py` helpers and must stay idempotent.
 
 Unreleased schema work on `develop` **folds into the current unreleased `00N`**, not a new
 `00N+1`. Only cut a new number after that version has shipped (or after a local DB at `N` would
