@@ -332,7 +332,13 @@ def test_migration_023_is_idempotent(db: SqlitePool) -> None:
     with db.connect() as conn:
         conn.executescript(sql)
         v = conn.execute("SELECT version FROM _schema_version").fetchone()[0]
-    assert v == _max_discovered_version("sqlite")
+    assert v == 23
+    # Replaying the older DDL lowers its own watermark; the normal upgrader
+    # must be able to reapply later migrations and restore the current one.
+    run_migrations(db)
+    with db.connect() as conn:
+        restored = conn.execute("SELECT version FROM _schema_version").fetchone()[0]
+    assert restored == _max_discovered_version("sqlite")
 
 
 def test_migration_upgrades_from_v22(tmp_path: Path) -> None:

@@ -6,14 +6,17 @@ FKs, CHECKs, index-before-table ordering, v23 upgrade), grant/revoke/regrant
 row semantics, uniform guards without existence leaks, archived-project
 rules, cascade cleanup on membership removal/detach/thread/project delete,
 literal search on the shared/all scopes, the single-statement ``all`` query,
-ascending FOR SHARE member lock order, and the service-level 404/403 policy.
+ascending FOR SHARE member lock order, the service-level 404/403 policy, and
+the two-connection SQLite interleaved grant/member-removal race.
 """
 
 from __future__ import annotations
 
 import contextlib
 import sqlite3
+import threading
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -216,6 +219,31 @@ def _share_rows(db: SqlitePool, project_id: str | None = None) -> list[sqlite3.R
 def _set_archived(db: SqlitePool, project_id: str) -> None:
     with db.transaction() as conn:
         conn.execute("UPDATE project_spaces SET archived = 1 WHERE project_id = ?", (project_id,))
+
+
+class _WriterProbe:
+    """sqlite3 connection proxy that records the BEGIN IMMEDIATE phase.
+
+    ``began`` fires as the statement is issued — it then blocks while another
+    connection holds the write lock; ``entered`` fires only once that lock is
+    ours. Lets the test prove the second connection really was contending.
+    """
+
+    def __init__(self, conn: Any, *, began: threading.Event, entered: threading.Event) -> None:
+        self._conn = conn
+        self._began = began
+        self._entered = entered
+
+    def execute(self, sql: str, *params: object) -> Any:
+        if str(sql).strip().upper() == "BEGIN IMMEDIATE":
+            self._began.set()
+            cursor = self._conn.execute(sql, *params)
+            self._entered.set()
+            return cursor
+        return self._conn.execute(sql, *params)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._conn, name)
 
 
 # ---------------------------------------------------------------------------
@@ -732,6 +760,102 @@ def test_grantee_member_removal_cascades_and_readd_regrants(
     ).outcome
     assert outcome == "created"
     assert len(_share_rows(db, pid)) == 1
+
+
+def test_two_connection_interleaved_grant_and_member_removal(
+    shares: ProjectTaskShareRepo,
+    tasks: ProjectTaskRepo,
+    db: SqlitePool,
+    threads: ThreadRepo,
+    projects: ProjectRepo,
+    service: ProjectTaskService,
+    pid: str,
+    owner_id: int,
+    member_id: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SQLite interleaved writers: grant racing membership removal.
+
+    Two independently opened ``SqlitePool`` connections point at the same
+    file. The main thread holds the first pool's ``BEGIN IMMEDIATE`` write
+    transaction and runs the production ``remove_member`` path inside it; a
+    worker thread on the second pool attempts the grant. The second writer's
+    BEGIN IMMEDIATE can only complete once the removal commits, so the grant
+    observes the missing membership, writes nothing, and answers
+    ``invalid_recipient`` (the uniform 404) — never an orphan share row or a
+    card the removed member can read.
+    """
+    _seed_tasks(tasks, db, threads, pid, owner_id, (("th1", "私密卡片", 7),))
+
+    second = SqlitePool(db.path)
+    began, entered, done = threading.Event(), threading.Event(), threading.Event()
+    second._conn = _WriterProbe(second._conn, began=began, entered=entered)
+    second_shares = ProjectTaskShareRepo(second)
+
+    def _worker() -> Any:
+        try:
+            return second_shares.grant(
+                project_id=pid,
+                thread_id="th1",
+                actor_user_id=owner_id,
+                grantee_user_id=member_id,
+            )
+        finally:
+            done.set()
+
+    original_transaction = db.transaction
+    held: list[Any] = []
+
+    @contextlib.contextmanager
+    def _joined_transaction() -> Iterator[Any]:
+        # SqlitePool.transaction is not reentrant; join the held transaction
+        # so the real remove_member path runs inside the writer under test.
+        if held:
+            yield held[0]
+            return
+        with original_transaction() as conn:
+            held.append(conn)
+            try:
+                yield conn
+            finally:
+                held.clear()
+
+    monkeypatch.setattr(db, "transaction", _joined_transaction)
+
+    executor = ThreadPoolExecutor(max_workers=1)
+    try:
+        with db.transaction():
+            removal = projects.remove_member(
+                project_id=pid, user_id=member_id, actor_user_id=owner_id
+            )
+            assert removal.outcome == "removed"
+            future = executor.submit(_worker)
+            assert began.wait(timeout=10), "grant worker never attempted BEGIN IMMEDIATE"
+            # While the removal transaction is open the second writer neither
+            # acquires the write lock nor finishes.
+            assert not entered.is_set()
+            assert not done.wait(timeout=0.5)
+        mutation = future.result(timeout=10)
+    finally:
+        executor.shutdown(wait=True)
+        second.close()
+
+    # The grant serialized behind the removal and lost: uniform invalid
+    # recipient, no row written, no private card reachable by either read.
+    assert entered.is_set()
+    assert mutation.outcome == "invalid_recipient"
+    assert mutation.share is None
+    assert _share_rows(db, pid) == []
+    assert shares.get_shared_summary(pid, "th1", user_id=member_id) is None
+    assert shares.list_shared(pid, user_id=member_id) == []
+    # The owner's task link is untouched by the recipient's removal.
+    assert tasks.get_for_owner(pid, "th1", user_id=owner_id) is not None
+    # invalid_recipient collapses into the same uniform task 404 as any other
+    # invalid target, also on the retry path after the race.
+    with pytest.raises(OctopError) as excinfo:
+        service.grant_share(pid, "th1", user_id=owner_id, grantee_user_id=member_id)
+    assert excinfo.value.code is ErrorCode.NOT_FOUND
+    assert excinfo.value.status == 404
 
 
 def test_owner_member_removal_detaches_link_and_cascades_shares(

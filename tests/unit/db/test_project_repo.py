@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from octop.infra.db import migrate as migration_module
 from octop.infra.db.migrate import _max_discovered_version, run_migrations
 from octop.infra.db.pool import SqlitePool
 from octop.infra.db.repos._base import now_ts
@@ -204,20 +205,26 @@ def test_project_tables_migrated(db: SqlitePool) -> None:
     }.issubset(indexes)
 
 
-def test_migration_upgrades_from_v17(tmp_path: Path) -> None:
+def test_migration_upgrades_from_v17(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A DB at watermark 17 must gain the project tables by re-running migrations."""
     pool = SqlitePool(tmp_path / "octop.db")
-    run_migrations(pool)
+    discover = migration_module._discover
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            migration_module,
+            "_discover",
+            lambda dialect="sqlite": [
+                (version, path) for version, path in discover(dialect) if version <= 17
+            ],
+        )
+        run_migrations(pool)
     with pool.connect() as conn:
-        conn.executescript(
-            """
-            DROP TABLE project_join_requests;
-            DROP TABLE project_invites;
-            DROP TABLE project_events;
-            DROP TABLE project_members;
-            DROP TABLE project_spaces;
-            UPDATE _schema_version SET version = 17;
-            """
+        assert conn.execute("SELECT version FROM _schema_version").fetchone()[0] == 17
+        assert (
+            conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='project_spaces'"
+            ).fetchone()
+            is None
         )
     run_migrations(pool)
     repo = ProjectRepo(pool)
