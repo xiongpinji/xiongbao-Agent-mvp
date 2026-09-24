@@ -1018,6 +1018,9 @@ def test_resolve_join_request_approve(
     assert events[-1]["actor_user_id"] == owner_id
     assert events[-1]["object_id"] == redeemed.request_id
     assert json.loads(events[-1]["payload_json"]) == {"user_id": alice_id, "role": "member"}
+    assert events[-2]["event_type"] == "project.member_joined"
+    assert events[-2]["actor_user_id"] == alice_id
+    assert events[-2]["object_id"] == str(alice_id)
 
     # Repeated approval is a deterministic conflict without duplicate effects.
     again = repo.resolve_join_request(
@@ -1032,6 +1035,10 @@ def test_resolve_join_request_approve(
         e for e in _events(db, project.project_id) if e["event_type"] == "project.join_approved"
     ]
     assert len(approved) == 1
+    joins = [
+        e for e in _events(db, project.project_id) if e["event_type"] == "project.member_joined"
+    ]
+    assert len(joins) == 1
 
 
 def test_resolve_join_request_reject(

@@ -13,7 +13,7 @@ appear.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict, field_validator
@@ -39,19 +39,39 @@ def _activity_service(server: OctopServer) -> ProjectActivityService:
     return ProjectActivityService(server.services)
 
 
-def _item_payload(view: ActivityItemView) -> dict[str, Any]:
+class ActivityItemResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: int
+    event_type: str
+    actor_user_id: int | None
+    actor_name: str | None
+    object_kind: Literal["project", "member", "todo", "message"]
+    object_id: str | None
+    message_body: str | None
+    created_at: int
+
+
+class ActivityPageResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[ActivityItemResponse]
+    next_cursor: str | None
+
+
+def _item_payload(view: ActivityItemView) -> ActivityItemResponse:
     """Exactly the contract's fixed item fields — nothing else is serializable
     here, so timeline responses cannot grow payload or credential leaks."""
-    return {
-        "event_id": view.event_id,
-        "event_type": view.event_type,
-        "actor_user_id": view.actor_user_id,
-        "actor_name": view.actor_name,
-        "object_kind": view.object_kind,
-        "object_id": view.object_id,
-        "message_body": view.message_body,
-        "created_at": view.created_at,
-    }
+    return ActivityItemResponse(
+        event_id=view.event_id,
+        event_type=view.event_type,
+        actor_user_id=view.actor_user_id,
+        actor_name=view.actor_name,
+        object_kind=cast(Literal["project", "member", "todo", "message"], view.object_kind),
+        object_id=view.object_id,
+        message_body=view.message_body,
+        created_at=view.created_at,
+    )
 
 
 class PostMessageBody(BaseModel):
@@ -66,7 +86,11 @@ class PostMessageBody(BaseModel):
         return validate_message_body(v)
 
 
-@router.get("/activity", summary="Read the project activity timeline (members only)")
+@router.get(
+    "/activity",
+    response_model=ActivityPageResponse,
+    summary="Read the project activity timeline (members only)",
+)
 async def list_activity(
     project_id: str,
     server: OctopServer = Depends(get_server),
@@ -76,26 +100,31 @@ async def list_activity(
     ),
     limit: int = Query(DEFAULT_PAGE_LIMIT, ge=1, le=MAX_ACTIVITY_LIMIT),
     cursor: str | None = Query(None, description="Opaque seek cursor from a previous next_cursor"),
-) -> dict[str, Any]:
+) -> ActivityPageResponse:
     """Whitelisted events only, filtered and paginated server-side. Malformed
     cursors answer 422 ``PROJECT_ACTIVITY_CURSOR_INVALID``; the cursor is not
     an auth credential — membership is re-checked on every page."""
     page = _activity_service(server).list_activity(
         project_id, user_id=user.id, scope=scope, limit=limit, cursor=cursor
     )
-    return {
-        "items": [_item_payload(view) for view in page.items],
-        "next_cursor": page.next_cursor,
-    }
+    return ActivityPageResponse(
+        items=[_item_payload(view) for view in page.items],
+        next_cursor=page.next_cursor,
+    )
 
 
-@router.post("/messages", status_code=201, summary="Publish a plain-text project message")
+@router.post(
+    "/messages",
+    status_code=201,
+    response_model=ActivityItemResponse,
+    summary="Publish a plain-text project message",
+)
 async def post_message(
     project_id: str,
     body: PostMessageBody,
     server: OctopServer = Depends(get_server),
     user: User = Depends(current_user),
-) -> dict[str, Any]:
+) -> ActivityItemResponse:
     """Members publish a trimmed plain-text message (1–4000 characters) as
     themselves; the message row and its timeline event are written atomically,
     so a failed write leaves nothing behind."""

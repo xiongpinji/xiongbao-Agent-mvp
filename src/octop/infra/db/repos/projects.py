@@ -773,6 +773,19 @@ class ProjectRepo:
                 )
                 if getattr(updated, "rowcount", 1) == 0:
                     raise _RequestConflict("resolved")
+                if approve:
+                    # Approval lifecycle events contain request IDs and stay
+                    # off the public timeline. Record the safe member join in
+                    # the same transaction so the activity feed is complete.
+                    _append_event(
+                        conn,
+                        project_id,
+                        user_id,
+                        EVENT_MEMBER_JOINED,
+                        str(user_id),
+                        json.dumps({"user_id": user_id, "role": role}),
+                        ts,
+                    )
                 _append_event(
                     conn, project_id, resolver_user_id, event_type, request_id, payload, ts
                 )

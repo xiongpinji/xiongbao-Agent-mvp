@@ -470,6 +470,11 @@ async def test_invite_approval_flow(env) -> None:
     assert granted.status_code == 200, granted.text
     assert granted.json()["my_role"] == "member"
 
+    activity = await client.get(f"/api/projects/{pid}/activity", headers=invitee_auth)
+    assert activity.status_code == 200, activity.text
+    assert "project.member_joined" in {item["event_type"] for item in activity.json()["items"]}
+    assert request_id not in activity.text
+
     again = await client.post(
         f"/api/projects/{pid}/join-requests/{request_id}/approve", headers=owner_auth
     )
@@ -485,6 +490,7 @@ async def test_invite_approval_flow(env) -> None:
         "project.created",
         "project.invite_created",
         "project.join_requested",
+        "project.member_joined",
         "project.join_approved",
     ]
 

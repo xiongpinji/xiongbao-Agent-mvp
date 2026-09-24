@@ -332,7 +332,6 @@
     },
     "unavailable": {
       "badge": "Not available yet",
-      "activity": "Activity is not built yet: the message and member-action timeline needs the backend project-events API.",
       "assets": "Assets are not built yet: the project asset library, versions and quota need the backend asset API.",
       "config": "Not available yet: the backend does not expose project-level configuration."
     },

@@ -292,6 +292,10 @@ class ProjectActivityRepo:
             + " ORDER BY e.created_at DESC, e.id DESC LIMIT ?"
         )
         params.append(limit + 1)
+        # SQLite's BEGIN IMMEDIATE deliberately serializes this short,
+        # bounded read with cross-process member removal. A deferred WAL read
+        # could keep serving a pre-removal snapshot after removal commits.
+        # PostgreSQL instead holds FOR SHARE on the member row below.
         with self._db.transaction() as conn:
             if self._member_role_locked(conn, project_id, user_id) is None:
                 # Keep authorization and the feed read in one transaction.

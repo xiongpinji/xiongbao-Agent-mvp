@@ -341,6 +341,36 @@ describe("ProjectActivity timeline", () => {
     expect(screen.queryByRole("button", { name: "发表" })).toBeNull();
   });
 
+  it("keeps no-access after a post 404 even when an earlier list resolves late", async () => {
+    const user = userEvent.setup();
+    let resolveList: ((value: ReturnType<typeof page>) => void) | null = null;
+    list.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveList = resolve)),
+    );
+    postMessage.mockRejectedValueOnce(
+      new Error(
+        '404 - {"error":{"code":"NOT_FOUND","message":"project not found"}}',
+      ),
+    );
+    renderActivity("p1");
+
+    await user.type(
+      screen.getByPlaceholderText("以纯文本发表留言…"),
+      "撤权后不该保留的留言",
+    );
+    await user.click(screen.getByRole("button", { name: "发表" }));
+    expect(
+      await screen.findByText("项目不存在或你无权访问"),
+    ).toBeInTheDocument();
+
+    await act(async () => {
+      resolveList?.(page([messageByAlice]));
+      await Promise.resolve();
+    });
+    expect(screen.queryByText("第一条留言")).toBeNull();
+    expect(screen.queryByRole("button", { name: "发表" })).toBeNull();
+  });
+
   it("ignores a late response from the previous project", async () => {
     let resolveP1: ((value: ReturnType<typeof page>) => void) | null = null;
     list.mockImplementationOnce(

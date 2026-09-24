@@ -362,6 +362,9 @@ export default function ProjectActivity({ projectId }: Props) {
       )
         return;
       if (isNotFoundApiError(err)) {
+        // A list started before revocation may still resolve after this 404.
+        // Invalidate it before publishing the no-access state.
+        fetchSeq.current += 1;
         const key = stateKey;
         setTimeline((previous) =>
           previous.key !== key
@@ -373,6 +376,8 @@ export default function ProjectActivity({ projectId }: Props) {
                 error: err,
                 appendError: null,
                 cursorExpired: false,
+                loading: false,
+                loadingMore: false,
               },
         );
       } else {
@@ -458,13 +463,7 @@ export default function ProjectActivity({ projectId }: Props) {
   };
 
   let body: React.ReactNode;
-  if (loading && items.length === 0) {
-    body = (
-      <div style={{ display: "flex", justifyContent: "center", padding: 48 }}>
-        <Spin />
-      </div>
-    );
-  } else if (notFound) {
+  if (notFound) {
     body = (
       <EmptyState
         variant="error"
@@ -476,6 +475,12 @@ export default function ProjectActivity({ projectId }: Props) {
         actionLabel={t("common.retry", "重试")}
         onAction={reload}
       />
+    );
+  } else if (loading && items.length === 0) {
+    body = (
+      <div style={{ display: "flex", justifyContent: "center", padding: 48 }}>
+        <Spin />
+      </div>
     );
   } else if (error != null) {
     body = (

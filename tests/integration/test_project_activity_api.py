@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 
+from octop.api.app import build_app
 from octop.i18n import error_message
 from octop.infra.db.repos.project_activity import ACTIVITY_EVENT_TYPES, EVENT_MESSAGE_CREATED
 from tests.support.auth import create_agent, create_user, resolve_user_id
@@ -126,6 +127,21 @@ def _message_rows(srv: Any, pid: str) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 # Publish / read round trip
 # ---------------------------------------------------------------------------
+
+
+async def test_activity_openapi_has_typed_responses_and_project_tag(env_with_provider: Any) -> None:
+    _client, srv, _admin_auth = env_with_provider
+    spec = build_app(srv).openapi()
+    tags = {tag["name"]: tag for tag in spec["tags"]}
+    assert tags["projects"]["description"]
+    activity_schema = spec["paths"]["/api/projects/{project_id}/activity"]["get"]["responses"][
+        "200"
+    ]["content"]["application/json"]["schema"]
+    message_schema = spec["paths"]["/api/projects/{project_id}/messages"]["post"]["responses"][
+        "201"
+    ]["content"]["application/json"]["schema"]
+    assert activity_schema["$ref"].endswith("ActivityPageResponse")
+    assert message_schema["$ref"].endswith("ActivityItemResponse")
 
 
 async def test_members_publish_and_read_each_others_messages(env_with_provider: Any) -> None:

@@ -71,6 +71,10 @@ OPENAPI_TAGS: list[dict[str, str]] = [
         "description": "Dashboard chat: WebSocket streaming, threads, conversation history, trajectory ledger, and text-push toasts.",
     },
     {
+        "name": "projects",
+        "description": "Member-scoped project spaces: metadata, invitations, plans, private task links, activity, and messages.",
+    },
+    {
         "name": "slash",
         "description": "Slash command metadata for composer menus and inline help.",
     },
