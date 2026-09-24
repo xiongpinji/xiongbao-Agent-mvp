@@ -657,6 +657,7 @@
       "versionSha256": "SHA-256",
       "versionPreviewTitle": "暂不支持页面内预览",
       "versionPreviewHint": "为保护文件安全，本版本不在页面内渲染；请下载后查看。",
+      "versionPreviewLoadFailed": "预览组件加载失败，请重试或下载该版本。",
       "versionDownload": "下载该版本",
       "versionDownloadFailed": "下载该版本失败",
       "versionRestore": "恢复为当前版",

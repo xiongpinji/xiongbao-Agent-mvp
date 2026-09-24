@@ -45,6 +45,15 @@ vi.mock("../../utils/antdMessage", () => ({
   },
 }));
 
+vi.mock("react-pdf", async () => {
+  const React = await import("react");
+  const Document = ({ children }: { children?: React.ReactNode }) => (
+    <div data-testid="pdf-document">{children}</div>
+  );
+  const Page = () => <div data-testid="pdf-page" />;
+  return { Document, Page, pdfjs: { GlobalWorkerOptions: { workerSrc: "" } } };
+});
+
 import ProjectAssetVersions from "./ProjectAssetVersions";
 import {
   PROJECT_ASSET_VERSIONS_PAGE_SIZE,
@@ -108,6 +117,16 @@ function versionResponse(
   };
 }
 
+function pdfBlob(): Blob {
+  return new Blob(["%PDF-1.4\n"], { type: "application/pdf" });
+}
+
+function previewCall(versionId: string): unknown[] | undefined {
+  return downloadVersion.mock.calls.find(
+    (call) => call[2] === versionId && call.length === 5,
+  );
+}
+
 let createObjectURL: ReturnType<typeof vi.fn>;
 let revokeObjectURL: ReturnType<typeof vi.fn>;
 let clickSpy: ReturnType<typeof vi.spyOn>;
@@ -146,9 +165,8 @@ beforeEach(() => {
   listVersions.mockResolvedValue(versionResponse([v2, v1]));
   uploadVersion.mockReset();
   restoreVersion.mockReset();
-  downloadVersion.mockResolvedValue(
-    new Blob(["old"], { type: "application/pdf" }),
-  );
+  downloadVersion.mockReset();
+  downloadVersion.mockResolvedValue(pdfBlob());
   onClose = vi.fn();
   onChanged = vi.fn();
   onAccessLost = vi.fn();
@@ -234,8 +252,17 @@ describe("ProjectAssetVersions against the PS-06B-1 contract", () => {
 
   it("shows permission/file unavailable when a historical download 404s", async () => {
     const user = userEvent.setup();
-    downloadVersion.mockRejectedValueOnce(
-      new Error('404 - {"error":{"code":"NOT_FOUND","message":"not found"}}'),
+    const notFound = new Error(
+      '404 - {"error":{"code":"NOT_FOUND","message":"not found"}}',
+    );
+    listVersions.mockResolvedValueOnce(
+      versionResponse([{ ...v2, media_type: "application/octet-stream" }, v1]),
+    );
+    downloadVersion.mockImplementation(
+      async (_projectId, _nodeId, versionId) => {
+        if (versionId === "ver-2") throw notFound;
+        return pdfBlob();
+      },
     );
     renderVersions();
     await user.click(await screen.findByTestId("project-asset-version-ver-2"));
@@ -243,9 +270,169 @@ describe("ProjectAssetVersions against the PS-06B-1 contract", () => {
       within(detailPane()).getByRole("button", { name: "下载该版本" }),
     );
 
-    await waitFor(() => expect(onAccessLost).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(onAccessLost).toHaveBeenCalledWith(notFound, "p1"),
+    );
     expect(clickSpy).not.toHaveBeenCalled();
     expect(screen.queryByTestId("project-asset-version-ver-2")).toBeNull();
+  });
+
+  it("previews the exact selected version and cancels it when switching", async () => {
+    const user = userEvent.setup();
+    let rejectFirstPreview: ((reason: unknown) => void) | null = null;
+    downloadVersion
+      .mockImplementationOnce(
+        () => new Promise((_resolve, reject) => (rejectFirstPreview = reject)),
+      )
+      .mockResolvedValue(pdfBlob());
+    renderVersions();
+
+    await waitFor(() => expect(previewCall("ver-1")).toBeTruthy());
+    const firstSignal = (previewCall("ver-1")?.[3] as { signal: AbortSignal })
+      .signal;
+    expect(firstSignal.aborted).toBe(false);
+
+    await user.click(await screen.findByTestId("project-asset-version-ver-2"));
+    await waitFor(() => expect(previewCall("ver-2")).toBeTruthy());
+    expect(firstSignal.aborted).toBe(true);
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalled());
+    expect(await screen.findByTestId("pdf-document")).toBeInTheDocument();
+
+    await act(async () => {
+      rejectFirstPreview?.(
+        new Error('404 - {"error":{"code":"NOT_FOUND","message":"late"}}'),
+      );
+      await Promise.resolve();
+    });
+    expect(onAccessLost).not.toHaveBeenCalled();
+  });
+
+  it("revokes the preview object URL when the modal closes", async () => {
+    const { unmount } = renderVersions();
+
+    await screen.findByTestId("project-asset-version-ver-1");
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalled());
+    unmount();
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:mock");
+  });
+
+  it("aborts the preview on unmount and ignores late bytes", async () => {
+    let resolvePreview: ((blob: Blob) => void) | null = null;
+    downloadVersion.mockImplementationOnce(
+      () => new Promise((resolve) => (resolvePreview = resolve)),
+    );
+    const { unmount } = renderVersions();
+    await waitFor(() => expect(previewCall("ver-1")).toBeTruthy());
+    const signal = (previewCall("ver-1")?.[3] as { signal: AbortSignal })
+      .signal;
+
+    unmount();
+    expect(signal.aborted).toBe(true);
+    await act(async () => {
+      resolvePreview?.(pdfBlob());
+      await Promise.resolve();
+    });
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(onAccessLost).not.toHaveBeenCalled();
+  });
+
+  it("aborts the old preview on project switch and ignores its late 404", async () => {
+    let rejectOld: ((reason: unknown) => void) | null = null;
+    downloadVersion
+      .mockImplementationOnce(
+        () => new Promise((_resolve, reject) => (rejectOld = reject)),
+      )
+      .mockResolvedValue(pdfBlob());
+    const { rerender } = renderVersions();
+    await waitFor(() => expect(previewCall("ver-1")).toBeTruthy());
+    const oldSignal = (previewCall("ver-1")?.[3] as { signal: AbortSignal })
+      .signal;
+
+    rerender(
+      <ProjectAssetVersions
+        projectId="p2"
+        node={{ ...nodeFile, node_id: "file-2" }}
+        onClose={onClose}
+        onChanged={onChanged}
+        onAccessLost={onAccessLost}
+      />,
+    );
+    await waitFor(() =>
+      expect(listVersions).toHaveBeenLastCalledWith("p2", "file-2", {
+        limit: PROJECT_ASSET_VERSIONS_PAGE_SIZE,
+        offset: 0,
+      }),
+    );
+    expect(oldSignal.aborted).toBe(true);
+    await waitFor(() =>
+      expect(
+        downloadVersion.mock.calls.some(
+          (call) => call[0] === "p2" && call[1] === "file-2",
+        ),
+      ).toBe(true),
+    );
+
+    await act(async () => {
+      rejectOld?.(
+        new Error('404 - {"error":{"code":"NOT_FOUND","message":"old"}}'),
+      );
+      await Promise.resolve();
+    });
+    expect(onAccessLost).not.toHaveBeenCalled();
+  });
+
+  it("clears the modal and reports access loss on a selected-version preview 404", async () => {
+    const notFound = new Error(
+      '404 - {"error":{"code":"NOT_FOUND","message":"not found"}}',
+    );
+    downloadVersion.mockImplementation(
+      async (_projectId, _nodeId, versionId) => {
+        if (versionId === "ver-1") throw notFound;
+        return pdfBlob();
+      },
+    );
+    renderVersions();
+
+    await waitFor(() =>
+      expect(onAccessLost).toHaveBeenCalledWith(notFound, "p1"),
+    );
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("project-asset-version-ver-1")).toBeNull();
+    expect(screen.getByText("选择一个版本查看详情。")).toBeInTheDocument();
+  });
+
+  it.each<[string, ProjectAssetVersion]>([
+    ["a non-PDF media type", { ...v1, media_type: "application/octet-stream" }],
+    ["a zero-byte version", { ...v1, size_bytes: 0 }],
+    ["an oversize version", { ...v1, size_bytes: 25 * 1024 * 1024 + 1 }],
+  ])("does not fetch a preview for %s", async (_label, version) => {
+    listVersions.mockResolvedValueOnce(versionResponse([version]));
+    renderVersions();
+
+    await screen.findByTestId(`project-asset-version-${version.version_id}`);
+    await waitFor(() =>
+      expect(screen.getByText("暂不支持页面内预览")).toBeInTheDocument(),
+    );
+    expect(downloadVersion).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-PDF bytes by signature and retries the preview on demand", async () => {
+    const user = userEvent.setup();
+    downloadVersion
+      .mockResolvedValueOnce(
+        new Blob(["<html>not a pdf</html>"], { type: "application/pdf" }),
+      )
+      .mockResolvedValueOnce(pdfBlob());
+    renderVersions();
+
+    await screen.findByTestId("project-asset-version-ver-1");
+    expect(await screen.findByText("无法加载预览")).toBeInTheDocument();
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(document.querySelector("iframe")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(downloadVersion).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalled());
   });
 
   it("restores an old version, moves the current marker and refreshes the parent", async () => {
@@ -467,6 +654,7 @@ describe("ProjectAssetVersions against the PS-06B-1 contract", () => {
 
     await screen.findByTestId("project-asset-version-ver-1");
     expect(screen.getByText("暂不支持页面内预览")).toBeInTheDocument();
+    expect(downloadVersion).not.toHaveBeenCalled();
     expect(document.querySelector("iframe")).toBeNull();
     expect(document.body.querySelector("img")).toBeNull();
     expect(document.body.textContent).toContain(evilName);

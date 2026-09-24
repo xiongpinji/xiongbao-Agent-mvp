@@ -657,6 +657,7 @@
       "versionSha256": "SHA-256",
       "versionPreviewTitle": "Preview is not available here",
       "versionPreviewHint": "To protect the file, this version is not rendered in the page; download it to view it.",
+      "versionPreviewLoadFailed": "Could not load the preview. Retry or download this version.",
       "versionDownload": "Download this version",
       "versionDownloadFailed": "Failed to download this version",
       "versionRestore": "Restore as current",

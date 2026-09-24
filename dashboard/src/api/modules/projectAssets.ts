@@ -218,6 +218,22 @@ export const projectAssetsApi = {
       `${versionBase(projectId, nodeId, versionId)}/restore`,
       { method: "POST" },
     ),
-  downloadVersion: (projectId: string, nodeId: string, versionId: string) =>
-    requestBlob(`${versionBase(projectId, nodeId, versionId)}/download`),
+  /**
+   * Historical version bytes via the member-gated download route. The
+   * optional `RequestInit` (e.g. an `AbortSignal` for the 027 PDF preview)
+   * and `(loaded, total)` progress callback pass straight through to the
+   * authenticated `requestBlob`; the three-argument legacy call is unchanged.
+   */
+  downloadVersion: (
+    projectId: string,
+    nodeId: string,
+    versionId: string,
+    options: RequestInit = {},
+    onProgress?: (loaded: number, total: number) => void,
+  ) =>
+    requestBlob(
+      `${versionBase(projectId, nodeId, versionId)}/download`,
+      options,
+      onProgress,
+    ),
 };

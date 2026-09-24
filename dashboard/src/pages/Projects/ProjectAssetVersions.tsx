@@ -10,8 +10,10 @@
  *   current-version badge; `version_id` alone identifies selection, download
  *   and restore
  * - the right pane shows safe metadata only (size / media type / uploader
- *   placeholder / SHA-256 / time) plus an explicit “not rendered here”
- *   preview placeholder — no third-party preview embed and no uploaded HTML
+ *   placeholder / SHA-256 / time); the selected authorized PDF version is
+ *   rendered locally from authenticated bytes, other types keep the explicit
+ *   “not rendered here” preview placeholder — no third-party preview embed
+ *   and no uploaded HTML
  * - a new-version upload targets the current node id; the multipart filename
  *   never renames the node
  * - every 404 clears this modal and asks the parent to recheck the project;
@@ -53,6 +55,9 @@ import {
   parseApiError,
 } from "../../utils/apiError";
 import { message } from "../../utils/antdMessage";
+import ProjectAssetPdfPreview, {
+  PROJECT_ASSET_PDF_PREVIEW_MAX_BYTES,
+} from "./ProjectAssetPdfPreview";
 
 const { Text } = Typography;
 
@@ -116,6 +121,17 @@ function formatBytes(bytes: number | null | undefined): string {
     unit += 1;
   }
   return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unit]}`;
+}
+
+function isPdfPreviewable(name: string, version: ProjectAssetVersion): boolean {
+  const size = version.size_bytes;
+  return (
+    name.toLowerCase().endsWith(".pdf") &&
+    version.media_type === "application/pdf" &&
+    Number.isFinite(size) &&
+    size > 0 &&
+    size <= PROJECT_ASSET_PDF_PREVIEW_MAX_BYTES
+  );
 }
 
 const secondaryStyle: React.CSSProperties = {
@@ -463,6 +479,8 @@ export default function ProjectAssetVersions({
 
   const selected =
     state.items.find((version) => version.version_id === selectedId) ?? null;
+  const selectedPreviewable =
+    selected != null && isPdfPreviewable(node.name, selected);
   const selectedIndex = state.items.findIndex(
     (version) => version.version_id === selectedId,
   );
@@ -771,34 +789,47 @@ export default function ProjectAssetVersions({
                 </span>
               </div>
 
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  gap: 4,
-                  padding: 20,
-                  border:
-                    "1px dashed var(--fn-border-primary, rgba(0,0,0,0.15))",
-                  borderRadius: 8,
-                  color: "var(--fn-text-tertiary, rgba(0,0,0,0.45))",
-                  textAlign: "center",
-                }}
-              >
-                <EyeOff size={22} aria-hidden />
-                <span>
-                  {t(
-                    "projects.assets.versionPreviewTitle",
-                    "暂不支持页面内预览",
-                  )}
-                </span>
-                <span style={secondaryStyle}>
-                  {t(
-                    "projects.assets.versionPreviewHint",
-                    "为保护文件安全，本版本不在页面内渲染；请下载后查看。",
-                  )}
-                </span>
-              </div>
+              {selectedPreviewable ? (
+                <ProjectAssetPdfPreview
+                  key={`${projectId}\u0000${node.node_id}\u0000${selected.version_id}`}
+                  projectId={projectId}
+                  nodeId={node.node_id}
+                  versionId={selected.version_id}
+                  filename={node.name}
+                  onAccessLost={(error) =>
+                    failWithAccessLoss(error, projectId, scopeGeneration)
+                  }
+                />
+              ) : (
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 4,
+                    padding: 20,
+                    border:
+                      "1px dashed var(--fn-border-primary, rgba(0,0,0,0.15))",
+                    borderRadius: 8,
+                    color: "var(--fn-text-tertiary, rgba(0,0,0,0.45))",
+                    textAlign: "center",
+                  }}
+                >
+                  <EyeOff size={22} aria-hidden />
+                  <span>
+                    {t(
+                      "projects.assets.versionPreviewTitle",
+                      "暂不支持页面内预览",
+                    )}
+                  </span>
+                  <span style={secondaryStyle}>
+                    {t(
+                      "projects.assets.versionPreviewHint",
+                      "为保护文件安全，本版本不在页面内渲染；请下载后查看。",
+                    )}
+                  </span>
+                </div>
+              )}
 
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <Button

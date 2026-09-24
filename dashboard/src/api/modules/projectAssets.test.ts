@@ -66,6 +66,27 @@ describe("projectAssetsApi version paths (PS-06B-1)", () => {
 
     expect(requestBlob).toHaveBeenCalledWith(
       "/projects/p%201%2F2/assets/n%2F1/versions/v%2F1/download",
+      {},
+      undefined,
+    );
+  });
+
+  it("passes signal and progress through to the blob request", () => {
+    const controller = new AbortController();
+    const onProgress = vi.fn();
+
+    void projectAssetsApi.downloadVersion(
+      "p 1/2",
+      "n/1",
+      "v/1",
+      { signal: controller.signal },
+      onProgress,
+    );
+
+    expect(requestBlob).toHaveBeenCalledWith(
+      "/projects/p%201%2F2/assets/n%2F1/versions/v%2F1/download",
+      { signal: controller.signal },
+      onProgress,
     );
   });
 });

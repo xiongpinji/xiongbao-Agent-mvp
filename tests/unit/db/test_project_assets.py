@@ -1261,6 +1261,72 @@ def test_reclaim_orphans_respects_grace_and_references(tmp_path: Path) -> None:
     assert orphan_fresh.exists()
 
 
+def test_reclaim_orphans_entry_failure_does_not_log_private_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """027: a per-entry OSError warning must stay static — no path, no traceback."""
+    storage = ProjectAssetStorage(tmp_path / "assets")
+    storage.ensure_root()
+    old = RECLAIM_GRACE_SECONDS + 120
+
+    # Two generated project folders; the lexicographically first one raises.
+    first_project, second_project = sorted((new_ulid(), new_ulid()))
+    bad_dir = storage.root / first_project
+    bad_dir.mkdir(parents=True, exist_ok=True)
+    private_path = bad_dir / new_ulid()
+
+    # A valid aged orphan in the *later* folder: skip-and-continue must still
+    # reclaim it after the earlier entry raised.
+    orphan = storage.final_path(second_project, new_ulid())
+    orphan.parent.mkdir(parents=True, exist_ok=True)
+    orphan.write_bytes(b"obj")
+    _age(orphan, old)
+
+    real_reclaim_finals = ProjectAssetStorage._reclaim_finals
+
+    def failing_reclaim_finals(
+        self: ProjectAssetStorage,
+        project_dir: str,
+        project_id: str,
+        known_object_keys: set[str],
+        moment: float,
+        grace: float,
+    ) -> int:
+        if project_id == first_project:
+            raise OSError(13, f"permission denied: {private_path}")
+        return real_reclaim_finals(self, project_dir, project_id, known_object_keys, moment, grace)
+
+    monkeypatch.setattr(ProjectAssetStorage, "_reclaim_finals", failing_reclaim_finals)
+
+    # os.scandir order is filesystem-dependent; sort entries so the failing
+    # project folder is demonstrably examined before the valid one.
+    real_scandir = os.scandir
+
+    class _SortedEntries:
+        def __init__(self, entries: list[Any]) -> None:
+            self._entries = entries
+
+        def __enter__(self) -> Any:
+            return iter(self._entries)
+
+        def __exit__(self, *exc_info: object) -> bool:
+            return False
+
+    def sorted_scandir(path: Any) -> Any:
+        with real_scandir(path) as it:
+            return _SortedEntries(sorted(it, key=lambda entry: entry.name))
+
+    monkeypatch.setattr(os, "scandir", sorted_scandir)
+
+    report = storage.reclaim_orphans(set())
+
+    assert report.finals_removed == 1
+    assert not orphan.exists()
+    assert "asset reclaim skipped an entry" in caplog.text
+    assert str(private_path) not in caplog.text
+    assert all(record.exc_info is None for record in caplog.records)
+
+
 # ---------------------------------------------------------------------------
 # Service: naming rules
 # ---------------------------------------------------------------------------

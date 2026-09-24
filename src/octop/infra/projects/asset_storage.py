@@ -343,7 +343,9 @@ class ProjectAssetStorage:
                         entry.path, entry.name, known_object_keys, moment, grace_seconds
                     )
             except OSError:
-                logger.warning("asset reclaim skipped an entry", exc_info=True)
+                # Static message only: no exc_info, no path/exception text —
+                # OSError messages carry the private on-disk path.
+                logger.warning("asset reclaim skipped an entry")
         return ReclaimReport(temps_removed=temps_removed, finals_removed=finals_removed)
 
     def _reclaim_temps(self, tmp_dir: str, moment: float, grace: float) -> int:
