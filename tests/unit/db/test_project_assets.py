@@ -1048,6 +1048,23 @@ def test_write_temp_enforces_cap_and_discards_temp(tmp_path: Path) -> None:
     assert _files_under(storage.root) == []
 
 
+def test_discard_failure_does_not_log_private_object_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    storage = ProjectAssetStorage(tmp_path / "assets")
+    private_path = storage.final_path(new_ulid(), new_ulid())
+
+    def deny_unlink(self: Path, *args: Any, **kwargs: Any) -> None:
+        raise OSError(f"access denied: {self}")
+
+    monkeypatch.setattr(Path, "unlink", deny_unlink)
+    storage.discard(private_path)
+
+    assert "failed to discard asset object" in caplog.text
+    assert str(private_path) not in caplog.text
+    assert all(record.exc_info is None for record in caplog.records)
+
+
 def test_write_temp_midstream_crash_leaves_no_temp(tmp_path: Path) -> None:
     """W1: a crash mid-stream leaves at most the temp — and the writer cleans it."""
 

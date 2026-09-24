@@ -273,7 +273,8 @@ class ProjectAssetStorage:
         except FileNotFoundError:
             pass
         except OSError:
-            logger.warning("failed to discard asset object", exc_info=True)
+            # The exception often embeds the private object path; keep logs generic.
+            logger.warning("failed to discard asset object")
 
     # ------------------------------------------------------------ download
 

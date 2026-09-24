@@ -1,6 +1,6 @@
 # 026 · 项目资产版本第一片验收记录
 
-状态：本地实现与定向验收通过；固定提交 GLM 只读审查、远端快进推送仍须完成。本记录只覆盖 PS-06B-1，不核销完整 PS-06B 或 WorkBuddy 1:1。
+状态：本地实现与定向验收通过；GLM-5.3 对固定代码提交 `55dc6d9b` 只读审查 GO、无 P0/P1。Codex 随后修复其一项 P2 日志泄漏并复测；远端 SHA 须以实际推送核验为准。本记录只覆盖 PS-06B-1，不核销完整 PS-06B 或 WorkBuddy 1:1。
 
 ## 行为边界
 
@@ -12,14 +12,16 @@
 
 | 验证 | 结果 | 边界 |
 | --- | --- | --- |
-| Windows `tests/unit/db/test_project_assets.py` | 82 通过、5 项 POSIX 专项跳过 | 覆盖版本排序、包含关系、成员/归档锁序、失败回滚、缺失/截断/符号链接对象、幂等恢复；fake PG 仅验证 SQL 顺序，不是 PG 实库 |
-| WSL 同一单元文件 | 87 通过 | POSIX 目录和 no-follow 安全用例实际执行 |
+| Windows `tests/unit/db/test_project_assets.py` | GLM P2 修复后 83 通过、5 项 POSIX 专项跳过 | 覆盖版本排序、包含关系、成员/归档锁序、失败回滚、缺失/截断/符号链接对象、幂等恢复和清理失败时的日志路径；fake PG 仅验证 SQL 顺序，不是 PG 实库 |
+| WSL 同一单元文件 | GLM P2 修复后 88 通过 | POSIX 目录和 no-follow 安全用例实际执行 |
 | Windows 与 WSL `tests/integration/test_project_assets_api.py` | 各 25 通过 | HTTP 状态、响应形状、真实对象字节和授权 |
 | 前端项目页 Vitest | 137/137 通过 | 8 个项目页测试文件；另有 API/版本弹窗/父页 3 文件定向 48/48 |
 | 静态/构建 | 后端目标 Ruff check/format、3 个源文件 mypy；前端目标 ESLint/Prettier、`tsc -b` 和生产构建通过 | Vite 大包警告仍在，非构建失败 |
 | 隔离服务 + 无头 Chrome | 三身份旅程通过 | owner UI 创建项目和版本弹窗；member 接受邀请并上传；验证历史下载字节、UI 上传/恢复、跨节点 404、移除成员后原令牌 404。测试环境用本地假 provider 跳过验证码，不是正式用户登录/安装包验收 |
 
 本地截图：工作区 `outputs/xiongbao-project-asset-versions-026-list.png`、`outputs/xiongbao-project-asset-versions-026-modal.png` 和 `outputs/xiongbao-project-asset-versions-026-modal-narrow.png`。它们是熊宝 1280×768 与 760×720 的候选页面证据；截图没有构成 WorkBuddy 逐像素验收。
+
+GLM 第一次全文件只读审查达到 30 轮上限，没有给出结论；缩小代码窗口后的第二次在固定 SHA 上给出 GO、无 P0/P1。其三项 P2：清理异常 traceback 暴露私有路径（已用失败测试复现并修复）；前端从错误字符串猜 HTTP 状态（仅归档提示文案的弱回退，待处理）；下载中的历史版本请求无 `AbortSignal`（关闭弹窗后仍可能浪费带宽，待处理）。GLM 未执行测试，且其 GO 对应修复前的固定代码 SHA；后续两项不能因此视为已修。
 
 本批没有运行全仓 `make all`：当前 Windows shell 未安装 `make`，因此本地 Git hook 的 `make precommit` 也不能在此环境执行。上述命令由 Codex 分别运行并验证退出码；完整非 live 套件及 Linux/Windows 托管 CI 仍是未验证项，不能用定向结果替代。
 
