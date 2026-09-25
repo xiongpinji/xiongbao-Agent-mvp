@@ -70,9 +70,18 @@ vi.mock("../../utils/antdMessage", () => ({
 }));
 
 vi.mock("../../layouts/PageShell", () => ({
-  default: ({ title, children }: { title: string; children: ReactNode }) => (
+  default: ({
+    title,
+    actions,
+    children,
+  }: {
+    title: string;
+    actions?: ReactNode;
+    children: ReactNode;
+  }) => (
     <main>
       <h1>{title}</h1>
+      {actions && <div>{actions}</div>}
       {children}
     </main>
   ),
@@ -139,6 +148,9 @@ const summary = {
   created_at: 1_700_000_000,
   updated_at: 1_700_000_000,
 };
+
+const composerPlaceholder =
+  "项目内直接发送消息尚未开放：请在“任务”页新建项目任务并前往对话";
 
 const folderDesign: ProjectAssetNode = {
   node_id: "folder-1",
@@ -272,6 +284,73 @@ describe("ProjectDetail assets tab mount", () => {
     ).toBeNull();
   });
 
+  it("keeps exactly one disabled composer visible on all four project tabs", async () => {
+    const user = userEvent.setup();
+    renderDetail("project-1");
+
+    await screen.findByText("activity-stub");
+
+    for (const tab of ["动态", "计划", "任务", "资产"]) {
+      await user.click(screen.getByRole("tab", { name: tab }));
+
+      const composers = screen.getAllByPlaceholderText(composerPlaceholder);
+      expect(composers).toHaveLength(1);
+      expect(composers[0]).toBeVisible();
+      expect(composers[0]).toBeDisabled();
+
+      const sendButtons = screen.getAllByRole("button", {
+        name: /^发\s*送$/,
+      });
+      expect(sendButtons).toHaveLength(1);
+      expect(sendButtons[0]).toBeDisabled();
+      expect(
+        screen.getByText(
+          "在本页直接发送消息、协同写入、本地/云端与移交需后续后端权限；任务卡片摘要可在“任务”页显式分享给指定成员。",
+        ),
+      ).toBeVisible();
+    }
+
+    await user.click(screen.getByRole("tab", { name: "动态" }));
+    expect(screen.getAllByPlaceholderText(composerPlaceholder)).toHaveLength(1);
+    expect(screen.getByPlaceholderText(composerPlaceholder)).toBeVisible();
+    expect(screen.getByText("activity-stub")).toBeVisible();
+  });
+
+  /**
+   * Plan 031 regression: the real configuration column stays inline on the
+   * desktop right side across every tab switch — never moved behind a
+   * drawer or disclosure toggle — alongside the single disabled composer.
+   * Pixel geometry (e.g. 800×728 with the global nav collapsed to its
+   * rail) belongs to the browser acceptance matrix, not JSDOM.
+   */
+  it("keeps the inline right configuration and one disabled composer across all four tabs", async () => {
+    const user = userEvent.setup();
+    renderDetail("project-1");
+
+    await screen.findByText("activity-stub");
+
+    for (const tab of ["动态", "计划", "任务", "资产"]) {
+      await user.click(screen.getByRole("tab", { name: tab }));
+
+      // The configuration column is mounted inline — no disclosure button.
+      expect(screen.getByText("项目配置")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "项目配置" })).toBeNull();
+      expect(screen.getByText("experts-stub")).toBeInTheDocument();
+      expect(screen.getByText("members-stub")).toBeInTheDocument();
+      expect(screen.getAllByText("暂未开放")).toHaveLength(3);
+      expect(
+        screen.getByText("暂未开放：连接器、技能与定时任务仍需后续后端支持。"),
+      ).toBeInTheDocument();
+
+      // Exactly one disabled composer survives every tab switch.
+      const composers = screen.getAllByPlaceholderText(composerPlaceholder);
+      expect(composers).toHaveLength(1);
+      expect(composers[0]).toBeVisible();
+      expect(composers[0]).toBeDisabled();
+      expect(screen.getByRole("button", { name: /^发\s*送$/ })).toBeDisabled();
+    }
+  });
+
   it("passes the current instructions digest to the tasks tab and scopes edits to new tasks", async () => {
     get.mockResolvedValue({
       ...summary,
@@ -336,6 +415,8 @@ describe("ProjectDetail assets tab mount", () => {
       await screen.findByText("项目不存在或你无权访问"),
     ).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "资产" })).toBeNull();
+    expect(screen.queryByPlaceholderText(composerPlaceholder)).toBeNull();
+    expect(screen.queryByText("项目配置")).toBeNull();
     expect(list).not.toHaveBeenCalled();
   });
 });

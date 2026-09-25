@@ -1,0 +1,9 @@
+/**
+ * Project detail work area: pin the Ant Tabs chrome and scroll only the
+ * active pane, so the shared composer sits below the scrollport. Mirrors
+ * PageShell's `fillTabs` contract (dashboard/src/layouts/PageShell.module.less)
+ * without ProjectDetail importing PageShell's internal style export.
+ */
+.workTabs {
+  composes: fillTabs from "../../layouts/PageShell.module.less";
+}

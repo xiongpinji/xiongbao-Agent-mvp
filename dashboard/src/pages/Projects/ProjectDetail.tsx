@@ -8,9 +8,14 @@
  * - 资产 tab: real PS-06A / 023A private asset library via `ProjectAssets`
  * - 任务 tab: real private task creation with a confirmed instruction
  *   snapshot, plus the existing manual attach/share/read-only card flows
+ * - one disabled bottom task composer stays mounted below every tab body
+ *   (all four tabs) and beside the fixed configuration column on desktop;
+ *   direct project send remains unavailable
  * - fixed 项目配置 column: real instructions (editable for owner/admin via
  *   PATCH); member invitations and approvals use project membership APIs,
- *   while connector / expert / skill / scheduled-task rows stay unavailable
+ *   while connector / expert / skill / scheduled-task rows stay unavailable;
+ *   the column stays inline at every desktop width (narrow viewports are
+ *   handled by the global nav collapsing to its rail, not by a disclosure)
  * - non-members get 404 from the server; the UI shows a fixed not-found
  *   state and never renders the project name
  */
@@ -21,6 +26,7 @@ import { useTranslation } from "react-i18next";
 import { Breadcrumb, Button, Input, Spin, Tabs, Tag, Typography } from "antd";
 import { Link2, Pencil, Sparkles, Timer } from "lucide-react";
 import PageShell from "../../layouts/PageShell";
+import styles from "./ProjectDetail.module.less";
 import { EmptyState } from "../../components/EmptyState";
 import { useIsMobile } from "../../hooks/useIsMobile";
 import { useServerTimezone } from "../../hooks/useServerTimezone";
@@ -163,7 +169,16 @@ export default function ProjectDetail() {
   );
 
   const taskComposer = (
-    <div style={{ maxWidth: 640, margin: "0 auto", padding: "8px 0 16px" }}>
+    <div
+      style={{
+        width: "100%",
+        maxWidth: 640,
+        margin: "0 auto",
+        padding: "8px 0 16px",
+        boxSizing: "border-box",
+        flexShrink: 0,
+      }}
+    >
       <Input.TextArea
         rows={2}
         disabled
@@ -215,16 +230,13 @@ export default function ProjectDetail() {
       key: "tasks",
       label: t("projects.tabs.tasks", "任务"),
       children: (
-        <>
-          <ProjectTasks
-            projectId={project.project_id}
-            members={members}
-            instructions={project.instructions}
-            instructionsSha256={project.instructions_sha256}
-            onProjectReload={reload}
-          />
-          {taskComposer}
-        </>
+        <ProjectTasks
+          projectId={project.project_id}
+          members={members}
+          instructions={project.instructions}
+          instructionsSha256={project.instructions_sha256}
+          onProjectReload={reload}
+        />
       ),
     },
     {
@@ -262,6 +274,11 @@ export default function ProjectDetail() {
     },
   ];
 
+  /**
+   * Desktop: fixed-width column beside the work area with independent
+   * scrolling. Mobile: full-width stack below the work column. Always
+   * inline — the configuration is never hidden behind a drawer or toggle.
+   */
   const configPanel = (
     <aside
       style={{
@@ -275,6 +292,8 @@ export default function ProjectDetail() {
           : "none",
         paddingLeft: isMobile ? 0 : 16,
         paddingTop: isMobile ? 16 : 0,
+        minHeight: 0,
+        overflowY: isMobile ? undefined : "auto",
       }}
     >
       <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>
@@ -348,9 +367,10 @@ export default function ProjectDetail() {
           </Button>
         ) : undefined
       }
+      fill={!isMobile}
     >
       <Breadcrumb
-        style={{ marginBottom: 12 }}
+        style={{ marginBottom: 12, flexShrink: 0 }}
         items={[
           {
             title: (
@@ -370,6 +390,7 @@ export default function ProjectDetail() {
           gap: 12,
           flexWrap: "wrap",
           marginBottom: 12,
+          flexShrink: 0,
         }}
       >
         <Tag color={role.color}>{t(role.labelKey, role.fallback)}</Tag>
@@ -391,15 +412,28 @@ export default function ProjectDetail() {
           flexDirection: isMobile ? "column" : "row",
           gap: isMobile ? 16 : 24,
           alignItems: "stretch",
+          flex: isMobile ? "none" : 1,
           minHeight: 0,
+          minWidth: 0,
         }}
       >
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <Tabs
-            activeKey={activeTab}
-            onChange={(key) => setActiveTab(key as DetailTab)}
-            items={tabItems}
-          />
+        <div
+          style={{
+            flex: isMobile ? "none" : 1,
+            minWidth: 0,
+            minHeight: 0,
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
+          <div className={styles.workTabs}>
+            <Tabs
+              activeKey={activeTab}
+              onChange={(key) => setActiveTab(key as DetailTab)}
+              items={tabItems}
+            />
+          </div>
+          {taskComposer}
         </div>
         {configPanel}
       </div>
