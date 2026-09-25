@@ -4,12 +4,15 @@
  *
  * Rules (PROJECT_SPACE_SPEC.md PS-01):
  * - name is trimmed and must be 1–15 characters; submit stays disabled otherwise
- * - the five template cards only prefill the local form — no fake projects
+ * - the five template cards only prefill description/instructions — the user
+ *   names the project, and no fake projects are created
  * - switching templates while the form is dirty asks before overwriting
+ * - a seed applies once per closed → open edge, so parent prop drift or a
+ *   locale change never resets a draft in progress
  * - on POST/PATCH failure the form is preserved and the error shown inline
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { Alert, Button, Input, Modal } from "antd";
@@ -77,10 +80,14 @@ const EMPTY_FORM: FormSnapshot = {
   instructions: "",
 };
 
-/** Resolve a seed's localized copy into a form snapshot. */
+/**
+ * Resolve a seed's localized copy into a form snapshot. The name is always
+ * left blank: templates only prefill description and instructions, matching
+ * the observed create flow where the user names the project.
+ */
 function templateSnapshot(tpl: TemplateSeed, t: TFunction): FormSnapshot {
   return {
-    name: t(`projects.templates.${tpl.id}.name`, tpl.name),
+    name: "",
     description: t(`projects.templates.${tpl.id}.description`, tpl.description),
     instructions: t(
       `projects.templates.${tpl.id}.instructions`,
@@ -118,9 +125,15 @@ export default function CreateProjectModal({
   const [appliedTemplate, setAppliedTemplate] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  /** Tracks the previous `open` value to detect the closing → opening edge. */
+  const wasOpenRef = useRef(false);
 
   useEffect(() => {
-    if (!open) return;
+    const justOpened = open && !wasOpenRef.current;
+    wasOpenRef.current = open;
+    // The initial seed is one opening event: a parent prop drift or a locale
+    // change while the modal stays open must not reset a draft in progress.
+    if (!justOpened) return;
     let initial: FormSnapshot = EMPTY_FORM;
     let templateId: string | null = null;
     if (editTarget) {
@@ -141,8 +154,7 @@ export default function CreateProjectModal({
     setAppliedTemplate(templateId);
     setSubmitting(false);
     setSubmitError(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- seed once per open; `t` must not reset a typed draft
-  }, [open, editTarget, initialTemplateId]);
+  }, [open, editTarget, initialTemplateId, t]);
 
   const trimmedName = form.name.trim();
   const nameLength = Array.from(trimmedName).length;
@@ -288,6 +300,7 @@ export default function CreateProjectModal({
                 <button
                   key={tpl.id}
                   type="button"
+                  aria-pressed={selected}
                   onClick={() => handleTemplateClick(tpl)}
                   style={{
                     textAlign: "left",

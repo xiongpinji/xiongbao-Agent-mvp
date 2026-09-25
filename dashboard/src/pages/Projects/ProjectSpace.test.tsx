@@ -50,6 +50,7 @@ vi.mock("../../utils/antdMessage", () => ({
 import ProjectsPage from "./index";
 import ProjectDetail from "./ProjectDetail";
 import CreateProjectModal from "./CreateProjectModal";
+import type { ProjectRecord } from "../../api/modules/projects";
 
 const summary = {
   project_id: "project-1",
@@ -60,6 +61,45 @@ const summary = {
   created_at: 1_700_000_000,
   updated_at: 1_700_000_000,
 };
+
+/** Localized template copy the modal must apply when a template is chosen. */
+const TEMPLATE_COPY: Record<
+  string,
+  { description: string; instructions: string }
+> = {
+  requirements: {
+    description: "收集与评审产品需求，跟踪状态与版本计划。",
+    instructions:
+      "整理需求时写明背景、目标用户、功能点、验收标准与优先级，输出需求文档草稿。",
+  },
+  competitor: {
+    description: "持续跟踪竞品动态，沉淀功能对比与差异化结论。",
+    instructions:
+      "对比竞品时列出功能矩阵、定价、优劣势与可借鉴点，标注信息来源与观察时间。",
+  },
+  knowledge: {
+    description: "集中维护团队文档、规范与常见问题解答。",
+    instructions: "回答时优先引用知识库条目并注明出处；缺失内容标记为待补充。",
+  },
+  delivery: {
+    description: "管理交付里程碑、风险与验收清单。",
+    instructions:
+      "按里程碑推进交付：拆解任务、明确负责人与截止时间，及时暴露风险。",
+  },
+  bugTracking: {
+    description: "记录、分派并跟踪缺陷直至修复验证。",
+    instructions:
+      "每个缺陷记录复现步骤、影响范围、严重级别与修复状态，修复后回归验证。",
+  },
+};
+
+/** Silence the jsdom-only AntD modal measurement warning used by these tests. */
+function stubGetComputedStyle() {
+  const nativeGetComputedStyle = window.getComputedStyle.bind(window);
+  return vi
+    .spyOn(window, "getComputedStyle")
+    .mockImplementation((element) => nativeGetComputedStyle(element));
+}
 
 function CurrentPath() {
   const location = useLocation();
@@ -343,7 +383,7 @@ describe("project-space pages against the real API response shapes", () => {
     expect(create).not.toHaveBeenCalled();
   });
 
-  it("prefills from a template only after confirming the overwrite", async () => {
+  it("clears the name and applies template copy only after confirming the overwrite", async () => {
     const nativeGetComputedStyle = window.getComputedStyle.bind(window);
     vi.spyOn(window, "getComputedStyle").mockImplementation((element) =>
       nativeGetComputedStyle(element),
@@ -354,10 +394,18 @@ describe("project-space pages against the real API response shapes", () => {
 
     const name = screen.getByPlaceholderText("例如：产品需求管理");
     await user.type(name, "自定义项目");
+    expect(screen.getByRole("button", { name: /创\s*建/ })).toBeEnabled();
 
     await user.click(screen.getByRole("button", { name: /产品需求管理/ }));
     await user.click(await screen.findByRole("button", { name: /覆\s*盖/ }));
-    expect(name).toHaveValue("产品需求管理");
+    expect(name).toHaveValue("");
+    expect(screen.getByLabelText("描述")).toHaveValue(
+      TEMPLATE_COPY.requirements.description,
+    );
+    expect(screen.getByLabelText("项目指令")).toHaveValue(
+      TEMPLATE_COPY.requirements.instructions,
+    );
+    expect(screen.getByRole("button", { name: /创\s*建/ })).toBeDisabled();
     expect(create).not.toHaveBeenCalled();
   });
 
@@ -393,7 +441,7 @@ describe("project-space pages against the real API response shapes", () => {
     ).toHaveAttribute("href", "/projects/project-1");
   });
 
-  it("offers five home template entries that prefill the create modal", async () => {
+  it("offers five home template entries that prefill copy but not the name", async () => {
     const nativeGetComputedStyle = window.getComputedStyle.bind(window);
     vi.spyOn(window, "getComputedStyle").mockImplementation((element) =>
       nativeGetComputedStyle(element),
@@ -421,14 +469,61 @@ describe("project-space pages against the real API response shapes", () => {
     );
 
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByLabelText("项目名称")).toHaveValue(
-      "产品需求管理",
-    );
+    expect(within(dialog).getByLabelText("项目名称")).toHaveValue("");
     expect(within(dialog).getByLabelText("描述")).toHaveValue(
-      "收集与评审产品需求，跟踪状态与版本计划。",
+      TEMPLATE_COPY.requirements.description,
     );
     expect(within(dialog).getByLabelText("项目指令")).toHaveValue(
-      "整理需求时写明背景、目标用户、功能点、验收标准与优先级，输出需求文档草稿。",
+      TEMPLATE_COPY.requirements.instructions,
+    );
+    expect(
+      within(dialog).getByRole("button", { name: /创\s*建/ }),
+    ).toBeDisabled();
+    expect(
+      within(dialog).getByRole("button", { name: /产品需求管理/ }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(within(dialog).queryByText("连接器")).toBeNull();
+    expect(within(dialog).queryByText("技能")).toBeNull();
+  });
+
+  it("creates with a user-typed name and the selected template copy", async () => {
+    stubGetComputedStyle();
+    const user = userEvent.setup();
+    list.mockResolvedValue({
+      items: [],
+      limit: 20,
+      offset: 0,
+      has_more: false,
+    });
+    create.mockResolvedValue({
+      ...summary,
+      instructions: TEMPLATE_COPY.requirements.instructions,
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/projects"]}>
+        <ProjectsPage />
+      </MemoryRouter>,
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "使用模板：产品需求管理" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    const name = within(dialog).getByLabelText("项目名称");
+    const submit = within(dialog).getByRole("button", { name: /创\s*建/ });
+    expect(submit).toBeDisabled();
+
+    await user.type(name, "我的需求项目");
+    expect(submit).toBeEnabled();
+    await user.click(submit);
+
+    await waitFor(() =>
+      expect(create).toHaveBeenCalledWith({
+        name: "我的需求项目",
+        description: TEMPLATE_COPY.requirements.description,
+        instructions: TEMPLATE_COPY.requirements.instructions,
+      }),
     );
   });
 
@@ -465,7 +560,10 @@ describe("project-space pages against the real API response shapes", () => {
       }),
     );
     dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByLabelText("项目名称")).toHaveValue("Bug 跟踪");
+    expect(within(dialog).getByLabelText("项目名称")).toHaveValue("");
+    expect(within(dialog).getByLabelText("项目指令")).toHaveValue(
+      TEMPLATE_COPY.bugTracking.instructions,
+    );
     await user.click(within(dialog).getByRole("button", { name: /取\s*消/ }));
 
     await user.click(
@@ -499,9 +597,11 @@ describe("project-space pages against the real API response shapes", () => {
     );
     const dialog = await screen.findByRole("dialog");
     const name = within(dialog).getByLabelText("项目名称");
-    expect(name).toHaveValue("竞品分析");
+    expect(name).toHaveValue("");
+    expect(within(dialog).getByLabelText("描述")).toHaveValue(
+      TEMPLATE_COPY.competitor.description,
+    );
 
-    await user.clear(name);
     await user.type(name, "自定义项目");
     await user.click(within(dialog).getByRole("button", { name: /Bug 跟踪/ }));
 
@@ -510,7 +610,276 @@ describe("project-space pages against the real API response shapes", () => {
     });
     await user.click(keepDraft);
     expect(name).toHaveValue("自定义项目");
+    expect(within(dialog).getByLabelText("描述")).toHaveValue(
+      TEMPLATE_COPY.competitor.description,
+    );
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it("keeps the edited draft and selected template when a switch is cancelled", async () => {
+    stubGetComputedStyle();
+    const user = userEvent.setup();
+
+    render(
+      <CreateProjectModal
+        open
+        initialTemplateId="requirements"
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+
+    const name = screen.getByLabelText("项目名称");
+    const description = screen.getByLabelText("描述");
+    await user.type(name, "我的需求项目");
+    await user.clear(description);
+    await user.type(description, "用户补充的描述");
+    const requirements = screen.getByRole("button", { name: /产品需求管理/ });
+    expect(requirements).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(screen.getByRole("button", { name: /竞品分析/ }));
+    await user.click(
+      await screen.findByRole("button", { name: "保留当前内容" }),
+    );
+
+    expect(name).toHaveValue("我的需求项目");
+    expect(description).toHaveValue("用户补充的描述");
+    expect(screen.getByLabelText("项目指令")).toHaveValue(
+      TEMPLATE_COPY.requirements.instructions,
+    );
+    expect(requirements).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /竞品分析/ })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("keeps the template selection and draft after a failed create, then retries", async () => {
+    stubGetComputedStyle();
+    const user = userEvent.setup();
+    const onSaved = vi.fn();
+    create.mockRejectedValueOnce(
+      new Error("503 - service temporarily unavailable"),
+    );
+    create.mockResolvedValueOnce({
+      ...summary,
+      instructions: TEMPLATE_COPY.delivery.instructions,
+    });
+
+    render(
+      <CreateProjectModal
+        open
+        initialTemplateId="delivery"
+        onClose={vi.fn()}
+        onSaved={onSaved}
+      />,
+    );
+
+    const name = screen.getByLabelText("项目名称");
+    await user.type(name, "交付项目");
+    await user.click(screen.getByRole("button", { name: /创\s*建/ }));
+
+    expect(
+      await screen.findByText("service temporarily unavailable"),
+    ).toBeInTheDocument();
+    expect(name).toHaveValue("交付项目");
+    expect(screen.getByLabelText("描述")).toHaveValue(
+      TEMPLATE_COPY.delivery.description,
+    );
+    expect(screen.getByLabelText("项目指令")).toHaveValue(
+      TEMPLATE_COPY.delivery.instructions,
+    );
+    expect(screen.getByRole("button", { name: /项目交付/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(onSaved).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: /创\s*建/ }));
+    await waitFor(() =>
+      expect(create).toHaveBeenLastCalledWith({
+        name: "交付项目",
+        description: TEMPLATE_COPY.delivery.description,
+        instructions: TEMPLATE_COPY.delivery.instructions,
+      }),
+    );
+    expect(onSaved).toHaveBeenCalledWith({
+      ...summary,
+      instructions: TEMPLATE_COPY.delivery.instructions,
+    });
+  });
+
+  it("keeps an open draft when the parent changes initialTemplateId", async () => {
+    stubGetComputedStyle();
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const onSaved = vi.fn();
+    const { rerender } = render(
+      <CreateProjectModal
+        open
+        initialTemplateId="requirements"
+        onClose={onClose}
+        onSaved={onSaved}
+      />,
+    );
+
+    const name = screen.getByLabelText("项目名称");
+    const description = screen.getByLabelText("描述");
+    await user.type(name, "我的需求项目");
+    await user.clear(description);
+    await user.type(description, "用户补充的描述");
+
+    rerender(
+      <CreateProjectModal
+        open
+        initialTemplateId="bugTracking"
+        onClose={onClose}
+        onSaved={onSaved}
+      />,
+    );
+
+    expect(name).toHaveValue("我的需求项目");
+    expect(description).toHaveValue("用户补充的描述");
+    expect(screen.getByLabelText("项目指令")).toHaveValue(
+      TEMPLATE_COPY.requirements.instructions,
+    );
+    expect(
+      screen.getByRole("button", { name: /产品需求管理/ }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /Bug 跟踪/ })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(screen.queryByRole("button", { name: "保留当前内容" })).toBeNull();
+  });
+
+  it("applies a seed only on each close-to-open edge", async () => {
+    stubGetComputedStyle();
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const onSaved = vi.fn();
+    const { rerender } = render(
+      <CreateProjectModal
+        open
+        initialTemplateId="requirements"
+        onClose={onClose}
+        onSaved={onSaved}
+      />,
+    );
+    await user.type(screen.getByLabelText("项目名称"), "旧草稿");
+
+    rerender(
+      <CreateProjectModal
+        open={false}
+        initialTemplateId="requirements"
+        onClose={onClose}
+        onSaved={onSaved}
+      />,
+    );
+    rerender(
+      <CreateProjectModal
+        open
+        initialTemplateId={null}
+        onClose={onClose}
+        onSaved={onSaved}
+      />,
+    );
+
+    const reopenedForCreate = await screen.findByRole("dialog");
+    expect(within(reopenedForCreate).getByLabelText("项目名称")).toHaveValue(
+      "",
+    );
+    expect(within(reopenedForCreate).getByLabelText("描述")).toHaveValue("");
+    expect(within(reopenedForCreate).getByLabelText("项目指令")).toHaveValue(
+      "",
+    );
+    for (const templateName of [
+      "产品需求管理",
+      "竞品分析",
+      "团队知识库",
+      "项目交付",
+      "Bug 跟踪",
+    ]) {
+      expect(
+        within(reopenedForCreate).getByRole("button", {
+          name: new RegExp(templateName),
+        }),
+      ).toHaveAttribute("aria-pressed", "false");
+    }
+
+    rerender(
+      <CreateProjectModal
+        open={false}
+        initialTemplateId={null}
+        onClose={onClose}
+        onSaved={onSaved}
+      />,
+    );
+    rerender(
+      <CreateProjectModal
+        open
+        initialTemplateId="knowledge"
+        onClose={onClose}
+        onSaved={onSaved}
+      />,
+    );
+
+    const reopenedFromTemplate = await screen.findByRole("dialog");
+    expect(within(reopenedFromTemplate).getByLabelText("项目名称")).toHaveValue(
+      "",
+    );
+    expect(within(reopenedFromTemplate).getByLabelText("描述")).toHaveValue(
+      TEMPLATE_COPY.knowledge.description,
+    );
+    expect(within(reopenedFromTemplate).getByLabelText("项目指令")).toHaveValue(
+      TEMPLATE_COPY.knowledge.instructions,
+    );
+    expect(
+      within(reopenedFromTemplate).getByRole("button", { name: /团队知识库/ }),
+    ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("loads an existing project into edit mode without template controls", async () => {
+    stubGetComputedStyle();
+    const user = userEvent.setup();
+    const onSaved = vi.fn();
+    const target: ProjectRecord = {
+      ...summary,
+      my_role: "owner",
+      instructions: "既有项目指令",
+      instructions_sha256: "sha256-placeholder",
+    };
+    update.mockResolvedValue({ ...target, name: "更名项目" });
+
+    render(
+      <CreateProjectModal
+        open
+        editTarget={target}
+        onClose={vi.fn()}
+        onSaved={onSaved}
+      />,
+    );
+
+    expect(screen.queryByText("从模板开始")).toBeNull();
+    expect(screen.queryByRole("button", { name: /产品需求管理/ })).toBeNull();
+    const name = screen.getByLabelText("项目名称");
+    expect(name).toHaveValue("熊宝项目");
+    expect(screen.getByLabelText("描述")).toHaveValue("真实项目描述");
+    expect(screen.getByLabelText("项目指令")).toHaveValue("既有项目指令");
+
+    await user.clear(name);
+    await user.type(name, "更名项目");
+    await user.click(screen.getByRole("button", { name: /保\s*存/ }));
+
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith("project-1", {
+        name: "更名项目",
+        description: "真实项目描述",
+        instructions: "既有项目指令",
+      }),
+    );
+    expect(onSaved).toHaveBeenCalledWith({ ...target, name: "更名项目" });
   });
 
   it("frames the home introduction as one labelled region with a single h1", async () => {
