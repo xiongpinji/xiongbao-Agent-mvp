@@ -549,10 +549,10 @@ async def test_nonempty_expert_list_requires_matching_revision(
     assert _context_revision(ctx["srv"], payload["thread_id"]) == 1
 
 
-async def test_nonempty_expert_list_maps_stopped_agent_to_unavailable(
+async def test_nonempty_expert_list_maps_unavailable_runtime_states(
     env_with_provider: Any,
 ) -> None:
-    """The final runtime check must not leak AGENT_NOT_RUNNING through the gate.
+    """The final runtime check must not leak stopped or failed Agent codes.
 
     ``status='available'`` in the expert list only covers shared/enabled/kind,
     so a stopped listed expert still reaches ``require_running_agent``. With
@@ -580,6 +580,16 @@ async def test_nonempty_expert_list_maps_stopped_agent_to_unavailable(
     assert r.json()["error"]["code"] == "PROJECT_EXPERT_UNAVAILABLE"
     assert "AGENT_NOT_RUNNING" not in r.text
     _assert_no_create_rows(srv, ctx["agents"]["member"], ctx["uids"]["member"])
+
+    # A failed start is another unavailable runtime state. Do not leak its
+    # internal 500 code to a project member or create a partial task.
+    _set_agent(srv, ctx["agents"]["member"], "last_state", "failed")
+    r = await _create(ctx, body=body)
+    assert r.status_code == 409, r.text
+    assert r.json()["error"]["code"] == "PROJECT_EXPERT_UNAVAILABLE"
+    assert "AGENT_FAILED" not in r.text
+    _assert_no_create_rows(srv, ctx["agents"]["member"], ctx["uids"]["member"])
+    _set_agent(srv, ctx["agents"]["member"], "last_state", "stopped")
 
     # Restarting the expert makes the same confirmed request succeed.
     r = await ctx["client"].post(

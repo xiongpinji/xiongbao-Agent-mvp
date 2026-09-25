@@ -176,6 +176,7 @@ async def create_project_task(
             ErrorCode.AGENT_NOT_FOUND,
             ErrorCode.FORBIDDEN,
             ErrorCode.AGENT_NOT_RUNNING,
+            ErrorCode.AGENT_FAILED,
         ):
             raise expert_unavailable_error() from None
         raise
