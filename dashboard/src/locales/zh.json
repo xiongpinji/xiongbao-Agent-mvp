@@ -257,6 +257,8 @@
   },
   "projects": {
     "newProject": "新建项目",
+    "myProjects": "我的项目",
+    "useTemplate": "使用模板：{{name}}",
     "openProject": "打开项目：{{name}}",
     "searchPlaceholder": "搜索项目名称",
     "loadFailed": "加载项目失败",

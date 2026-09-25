@@ -11,6 +11,7 @@
 
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { Alert, Button, Input, Modal } from "antd";
 import { message } from "../../utils/antdMessage";
 import { apiErrorMessage } from "../../utils/apiError";
@@ -18,7 +19,7 @@ import { projectsApi, type ProjectRecord } from "../../api/modules/projects";
 
 const NAME_MAX = 15;
 
-interface TemplateSeed {
+export interface TemplateSeed {
   id: string;
   /** Original 熊宝 template copy (zh source; en lives in the locale file). */
   name: string;
@@ -26,7 +27,8 @@ interface TemplateSeed {
   instructions: string;
 }
 
-const TEMPLATES: TemplateSeed[] = [
+/** Five prefill seeds shared by the modal cards and the home template entries. */
+export const TEMPLATES: TemplateSeed[] = [
   {
     id: "requirements",
     name: "产品需求管理",
@@ -75,8 +77,25 @@ const EMPTY_FORM: FormSnapshot = {
   instructions: "",
 };
 
+/** Resolve a seed's localized copy into a form snapshot. */
+function templateSnapshot(tpl: TemplateSeed, t: TFunction): FormSnapshot {
+  return {
+    name: t(`projects.templates.${tpl.id}.name`, tpl.name),
+    description: t(`projects.templates.${tpl.id}.description`, tpl.description),
+    instructions: t(
+      `projects.templates.${tpl.id}.instructions`,
+      tpl.instructions,
+    ),
+  };
+}
+
 export interface CreateProjectModalProps {
   open: boolean;
+  /**
+   * Create mode only: prefill the form from this template seed when the modal
+   * opens. Ignored while `editTarget` is set and never persisted on its own.
+   */
+  initialTemplateId?: string | null;
   /** When set, the modal edits this project instead of creating one. */
   editTarget?: ProjectRecord | null;
   onClose: () => void;
@@ -86,6 +105,7 @@ export interface CreateProjectModalProps {
 
 export default function CreateProjectModal({
   open,
+  initialTemplateId,
   editTarget,
   onClose,
   onSaved,
@@ -101,19 +121,28 @@ export default function CreateProjectModal({
 
   useEffect(() => {
     if (!open) return;
-    const initial: FormSnapshot = editTarget
-      ? {
-          name: editTarget.name,
-          description: editTarget.description ?? "",
-          instructions: editTarget.instructions ?? "",
-        }
-      : EMPTY_FORM;
+    let initial: FormSnapshot = EMPTY_FORM;
+    let templateId: string | null = null;
+    if (editTarget) {
+      initial = {
+        name: editTarget.name,
+        description: editTarget.description ?? "",
+        instructions: editTarget.instructions ?? "",
+      };
+    } else if (initialTemplateId) {
+      const seed = TEMPLATES.find((tpl) => tpl.id === initialTemplateId);
+      if (seed) {
+        initial = templateSnapshot(seed, t);
+        templateId = seed.id;
+      }
+    }
     setForm(initial);
     setLastApplied(initial);
-    setAppliedTemplate(null);
+    setAppliedTemplate(templateId);
     setSubmitting(false);
     setSubmitError(null);
-  }, [open, editTarget]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- seed once per open; `t` must not reset a typed draft
+  }, [open, editTarget, initialTemplateId]);
 
   const trimmedName = form.name.trim();
   const nameLength = Array.from(trimmedName).length;
@@ -130,17 +159,7 @@ export default function CreateProjectModal({
   };
 
   const applyTemplate = (tpl: TemplateSeed) => {
-    const next = {
-      name: t(`projects.templates.${tpl.id}.name`, tpl.name),
-      description: t(
-        `projects.templates.${tpl.id}.description`,
-        tpl.description,
-      ),
-      instructions: t(
-        `projects.templates.${tpl.id}.instructions`,
-        tpl.instructions,
-      ),
-    };
+    const next = templateSnapshot(tpl, t);
     setForm(next);
     setLastApplied(next);
     setAppliedTemplate(tpl.id);

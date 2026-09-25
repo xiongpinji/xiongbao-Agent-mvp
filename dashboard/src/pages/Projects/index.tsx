@@ -1,10 +1,11 @@
 /**
- * Projects list page — 项目 (human project space).
+ * Projects home — 项目 (human project space).
  *
- * Server-side search + paging against `GET /projects`; creation via
- * `POST /projects` (CreateProjectModal). All rows come from the API —
- * no fake project arrays. Invitation links require an explicit user click.
- * `teamsApi` (expert Agent teams) is unrelated.
+ * A compact branded hero introduces the space, then "我的项目" lists
+ * server-side search + paging results from `GET /projects`, followed by the
+ * five template entries. All rows come from the API — no fake project arrays,
+ * and template clicks only prefill the create form. Invitation links require
+ * an explicit user click. `teamsApi` (expert Agent teams) is unrelated.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -14,7 +15,7 @@ import { Alert, Button, Card, Input, Spin, Tag, Tooltip } from "antd";
 import { Plus, RefreshCw, Users } from "lucide-react";
 import PageShell from "../../layouts/PageShell";
 import { EmptyState } from "../../components/EmptyState";
-import { useIsMobile } from "../../hooks/useIsMobile";
+import { OCTOP_EMPTY_MASCOT_SRC } from "../../assets/mascot";
 import { useServerTimezone } from "../../hooks/useServerTimezone";
 import { formatServerDateTime } from "../../utils/formatMessageTime";
 import { apiErrorMessage, parseApiError } from "../../utils/apiError";
@@ -25,7 +26,8 @@ import {
   type ProjectRole,
 } from "../../api/modules/projects";
 import { projectMembershipApi } from "../../api/modules/projectMembership";
-import CreateProjectModal from "./CreateProjectModal";
+import CreateProjectModal, { TEMPLATES } from "./CreateProjectModal";
+import styles from "./ProjectsPage.module.less";
 
 const TERMINAL_INVITE_CODES = new Set([
   "INVITE_INVALID",
@@ -66,7 +68,6 @@ export default function ProjectsPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const inviteToken = searchParams.get("invite")?.trim() ?? "";
-  const isMobile = useIsMobile();
   const timezone = useServerTimezone();
 
   const [query, setQuery] = useState("");
@@ -78,6 +79,10 @@ export default function ProjectsPage() {
   const [nextOffset, setNextOffset] = useState(0);
   const [reloadKey, setReloadKey] = useState(0);
   const [createOpen, setCreateOpen] = useState(false);
+  /** Create mode only: seed applied when the modal opens (null = blank form). */
+  const [initialTemplateId, setInitialTemplateId] = useState<string | null>(
+    null,
+  );
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteError, setInviteError] = useState<unknown>(null);
   const [invitePending, setInvitePending] = useState(false);
@@ -141,28 +146,25 @@ export default function ProjectsPage() {
     }
   };
 
-  const newProjectButton = (
-    <Button
-      type="primary"
-      icon={<Plus size={14} />}
-      onClick={() => setCreateOpen(true)}
-    >
-      {t("projects.newProject", "新建项目")}
-    </Button>
-  );
+  const openCreate = () => {
+    setInitialTemplateId(null);
+    setCreateOpen(true);
+  };
 
-  const actions = (
-    <div style={{ display: "flex", gap: 8 }}>
-      <Tooltip title={t("common.refresh", "刷新")}>
-        <Button
-          icon={<RefreshCw size={14} />}
-          disabled={loading}
-          onClick={() => setReloadKey((k) => k + 1)}
-          aria-label={t("common.refresh", "刷新")}
-        />
-      </Tooltip>
-      {newProjectButton}
-    </div>
+  const openCreateFromTemplate = (templateId: string) => {
+    setInitialTemplateId(templateId);
+    setCreateOpen(true);
+  };
+
+  const refreshButton = (
+    <Tooltip title={t("common.refresh", "刷新")}>
+      <Button
+        icon={<RefreshCw size={14} />}
+        disabled={loading}
+        onClick={() => setReloadKey((k) => k + 1)}
+        aria-label={t("common.refresh", "刷新")}
+      />
+    </Tooltip>
   );
 
   let content: React.ReactNode;
@@ -205,87 +207,41 @@ export default function ProjectsPage() {
               )
         }
         actionLabel={t("projects.newProject", "新建项目")}
-        onAction={() => setCreateOpen(true)}
+        onAction={openCreate}
       />
     );
   } else {
     content = (
       <>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: `repeat(auto-fill, minmax(${
-              isMobile ? "100%" : "260px"
-            }, 1fr))`,
-            gap: 12,
-          }}
-        >
+        <div className={styles.projectGrid}>
           {items.map((project) => {
             const role = projectRoleTag(project.my_role);
             return (
               <Link
                 key={project.project_id}
                 to={`/projects/${encodeURIComponent(project.project_id)}`}
-                style={{ color: "inherit", textDecoration: "none" }}
+                className={styles.projectLink}
                 aria-label={t("projects.openProject", "打开项目：{{name}}", {
                   name: project.name,
                 })}
               >
-                <Card hoverable size="small" styles={{ body: { padding: 14 } }}>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      justifyContent: "space-between",
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontWeight: 600,
-                        fontSize: 14,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {project.name}
-                    </span>
+                <Card
+                  hoverable
+                  size="small"
+                  className={styles.projectCard}
+                  styles={{ body: { padding: 14 } }}
+                >
+                  <div className={styles.projectCardHeader}>
+                    <span className={styles.projectName}>{project.name}</span>
                     <Tag color={role.color} style={{ marginInlineEnd: 0 }}>
                       {t(role.labelKey, role.fallback)}
                     </Tag>
                   </div>
-                  <div
-                    style={{
-                      fontSize: 12,
-                      color: "var(--fn-text-tertiary, rgba(0,0,0,0.45))",
-                      marginTop: 6,
-                      minHeight: 36,
-                      display: "-webkit-box",
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: "vertical",
-                      overflow: "hidden",
-                    }}
-                  >
+                  <div className={styles.projectDescription}>
                     {project.description || ""}
                   </div>
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      marginTop: 8,
-                      fontSize: 12,
-                      color: "var(--fn-text-tertiary, rgba(0,0,0,0.45))",
-                    }}
-                  >
-                    <span
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 4,
-                      }}
-                    >
+                  <div className={styles.projectMeta}>
+                    <span className={styles.projectMembers}>
                       <Users size={12} />
                       {t("projects.memberCount", "{{total}} 名成员", {
                         total: project.member_count,
@@ -306,7 +262,7 @@ export default function ProjectsPage() {
           })}
         </div>
         {hasMore && (
-          <div style={{ textAlign: "center", marginTop: 16 }}>
+          <div className={styles.loadMore}>
             <Button
               loading={loadingMore}
               onClick={() => void load(query, nextOffset, true)}
@@ -322,12 +278,28 @@ export default function ProjectsPage() {
   return (
     <PageShell
       title={t("pageShell.projects.title", "项目")}
-      subtitle={t(
-        "pageShell.projects.subtitle",
-        "人的长期协作空间：成员、计划、任务与资产按项目沉淀。",
-      )}
-      actions={actions}
+      actions={refreshButton}
     >
+      <div className={styles.hero}>
+        <div className={styles.heroBody}>
+          <p className={styles.heroIntro}>
+            {t(
+              "pageShell.projects.subtitle",
+              "人的长期协作空间：成员、计划、任务与资产按项目沉淀。",
+            )}
+          </p>
+          <Button type="primary" icon={<Plus size={14} />} onClick={openCreate}>
+            {t("projects.newProject", "新建项目")}
+          </Button>
+        </div>
+        <img
+          className={styles.heroArt}
+          src={OCTOP_EMPTY_MASCOT_SRC}
+          alt=""
+          draggable={false}
+        />
+      </div>
+
       {inviteToken && (
         <Alert
           type="info"
@@ -383,8 +355,13 @@ export default function ProjectsPage() {
           )}
         />
       )}
-      <div style={{ marginBottom: 16, maxWidth: 420 }}>
+
+      <div className={styles.sectionHeader}>
+        <h2 className={styles.sectionTitle}>
+          {t("projects.myProjects", "我的项目")}
+        </h2>
         <Input.Search
+          className={styles.search}
           allowClear
           placeholder={t("projects.searchPlaceholder", "搜索项目名称")}
           onSearch={(value) => setQuery(value)}
@@ -392,8 +369,47 @@ export default function ProjectsPage() {
         />
       </div>
       {content}
+
+      <section
+        className={styles.templateSection}
+        aria-labelledby="project-templates-heading"
+      >
+        <h2
+          id="project-templates-heading"
+          className={`${styles.sectionTitle} ${styles.templateHeading}`}
+        >
+          {t("projects.create.templatesTitle", "从模板开始")}
+        </h2>
+        <div className={styles.templateGrid}>
+          {TEMPLATES.map((tpl) => {
+            const name = t(`projects.templates.${tpl.id}.name`, tpl.name);
+            const description = t(
+              `projects.templates.${tpl.id}.description`,
+              tpl.description,
+            );
+            return (
+              <button
+                key={tpl.id}
+                type="button"
+                className={styles.templateCard}
+                onClick={() => openCreateFromTemplate(tpl.id)}
+                aria-label={t("projects.useTemplate", "使用模板：{{name}}", {
+                  name,
+                })}
+              >
+                <span className={styles.templateName}>{name}</span>
+                <span className={styles.templateDescription}>
+                  {description}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
       <CreateProjectModal
         open={createOpen}
+        initialTemplateId={initialTemplateId}
         onClose={() => setCreateOpen(false)}
         onSaved={(project) => {
           setCreateOpen(false);

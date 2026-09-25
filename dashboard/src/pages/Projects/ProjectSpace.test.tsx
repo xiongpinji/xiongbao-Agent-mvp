@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -170,10 +170,11 @@ describe("project-space pages against the real API response shapes", () => {
 
     await user.click(await screen.findByRole("button", { name: "接受邀请" }));
     expect(acceptInvite).toHaveBeenCalledWith("expired-token");
-    expect(await screen.findByTestId("current-path")).toHaveTextContent(
-      "/projects",
+    await waitFor(() =>
+      expect(screen.getByTestId("current-path")).toHaveTextContent(
+        /^\/projects$/,
+      ),
     );
-    expect(screen.getByTestId("current-path")).not.toHaveTextContent("invite=");
     expect(screen.getByRole("alert")).toBeInTheDocument();
     expect(screen.queryByText("收到项目邀请")).toBeNull();
   });
@@ -374,6 +375,158 @@ describe("project-space pages against the real API response shapes", () => {
     await user.click(screen.getByRole("button", { name: /产品需求管理/ }));
     await user.click(await screen.findByRole("button", { name: /覆\s*盖/ }));
     expect(name).toHaveValue("产品需求管理");
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("keeps the list, route and server search working from the list heading", async () => {
+    const user = userEvent.setup();
+    list.mockResolvedValue({
+      items: [summary],
+      limit: 20,
+      offset: 0,
+      has_more: false,
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/projects"]}>
+        <ProjectsPage />
+      </MemoryRouter>,
+    );
+
+    expect(
+      await screen.findByRole("link", { name: "打开项目：熊宝项目" }),
+    ).toHaveAttribute("href", "/projects/project-1");
+
+    await user.type(screen.getByPlaceholderText("搜索项目名称"), "熊宝{Enter}");
+    await waitFor(() =>
+      expect(list).toHaveBeenLastCalledWith({
+        q: "熊宝",
+        limit: 20,
+        offset: 0,
+      }),
+    );
+    expect(
+      screen.getByRole("link", { name: "打开项目：熊宝项目" }),
+    ).toHaveAttribute("href", "/projects/project-1");
+  });
+
+  it("offers five home template entries that prefill the create modal", async () => {
+    const nativeGetComputedStyle = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation((element) =>
+      nativeGetComputedStyle(element),
+    );
+    const user = userEvent.setup();
+    list.mockResolvedValue({
+      items: [summary],
+      limit: 20,
+      offset: 0,
+      has_more: false,
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/projects"]}>
+        <ProjectsPage />
+      </MemoryRouter>,
+    );
+
+    expect(
+      await screen.findAllByRole("button", { name: /^使用模板：/ }),
+    ).toHaveLength(5);
+
+    await user.click(
+      screen.getByRole("button", { name: "使用模板：产品需求管理" }),
+    );
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByLabelText("项目名称")).toHaveValue(
+      "产品需求管理",
+    );
+    expect(within(dialog).getByLabelText("描述")).toHaveValue(
+      "收集与评审产品需求，跟踪状态与版本计划。",
+    );
+    expect(within(dialog).getByLabelText("项目指令")).toHaveValue(
+      "整理需求时写明背景、目标用户、功能点、验收标准与优先级，输出需求文档草稿。",
+    );
+  });
+
+  it("opens a blank create form from the generic new-project action", async () => {
+    const nativeGetComputedStyle = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation((element) =>
+      nativeGetComputedStyle(element),
+    );
+    const user = userEvent.setup();
+    list.mockResolvedValue({
+      items: [],
+      limit: 20,
+      offset: 0,
+      has_more: false,
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/projects"]}>
+        <ProjectsPage />
+      </MemoryRouter>,
+    );
+
+    await user.click(
+      (await screen.findAllByRole("button", { name: /新建项目/ }))[0],
+    );
+    let dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByLabelText("项目名称")).toHaveValue("");
+
+    await user.click(within(dialog).getByRole("button", { name: /取\s*消/ }));
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "使用模板：Bug 跟踪",
+      }),
+    );
+    dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByLabelText("项目名称")).toHaveValue("Bug 跟踪");
+    await user.click(within(dialog).getByRole("button", { name: /取\s*消/ }));
+
+    await user.click(
+      (await screen.findAllByRole("button", { name: /新建项目/ }))[0],
+    );
+    dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByLabelText("项目名称")).toHaveValue("");
+  });
+
+  it("asks before replacing edits in a modal opened from a home template", async () => {
+    const nativeGetComputedStyle = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation((element) =>
+      nativeGetComputedStyle(element),
+    );
+    const user = userEvent.setup();
+    list.mockResolvedValue({
+      items: [],
+      limit: 20,
+      offset: 0,
+      has_more: false,
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/projects"]}>
+        <ProjectsPage />
+      </MemoryRouter>,
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "使用模板：竞品分析" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    const name = within(dialog).getByLabelText("项目名称");
+    expect(name).toHaveValue("竞品分析");
+
+    await user.clear(name);
+    await user.type(name, "自定义项目");
+    await user.click(within(dialog).getByRole("button", { name: /Bug 跟踪/ }));
+
+    const keepDraft = await screen.findByRole("button", {
+      name: "保留当前内容",
+    });
+    await user.click(keepDraft);
+    expect(name).toHaveValue("自定义项目");
     expect(create).not.toHaveBeenCalled();
   });
 });

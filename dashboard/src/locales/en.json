@@ -257,6 +257,8 @@
   },
   "projects": {
     "newProject": "New project",
+    "myProjects": "My projects",
+    "useTemplate": "Use template: {{name}}",
     "openProject": "Open project: {{name}}",
     "searchPlaceholder": "Search project names",
     "loadFailed": "Failed to load projects",
