@@ -21,6 +21,7 @@ from harness_gateway.models import (
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
 from octop.i18n.domains.stream import format_stream_error
+from octop.infra.agents.middleware.project_instructions import CONFIG_KEY as PROJECT_CONTEXT_KEY
 from octop.infra.agents.profile import parse_config_json
 from octop.infra.agents.providers.reasoning import reasoning_request_parameters
 from octop.infra.agents.teams import is_team_agent
@@ -84,6 +85,7 @@ if TYPE_CHECKING:
     from octop.infra.db.repos.agents import AgentRepo
     from octop.infra.db.repos.audit import AuditRepo
     from octop.infra.db.repos.connectors import ConnectorRepo
+    from octop.infra.db.repos.project_tasks import ProjectTaskRepo
     from octop.infra.db.repos.users import UserRepo
     from octop.infra.gateway.slash.dispatcher import SlashDispatcher
     from octop.infra.gateway.threads import ThreadRegistry
@@ -140,6 +142,7 @@ class GlobalProcessor:
         settings_repo: Any | None = None,
         provider_repo: Any | None = None,
         dispatcher: SlashDispatcher,
+        project_task_repo: ProjectTaskRepo | None = None,
         usage_repo: Any | None = None,
         thread_message_repo: Any | None = None,
         gateway: Any | None = None,
@@ -153,6 +156,7 @@ class GlobalProcessor:
         self._agent_repo = agent_repo
         self._user_repo = user_repo
         self._connector_repo = connector_repo
+        self._project_task_repo = project_task_repo
         self._knowledge_services = (
             SimpleNamespace(
                 knowledge_repo=knowledge_repo,
@@ -248,6 +252,31 @@ class GlobalProcessor:
         """Rebind projection writes after a control-plane restore."""
         self._thread_message_repo = repo
         self.teams.replace_thread_message_repo(repo)
+
+    def replace_project_task_repo(self, repo: ProjectTaskRepo) -> None:
+        """Rebind instruction lookups after a control-plane restore."""
+        self._project_task_repo = repo
+
+    def _stamp_project_task_context(
+        self, request: dict[str, Any], *, thread_id: str, user_id: int, agent_id: str
+    ) -> None:
+        """Replace any inbound collision with the current server-owned snapshot."""
+        configurable = dict(request.get("configurable") or {})
+        configurable.pop(PROJECT_CONTEXT_KEY, None)
+        repo = self._project_task_repo
+        snapshot = (
+            repo.active_instructions_for_thread(
+                thread_id=thread_id, owner_user_id=user_id, agent_id=agent_id
+            )
+            if repo is not None
+            else None
+        )
+        if isinstance(snapshot, str) and snapshot:
+            configurable[PROJECT_CONTEXT_KEY] = snapshot
+        if configurable:
+            request["configurable"] = configurable
+        else:
+            request.pop("configurable", None)
 
     def _agent_trajectory_enabled(self, agent_id: str, row: Any | None = None) -> bool:
         if self._trajectory_service is None:
@@ -793,6 +822,9 @@ class GlobalProcessor:
             model=model_ref,
             message_kwargs=message_kwargs,
         )
+        self._stamp_project_task_context(
+            request, thread_id=thread_id, user_id=user_id, agent_id=agent_id
+        )
         self.teams.stamp_host_runtime(request, agent_id)
         self._attach_turn_knowledge_config(
             request,
@@ -1258,6 +1290,9 @@ class GlobalProcessor:
             model=model_ref,
             message_kwargs=message_kwargs or None,
             reasoning_overrides=reasoning_overrides,
+        )
+        self._stamp_project_task_context(
+            request, thread_id=thread_id, user_id=user_id, agent_id=agent_id
         )
         self.teams.stamp_host_runtime(request, agent_id)
         self._attach_turn_knowledge_config(

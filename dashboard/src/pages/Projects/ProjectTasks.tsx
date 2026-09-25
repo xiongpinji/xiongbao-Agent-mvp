@@ -19,11 +19,12 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
   Alert,
   Button,
+  Checkbox,
   Input,
   Modal,
   Popconfirm,
@@ -40,6 +41,7 @@ import {
   HardDrive,
   Link2,
   Link2Off,
+  Plus,
   RefreshCw,
   Share2,
 } from "lucide-react";
@@ -124,12 +126,29 @@ interface Props {
    * honest informational state, while revoking existing grants still works.
    */
   members: ProjectMember[] | null;
+  /** Current project instructions, shown verbatim before creation. */
+  instructions?: string;
+  /** Server digest of `instructions`; sent to detect a concurrent edit. */
+  instructionsSha256?: string;
+  /**
+   * Re-fetches the project record in the parent. Called when a create failed
+   * because the project/instructions changed, so the preview is refreshed
+   * before any retry.
+   */
+  onProjectReload?: () => void;
 }
 
-export default function ProjectTasks({ projectId, members }: Props) {
+export default function ProjectTasks({
+  projectId,
+  members,
+  instructions,
+  instructionsSha256,
+  onProjectReload,
+}: Props) {
   const { t } = useTranslation();
   const translationRef = useRef(t);
   translationRef.current = t;
+  const navigate = useNavigate();
   const timezone = useServerTimezone();
   const { agents, activeAgentId } = useAgent();
 
@@ -170,6 +189,15 @@ export default function ProjectTasks({ projectId, members }: Props) {
   const [sharesReloadKey, setSharesReloadKey] = useState(0);
   const [shareBusyUserId, setShareBusyUserId] = useState<number | null>(null);
   const [shareActionError, setShareActionError] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createAgentId, setCreateAgentId] = useState<string | null>(null);
+  const [createConfirmed, setCreateConfirmed] = useState(false);
+  const [createBusy, setCreateBusy] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  /** Digest the server rejected as stale; blocks retry until a new one arrives. */
+  const [createRejectedDigest, setCreateRejectedDigest] = useState<
+    string | null
+  >(null);
   const [readerMessages, setReaderMessages] = useState<ReaderMessages | null>(
     null,
   );
@@ -183,6 +211,7 @@ export default function ProjectTasks({ projectId, members }: Props) {
   const readerSeq = useRef(0);
   const messagesSeq = useRef(0);
   const sharesSeq = useRef(0);
+  const createSeq = useRef(0);
   const currentProjectId = useRef(projectId);
   currentProjectId.current = projectId;
 
@@ -196,12 +225,41 @@ export default function ProjectTasks({ projectId, members }: Props) {
     () => selectEnabledExperts(agents, activeAgentId),
     [agents, activeAgentId],
   );
+  /**
+   * Manual attach keeps every running agent, but creating a project task is
+   * single-expert-only: a running team host delegates to peer agents that do
+   * not inherit the project snapshot, so it must not be offered here.
+   */
+  const createAgents = useMemo(
+    () => runningAgents.filter((agent) => agent.kind !== "team"),
+    [runningAgents],
+  );
   const fallbackAgentId =
     activeAgentId != null &&
     runningAgents.some((agent) => agent.agent_id === activeAgentId)
       ? activeAgentId
       : runningAgents[0]?.agent_id ?? null;
   const pickerAgentId = pickedAgentId ?? fallbackAgentId;
+  const createFallbackAgentId =
+    activeAgentId != null &&
+    createAgents.some((agent) => agent.agent_id === activeAgentId)
+      ? activeAgentId
+      : createAgents[0]?.agent_id ?? null;
+  const createReadyAgentId =
+    createAgentId != null &&
+    createAgents.some((agent) => agent.agent_id === createAgentId)
+      ? createAgentId
+      : createFallbackAgentId;
+  const digestAvailable = instructionsSha256 != null;
+  /** Still showing the digest the server rejected: retry stays blocked. */
+  const digestRejected =
+    createRejectedDigest != null && createRejectedDigest === instructionsSha256;
+  const createDisabled =
+    createBusy ||
+    !createConfirmed ||
+    createReadyAgentId == null ||
+    !digestAvailable ||
+    digestRejected;
 
   const agentNames = useMemo(
     () =>
@@ -280,6 +338,18 @@ export default function ProjectTasks({ projectId, members }: Props) {
     setShareBusyUserId(null);
     setShareActionError(null);
   }, []);
+  /**
+   * Closing the create dialog invalidates any in-flight create so a late
+   * response can neither navigate nor render a fake row for this project.
+   */
+  const closeCreate = useCallback(() => {
+    createSeq.current += 1;
+    setCreateOpen(false);
+    setCreateAgentId(null);
+    setCreateConfirmed(false);
+    setCreateError(null);
+    setCreateBusy(false);
+  }, []);
 
   // A project or scope switch must never show the previous view's private
   // rows, alerts or open dialogs.
@@ -289,7 +359,29 @@ export default function ProjectTasks({ projectId, members }: Props) {
     closePicker();
     closeReader();
     closeShare();
-  }, [projectId, scope, closePicker, closeReader, closeShare]);
+    closeCreate();
+  }, [projectId, scope, closePicker, closeReader, closeShare, closeCreate]);
+
+  // A refreshed digest (after any project reload) is never silently
+  // re-confirmed: the member must read and check the new instructions again.
+  useEffect(() => {
+    setCreateConfirmed(false);
+  }, [instructionsSha256]);
+
+  // A rejected preview remains blocked across modal close/reopen, but cannot
+  // leak to a different project or block a newly loaded instruction digest.
+  useEffect(() => {
+    setCreateRejectedDigest(null);
+  }, [projectId]);
+  useEffect(() => {
+    if (
+      createRejectedDigest != null &&
+      instructionsSha256 != null &&
+      instructionsSha256 !== createRejectedDigest
+    ) {
+      setCreateRejectedDigest(null);
+    }
+  }, [createRejectedDigest, instructionsSha256]);
 
   const load = useCallback(
     async (offset: number, append: boolean) => {
@@ -812,6 +904,68 @@ export default function ProjectTasks({ projectId, members }: Props) {
     setPickerOpen(true);
   };
 
+  const openCreate = () => {
+    createSeq.current += 1;
+    setActionError(null);
+    setCreateAgentId(null);
+    setCreateConfirmed(false);
+    setCreateError(null);
+    setCreateBusy(false);
+    setCreateOpen(true);
+  };
+
+  /**
+   * Creates the task with the server-checked preview digest. The response is
+   * only a confirmed card summary, never a sent first turn. A stale digest or
+   * a revoked project clears consent and asks the parent to reload before any
+   * retry; a rejected digest stays blocked until the refreshed preview shows a
+   * different value. Other failures stay visible with the same confirmation.
+   */
+  const submitCreate = async () => {
+    if (createBusy || !createConfirmed) return;
+    const agentId = createReadyAgentId;
+    const digest = instructionsSha256;
+    if (agentId == null || digest == null) return;
+    if (digest === createRejectedDigest) return;
+    const seq = ++createSeq.current;
+    setCreateBusy(true);
+    setCreateError(null);
+    try {
+      const created = await projectTasksApi.create(projectId, agentId, digest);
+      if (seq !== createSeq.current) return;
+      if (projectId !== currentProjectId.current) return;
+      closeCreate();
+      void message.success(
+        t("projects.tasks.createSuccess", "已创建项目任务，正在前往对话。"),
+      );
+      navigate(
+        `/chat/${encodeURIComponent(created.agent_id)}/${encodeURIComponent(
+          created.thread_id,
+        )}`,
+      );
+    } catch (err: unknown) {
+      if (seq !== createSeq.current) return;
+      if (projectId !== currentProjectId.current) return;
+      setCreateError(
+        apiErrorMessage(
+          err,
+          t("projects.tasks.createFailed", "创建项目任务失败"),
+          t,
+        ),
+      );
+      if (parseApiError(err)?.code === "PROJECT_INSTRUCTIONS_CHANGED") {
+        setCreateRejectedDigest(digest);
+        setCreateConfirmed(false);
+        onProjectReload?.();
+      } else if (isNotFoundApiError(err)) {
+        setCreateConfirmed(false);
+        onProjectReload?.();
+      }
+    } finally {
+      if (seq === createSeq.current) setCreateBusy(false);
+    }
+  };
+
   const linkedThreadIds = useMemo(
     () => new Set(tasks.map((task) => task.thread_id)),
     [tasks],
@@ -849,6 +1003,13 @@ export default function ProjectTasks({ projectId, members }: Props) {
       </Button>
     </Tooltip>
   );
+
+  const sourceLabel = (source: ProjectTask["source"]) =>
+    source === "manual"
+      ? t("projects.tasks.sourceManual", "手动关联")
+      : source === "project"
+      ? t("projects.tasks.sourceProject", "项目新建")
+      : source;
 
   const scopeHint =
     scope === "own"
@@ -1040,9 +1201,7 @@ export default function ProjectTasks({ projectId, members }: Props) {
           <Tag style={{ marginInlineEnd: 0 }}>{agentName}</Tag>
           <span style={secondaryStyle}>
             {t("projects.tasks.sourceLabel", "来源")}：
-            {task.source === "manual"
-              ? t("projects.tasks.sourceManual", "手动关联")
-              : task.source}
+            {sourceLabel(task.source)}
           </span>
           <span style={secondaryStyle}>
             {t("projects.tasks.activeAt", "最近活动于 {{time}}", {
@@ -1804,13 +1963,22 @@ export default function ProjectTasks({ projectId, members }: Props) {
           />
         </Tooltip>
         {scope !== "shared" && (
-          <Button
-            type="primary"
-            icon={<Link2 size={14} />}
-            onClick={openPicker}
-          >
-            {t("projects.tasks.attach", "关联我的任务")}
-          </Button>
+          <>
+            <Button
+              type="primary"
+              icon={<Plus size={14} />}
+              onClick={openCreate}
+            >
+              {t("projects.tasks.create", "新建项目任务")}
+            </Button>
+            <Button
+              type="primary"
+              icon={<Link2 size={14} />}
+              onClick={openPicker}
+            >
+              {t("projects.tasks.attach", "关联我的任务")}
+            </Button>
+          </>
         )}
       </div>
 
@@ -2003,9 +2171,7 @@ export default function ProjectTasks({ projectId, members }: Props) {
                   {t("projects.tasks.sourceLabel", "来源")}
                 </span>
                 <span style={{ fontSize: 13 }}>
-                  {readerTask?.source === "manual"
-                    ? t("projects.tasks.sourceManual", "手动关联")
-                    : readerTask?.source}
+                  {readerTask == null ? "" : sourceLabel(readerTask.source)}
                 </span>
               </div>
               <div style={rowStyle}>
@@ -2144,6 +2310,172 @@ export default function ProjectTasks({ projectId, members }: Props) {
               "关联只登记归属，不会向项目成员共享对话正文、附件或运行流。",
             )}
           </div>
+        </Modal>
+      )}
+
+      {createOpen && (
+        <Modal
+          open
+          title={t("projects.tasks.createTitle", "新建项目任务")}
+          onCancel={closeCreate}
+          destroyOnHidden
+          footer={[
+            <Button key="cancel" onClick={closeCreate}>
+              {t("common.cancel", "取消")}
+            </Button>,
+            <Button
+              key="submit"
+              type="primary"
+              loading={createBusy}
+              disabled={createDisabled}
+              aria-label={t(
+                "projects.tasks.createSubmit",
+                "创建任务并前往对话",
+              )}
+              onClick={() => void submitCreate()}
+            >
+              {t("projects.tasks.createSubmit", "创建任务并前往对话")}
+            </Button>,
+          ]}
+        >
+          <div style={{ ...secondaryStyle, marginBottom: 12 }}>
+            {t(
+              "projects.tasks.createHint",
+              "创建一条归属于本项目的私密对话；项目成员身份不会自动获得这条任务。",
+            )}
+          </div>
+          <div style={{ ...secondaryStyle, marginBottom: 4 }}>
+            {t("projects.tasks.createAgentLabel", "执行专家")}
+          </div>
+          <Select<string>
+            style={{ width: "100%", marginBottom: 12 }}
+            value={createReadyAgentId ?? undefined}
+            options={createAgents.map((agent) => ({
+              value: agent.agent_id,
+              label: agent.name,
+            }))}
+            placeholder={t("projects.tasks.selectAgent", "选择专家")}
+            aria-label={t("projects.tasks.selectAgent", "选择专家")}
+            disabled={createAgents.length === 0 || createBusy}
+            onChange={(value) => setCreateAgentId(value)}
+          />
+          <div style={{ ...secondaryStyle, marginTop: -8, marginBottom: 12 }}>
+            {t(
+              "projects.tasks.createExpertOnlyHint",
+              "专家团会分派给其他专家，暂不能保证他们使用本项目的指令。请选择单专家。",
+            )}
+          </div>
+          {runningAgents.length === 0 ? (
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message={t(
+                "projects.tasks.createNoRunningAgents",
+                "没有已启用的专家，无法新建项目任务；请先在专家列表中启用或启动一个专家。",
+              )}
+            />
+          ) : createAgents.length === 0 ? (
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message={t(
+                "projects.tasks.createNoSingleExpert",
+                "没有可用的单专家；专家团暂不能执行项目任务。请先启动一个单专家。",
+              )}
+            />
+          ) : null}
+          <div style={{ ...secondaryStyle, marginBottom: 4 }}>
+            {t("projects.tasks.createInstructionsLabel", "本项目当前指令")}
+          </div>
+          {instructions?.trim() ? (
+            <div
+              data-testid="project-task-create-instructions"
+              style={{
+                fontSize: 13,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                color: "var(--fn-text-secondary, rgba(0,0,0,0.65))",
+                background: "var(--fn-bg-layout, rgba(0,0,0,0.02))",
+                border:
+                  "1px solid var(--fn-border-color-split, rgba(0,0,0,0.06))",
+                borderRadius: 8,
+                padding: 10,
+                maxHeight: 200,
+                overflowY: "auto",
+              }}
+            >
+              {instructions}
+            </div>
+          ) : (
+            <div
+              data-testid="project-task-create-instructions"
+              style={{
+                ...secondaryStyle,
+                border:
+                  "1px dashed var(--fn-border-color-split, rgba(0,0,0,0.15))",
+                borderRadius: 8,
+                padding: 10,
+              }}
+            >
+              {t(
+                "projects.tasks.createInstructionsEmpty",
+                "本项目还没有指令；新建任务不会注入项目指令。",
+              )}
+            </div>
+          )}
+          <Alert
+            type="warning"
+            showIcon
+            style={{ margin: "12px 0" }}
+            message={t(
+              "projects.tasks.createInstructionNotice",
+              "项目所有者或管理员编写的指令可能调用你已启用的个人工具。任务沿用所选专家当前工作空间；没有独立的项目目录或云端执行。",
+            )}
+          />
+          {!digestAvailable && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message={t(
+                "projects.tasks.createDigestUnavailable",
+                "暂时拿不到项目指令摘要，请刷新项目详情后再试。",
+              )}
+            />
+          )}
+          {digestRejected && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message={t(
+                "projects.tasks.createAwaitingUpdatedInstructions",
+                "项目指令已经变更，正在等待刷新后的指令；请阅读新内容并重新确认。",
+              )}
+            />
+          )}
+          <Checkbox
+            checked={createConfirmed}
+            disabled={createBusy}
+            onChange={(event) => setCreateConfirmed(event.target.checked)}
+          >
+            {t(
+              "projects.tasks.createConfirmLabel",
+              "我已阅读并确认上述项目指令；创建后本任务使用该指令快照。",
+            )}
+          </Checkbox>
+          {createError != null && (
+            <Alert
+              type="error"
+              showIcon
+              closable
+              style={{ marginTop: 12 }}
+              message={createError}
+              onClose={() => setCreateError(null)}
+            />
+          )}
         </Modal>
       )}
     </div>

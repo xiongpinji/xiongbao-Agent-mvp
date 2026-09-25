@@ -6,7 +6,8 @@
  * - 计划 tab: real PS-04 todos (table + board) via `ProjectPlan`
  * - 动态 tab: real PS-03A activity feed (related/members) via `ProjectActivity`
  * - 资产 tab: real PS-06A / 023A private asset library via `ProjectAssets`
- * - 任务 tab: honest "not built yet" panel, no fake rows
+ * - 任务 tab: real private task creation with a confirmed instruction
+ *   snapshot, plus the existing manual attach/share/read-only card flows
  * - fixed 项目配置 column: real instructions (editable for owner/admin via
  *   PATCH); member invitations and approvals use project membership APIs,
  *   while connector / expert / skill / scheduled-task rows stay unavailable
@@ -167,7 +168,7 @@ export default function ProjectDetail() {
         disabled
         placeholder={t(
           "projects.taskComposer.placeholder",
-          "项目内直接创建并执行任务尚未开放：请到已关联的对话中继续任务",
+          "项目内直接发送消息尚未开放：请在“任务”页新建项目任务并前往对话",
         )}
       />
       <div
@@ -182,7 +183,7 @@ export default function ProjectDetail() {
         <Text type="secondary" style={{ fontSize: 12 }}>
           {t(
             "projects.taskComposer.hint",
-            "项目内创建/发送、协同写入、本地/云端与移交需后续后端权限；任务卡片摘要可在“任务”页显式分享给指定成员。",
+            "在本页直接发送消息、协同写入、本地/云端与移交需后续后端权限；任务卡片摘要可在“任务”页显式分享给指定成员。",
           )}
         </Text>
         <Button type="primary" disabled>
@@ -214,7 +215,13 @@ export default function ProjectDetail() {
       label: t("projects.tabs.tasks", "任务"),
       children: (
         <>
-          <ProjectTasks projectId={project.project_id} members={members} />
+          <ProjectTasks
+            projectId={project.project_id}
+            members={members}
+            instructions={project.instructions}
+            instructionsSha256={project.instructions_sha256}
+            onProjectReload={reload}
+          />
           {taskComposer}
         </>
       ),
@@ -298,6 +305,12 @@ export default function ProjectDetail() {
           {t("projects.config.instructionsEmpty", "还没有项目指令。")}
         </div>
       )}
+      <div style={{ ...secondaryStyle, marginBottom: 12 }}>
+        {t(
+          "projects.config.instructionsNewTasksOnly",
+          "仅新任务采用当前指令；修改指令不会改变已创建任务。",
+        )}
+      </div>
 
       {configRows.map((row) => (
         <div key={row.key} style={configRowStyle}>

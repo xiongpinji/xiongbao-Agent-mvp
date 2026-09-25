@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from octop.api.common.agent import require_agent_row
+from octop.api.common.workspace import require_running_agent
 from octop.api.deps import current_user, get_server
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.projects.service import DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT
@@ -77,6 +78,18 @@ class AttachTaskBody(BaseModel):
     thread_id: str = Field(min_length=1, max_length=64)
 
 
+class CreateTaskBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: str = Field(min_length=1, max_length=64)
+    expected_instructions_sha256: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-fA-F]{64}$",
+        description="SHA-256 the user previewed on the project detail and confirmed",
+    )
+
+
 class GrantShareBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -105,6 +118,39 @@ async def attach_task(
     if created:
         return payload
     return JSONResponse(status_code=200, content=payload)
+
+
+@router.post(
+    "", status_code=201, summary="Create a private project task with an instruction snapshot"
+)
+async def create_project_task(
+    project_id: str,
+    body: CreateTaskBody,
+    server: OctopServer = Depends(get_server),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    """Members create a brand-new private Dashboard DM task for one running
+    expert Agent. The thread, history projection, ``source='project'`` link,
+    and an immutable snapshot of the current project instructions commit in
+    ONE transaction; the active session is not rebound. A digest that no
+    longer matches answers 409 ``PROJECT_INSTRUCTIONS_CHANGED`` with no task
+    row, so the dashboard refreshes and asks the user to confirm again.
+    Non-members and unknown projects share one 404; archived projects, team
+    hosts, and non-running agents are refused. The response is the same safe
+    private-task summary as manual attach — never the instruction text."""
+    service = _task_service(server)
+    # Membership first so an outsider cannot probe agent existence/ACL.
+    service.authorize_create_target(project_id, user_id=user.id)
+    require_agent_row(body.agent_id, user=user, as_user=None, server=server)
+    require_running_agent(server, body.agent_id)
+    view = service.create_project_task(
+        project_id,
+        user_id=user.id,
+        agent_id=body.agent_id,
+        expected_instructions_sha256=body.expected_instructions_sha256,
+        is_admin=user.is_admin,
+    )
+    return _task_payload(view)
 
 
 @router.get("", summary="List project tasks visible to the caller (members only)")

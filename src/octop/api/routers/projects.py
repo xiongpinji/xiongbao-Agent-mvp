@@ -25,6 +25,7 @@ from octop.infra.projects.service import (
     validate_project_name,
     validate_project_text,
 )
+from octop.infra.projects.tasks import instructions_sha256
 from octop.infra.server import OctopServer
 from octop.infra.users.identity import User
 
@@ -119,9 +120,13 @@ def _item_payload(view: ProjectView) -> dict[str, Any]:
 
 
 def _detail_payload(view: ProjectDetailView) -> dict[str, Any]:
+    # Members see the digest of the CURRENT instructions so the task-creation
+    # modal can confirm the exact text it previewed; the project list never
+    # carries it.
     return {
         **_item_payload(view),
         "instructions": view.instructions,
+        "instructions_sha256": instructions_sha256(view.instructions),
     }
 
 

@@ -13,7 +13,13 @@ const { get, members, list, usage } = vi.hoisted(() => ({
 
 const { tasksProps } = vi.hoisted(() => ({
   tasksProps: {
-    current: null as null | { projectId: string; members: unknown },
+    current: null as null | {
+      projectId: string;
+      members: unknown;
+      instructions?: string;
+      instructionsSha256?: string;
+      onProjectReload?: () => void;
+    },
   },
 }));
 
@@ -88,7 +94,13 @@ vi.mock("./ProjectPlan", () => ({
   default: () => <div>plan-stub</div>,
 }));
 vi.mock("./ProjectTasks", () => ({
-  default: (props: { projectId: string; members: unknown }) => {
+  default: (props: {
+    projectId: string;
+    members: unknown;
+    instructions?: string;
+    instructionsSha256?: string;
+    onProjectReload?: () => void;
+  }) => {
     tasksProps.current = props;
     return <div>tasks-stub</div>;
   },
@@ -154,7 +166,11 @@ function renderDetail(projectId: string, key = projectId) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  get.mockResolvedValue({ ...summary, instructions: "" });
+  get.mockResolvedValue({
+    ...summary,
+    instructions: "",
+    instructions_sha256: "sha-empty",
+  });
   members.mockResolvedValue([{ user_id: 1, username: "alice", role: "owner" }]);
   list.mockResolvedValue(listResponse([folderDesign, fileSpec]));
   usage.mockResolvedValue({ file_count: 2, total_bytes: 2048 });
@@ -203,15 +219,25 @@ describe("ProjectDetail assets tab mount", () => {
     renderDetail("project-1");
 
     await user.click(await screen.findByRole("tab", { name: "任务" }));
-    expect(tasksProps.current).toEqual({
-      projectId: "project-1",
-      members: [{ user_id: 1, username: "alice", role: "owner" }],
-    });
+    expect(tasksProps.current).toEqual(
+      expect.objectContaining({
+        projectId: "project-1",
+        members: [{ user_id: 1, username: "alice", role: "owner" }],
+        instructions: "",
+        instructionsSha256: "sha-empty",
+      }),
+    );
+    expect(typeof tasksProps.current?.onProjectReload).toBe("function");
     expect(
       screen.getByText(
-        "项目内创建/发送、协同写入、本地/云端与移交需后续后端权限；任务卡片摘要可在“任务”页显式分享给指定成员。",
+        "在本页直接发送消息、协同写入、本地/云端与移交需后续后端权限；任务卡片摘要可在“任务”页显式分享给指定成员。",
       ),
     ).toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText(
+        "项目内直接发送消息尚未开放：请在“任务”页新建项目任务并前往对话",
+      ),
+    ).toBeDisabled();
     expect(
       screen.queryByText(
         "本片只登记已有任务归属；项目内创建/发送、共享、本地/云端与移交需后续后端权限。",
@@ -219,10 +245,34 @@ describe("ProjectDetail assets tab mount", () => {
     ).toBeNull();
   });
 
+  it("passes the current instructions digest to the tasks tab and scopes edits to new tasks", async () => {
+    get.mockResolvedValue({
+      ...summary,
+      instructions: "回答必须标注来源。",
+      instructions_sha256: "sha-live",
+    });
+    const user = userEvent.setup();
+    renderDetail("project-1");
+
+    await user.click(await screen.findByRole("tab", { name: "任务" }));
+    expect(tasksProps.current).toMatchObject({
+      instructions: "回答必须标注来源。",
+      instructionsSha256: "sha-live",
+    });
+    expect(
+      screen.getByText("仅新任务采用当前指令；修改指令不会改变已创建任务。"),
+    ).toBeInTheDocument();
+  });
+
   it("does not show project A files after switching to project B", async () => {
     const user = userEvent.setup();
     get.mockImplementation((projectId: string) =>
-      Promise.resolve({ ...summary, project_id: projectId, instructions: "" }),
+      Promise.resolve({
+        ...summary,
+        project_id: projectId,
+        instructions: "",
+        instructions_sha256: "sha-empty",
+      }),
     );
     list.mockImplementation((projectId: string) =>
       Promise.resolve(

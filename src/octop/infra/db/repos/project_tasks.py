@@ -5,15 +5,21 @@ enforces what must be race-safe. :meth:`ProjectTaskRepo.attach` re-validates
 membership, ``threads.user_id`` ownership, the Dashboard ``:dm`` session
 binding, and ``UNIQUE(thread_id)`` inside one write transaction, so a
 concurrent member removal or competing attach can never leave a stale or
-foreign attribution. On PostgreSQL the membership row is locked ``FOR SHARE``
-before any link row is touched (lock order: member-row → link-row, matching
-``ProjectRepo.remove_member``); SQLite's ``BEGIN IMMEDIATE`` writer already
-serializes writes. This slice writes no ``project_events`` rows — a private
+foreign attribution. :meth:`ProjectTaskRepo.create_with_context` goes further
+for the 028 create flow: it inserts the new thread, history projection,
+``source='project'`` link, and the immutable instruction snapshot in the SAME
+transaction, after re-validating membership, the unarchived project, the
+expert agent kind, and the caller-confirmed instruction digest. On PostgreSQL
+the membership row is locked ``FOR SHARE`` before the project row (lock order:
+member-row → project-row → link-row, matching ``ProjectRepo.remove_member``);
+SQLite's ``BEGIN IMMEDIATE`` writer already serializes writes. Neither write
+path rebinds the active session or writes ``project_events`` — a private
 ``thread_id`` must never appear in a member-readable project summary.
 """
 
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 from dataclasses import dataclass
 from typing import Any
@@ -94,6 +100,19 @@ class TaskLinkMutation:
     conflict_project_id: str = ""
 
 
+@dataclass(frozen=True)
+class TaskCreateMutation:
+    """Outcome of :meth:`ProjectTaskRepo.create_with_context`.
+
+    ``outcome`` is one of: created, not_member, archived, stale_instructions,
+    invalid_agent. Every refusal is decided inside the write transaction, so a
+    conflict leaves no thread, projection, link, or snapshot row behind.
+    """
+
+    outcome: str
+    summary: ProjectTaskSummary | None = None
+
+
 class ProjectTaskRepo:
     def __init__(self, db: DatabasePool) -> None:
         self._db = db
@@ -114,6 +133,67 @@ class ProjectTaskRepo:
             (project_id, user_id),
         ).fetchone()
         return None if row is None else str(row["role"])
+
+    def _project_row_locked(self, conn: Any, project_id: str) -> Any:
+        """Read instructions/archived, locking the project row after membership."""
+        return conn.execute(
+            "SELECT instructions, archived FROM project_spaces WHERE project_id = ?"
+            + self._member_share_lock(),
+            (project_id,),
+        ).fetchone()
+
+    def _insert_new_thread(
+        self,
+        conn: Any,
+        *,
+        thread_id: str,
+        agent_id: str,
+        user_id: int,
+        session_key: str,
+        ts: int,
+    ) -> None:
+        """Insert the owner's Dashboard DM thread with the "no turns" sentinel."""
+        conn.execute(
+            "INSERT INTO threads(thread_id, agent_id, user_id, channel_type, session_key, "
+            "title, last_active, created_at) VALUES (?, ?, ?, 'dashboard', ?, NULL, 0, ?)",
+            (thread_id, agent_id, user_id, session_key, ts),
+        )
+
+    def _insert_projection(self, conn: Any, *, thread_id: str, ts: int) -> None:
+        conn.execute(
+            "INSERT INTO thread_history_projection(thread_id, status, updated_at, error) "
+            "VALUES (?, 'ready', ?, NULL)",
+            (thread_id, ts),
+        )
+
+    def _insert_link(
+        self, conn: Any, *, project_id: str, thread_id: str, user_id: int, ts: int
+    ) -> None:
+        conn.execute(
+            "INSERT INTO project_task_links("
+            "project_id, thread_id, owner_user_id, source, created_at) "
+            "VALUES (?, ?, ?, 'project', ?)",
+            (project_id, thread_id, user_id, ts),
+        )
+
+    def _insert_snapshot(
+        self,
+        conn: Any,
+        *,
+        project_id: str,
+        thread_id: str,
+        user_id: int,
+        instructions: str,
+        digest: str,
+        ts: int,
+    ) -> None:
+        conn.execute(
+            "INSERT INTO project_task_contexts("
+            "thread_id, project_id, owner_user_id, instructions_snapshot, "
+            "snapshot_version, instructions_sha256, captured_at) "
+            "VALUES (?, ?, ?, ?, 1, ?, ?)",
+            (thread_id, project_id, user_id, instructions, digest, ts),
+        )
 
     def _summary_for(
         self, conn: Any, project_id: str, thread_id: str, user_id: int
@@ -188,6 +268,92 @@ class ProjectTaskRepo:
                 return TaskLinkMutation(outcome="invalid_thread")
             raise
 
+    def create_with_context(
+        self,
+        *,
+        project_id: str,
+        user_id: int,
+        agent_id: str,
+        thread_id: str,
+        session_key: str,
+        expected_instructions_sha256: str,
+        is_admin: bool = False,
+    ) -> TaskCreateMutation:
+        """Create a project task atomically with a frozen instruction snapshot.
+
+        One transaction inserts the new Dashboard :dm thread, its history
+        projection, the ``source='project'`` link, and the 026 snapshot of the
+        project instructions read HERE — after locking membership, then the
+        project row (PostgreSQL ``FOR SHARE``; SQLite ``BEGIN IMMEDIATE``).
+        Nothing else is touched: the active session is not rebound and no
+        ``project_events`` row is written. The digest is recomputed from the
+        rows just read; a mismatch returns ``stale_instructions`` before the
+        first insert so a 409 can never leave a partial task behind. The
+        agent's ``kind`` is re-checked in the transaction because team hosts
+        are excluded from instruction inheritance in this slice.
+        """
+        ts = now_ts()
+        with self._db.transaction() as conn:
+            # Lock order: membership row, then project row, then the new rows.
+            if self._member_role_locked(conn, project_id, user_id) is None:
+                return TaskCreateMutation(outcome="not_member")
+            project = self._project_row_locked(conn, project_id)
+            if project is None:
+                return TaskCreateMutation(outcome="not_member")
+            if int(project["archived"]):
+                return TaskCreateMutation(outcome="archived")
+            agent = conn.execute(
+                "SELECT kind, user_id, is_shared, enabled FROM agents WHERE agent_id = ?",
+                (agent_id,),
+            ).fetchone()
+            if (
+                agent is None
+                or str(agent["kind"]) != "expert"
+                or not int(agent["enabled"])
+                or not (
+                    is_admin or agent["user_id"] == user_id or int(agent["is_shared"] or 0) == 1
+                )
+            ):
+                return TaskCreateMutation(outcome="invalid_agent")
+            instructions = str(project["instructions"])
+            digest = hashlib.sha256(instructions.encode("utf-8")).hexdigest()
+            if digest != expected_instructions_sha256:
+                return TaskCreateMutation(outcome="stale_instructions")
+            self._insert_new_thread(
+                conn,
+                thread_id=thread_id,
+                agent_id=agent_id,
+                user_id=user_id,
+                session_key=session_key,
+                ts=ts,
+            )
+            self._insert_projection(conn, thread_id=thread_id, ts=ts)
+            self._insert_link(
+                conn, project_id=project_id, thread_id=thread_id, user_id=user_id, ts=ts
+            )
+            self._insert_snapshot(
+                conn,
+                project_id=project_id,
+                thread_id=thread_id,
+                user_id=user_id,
+                instructions=instructions,
+                digest=digest,
+                ts=ts,
+            )
+            return TaskCreateMutation(
+                outcome="created",
+                summary=ProjectTaskSummary(
+                    project_id=project_id,
+                    thread_id=thread_id,
+                    owner_user_id=user_id,
+                    agent_id=agent_id,
+                    title=None,
+                    source="project",
+                    last_active=0,
+                    created_at=ts,
+                ),
+            )
+
     def detach(self, *, project_id: str, thread_id: str, user_id: int) -> str:
         """Remove one link row. Outcomes: removed | missing | not_member.
 
@@ -207,6 +373,31 @@ class ProjectTaskRepo:
             return "removed"
 
     # ------------------------------------------------------------ reads
+
+    def active_instructions_for_thread(
+        self, *, thread_id: str, owner_user_id: int, agent_id: str
+    ) -> str | None:
+        """Return the frozen context only for a still-authorized project task.
+
+        The thread remains private after detaching or member removal, but it
+        must stop inheriting project instructions on the next model turn.
+        Manual links have no snapshot and never enter this path.
+        """
+        with self._db.connect() as conn:
+            row = conn.execute(
+                "SELECT c.instructions_snapshot FROM project_task_contexts c "
+                "JOIN project_task_links l ON l.thread_id = c.thread_id "
+                "AND l.project_id = c.project_id AND l.owner_user_id = c.owner_user_id "
+                "JOIN threads t ON t.thread_id = c.thread_id AND t.user_id = c.owner_user_id "
+                "JOIN project_spaces p ON p.project_id = c.project_id "
+                "JOIN project_members m ON m.project_id = c.project_id "
+                "AND m.user_id = c.owner_user_id "
+                "WHERE c.thread_id = ? AND c.owner_user_id = ? AND t.agent_id = ? "
+                "AND l.source = 'project' AND p.archived = 0 "
+                "AND t.channel_type = 'dashboard'",
+                (thread_id, owner_user_id, agent_id),
+            ).fetchone()
+        return str(row["instructions_snapshot"]) if row is not None else None
 
     def list_for_owner(
         self,

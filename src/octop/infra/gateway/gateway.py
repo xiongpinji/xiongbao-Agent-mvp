@@ -133,6 +133,7 @@ class Gateway:
         )
         if self._processor is not None:
             self._processor.replace_thread_message_repo(repos.thread_message_repo)
+            self._processor.replace_project_task_repo(repos.project_task_repo)
             self._processor.hitl_coordinator.session_policies.replace_repo(repos.thread_repo)
 
     @property
@@ -228,6 +229,7 @@ class Gateway:
             settings_repo=self._repos.settings_repo,
             provider_repo=self._repos.provider_repo,
             dispatcher=self._dispatcher,
+            project_task_repo=self._repos.project_task_repo,
             usage_repo=self._repos.usage_repo,
             thread_message_repo=self._repos.thread_message_repo,
             gateway=self,

@@ -7,7 +7,7 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import en from "../../locales/en.json";
 import zh from "../../locales/zh.json";
@@ -15,6 +15,7 @@ import zh from "../../locales/zh.json";
 const {
   list,
   getOne,
+  create,
   link,
   unlink,
   shares,
@@ -26,6 +27,7 @@ const {
 } = vi.hoisted(() => ({
   list: vi.fn(),
   getOne: vi.fn(),
+  create: vi.fn(),
   link: vi.fn(),
   unlink: vi.fn(),
   shares: vi.fn(),
@@ -48,6 +50,7 @@ const { agentState } = vi.hoisted(() => ({
         agent_id: string;
         name: string;
         state: string;
+        kind?: "expert" | "team";
       }>,
       activeAgentId: "agent-1" as string | null,
     },
@@ -63,6 +66,7 @@ vi.mock("../../api/modules/projectTasks", async (importOriginal) => {
     projectTasksApi: {
       list,
       get: getOne,
+      create,
       link,
       unlink,
       shares,
@@ -228,15 +232,50 @@ function page(items: ProjectTask[], hasMore = false) {
   return { items, limit: 50, offset: 0, has_more: hasMore };
 }
 
+const projectInstructions = "先阅读项目背景；回答必须标注引用来源。";
+const projectInstructionsSha = "sha-current";
+
+const onProjectReload = vi.fn();
+
+function LocationProbe() {
+  const location = useLocation();
+  return <div data-testid="location">{location.pathname}</div>;
+}
+
+interface RenderTasksOptions {
+  instructions?: string;
+  instructionsSha256?: string | null;
+}
+
+function tasksTree(
+  projectId = "p1",
+  members: ProjectMember[] | null = defaultMembers,
+  options: RenderTasksOptions = {},
+) {
+  return (
+    <MemoryRouter initialEntries={[`/projects/${projectId}`]}>
+      <ProjectTasks
+        projectId={projectId}
+        members={members}
+        instructions={options.instructions ?? projectInstructions}
+        instructionsSha256={
+          options.instructionsSha256 === undefined
+            ? projectInstructionsSha
+            : options.instructionsSha256
+        }
+        onProjectReload={onProjectReload}
+      />
+      <LocationProbe />
+    </MemoryRouter>
+  );
+}
+
 function renderTasks(
   projectId = "p1",
   members: ProjectMember[] | null = defaultMembers,
+  options: RenderTasksOptions = {},
 ) {
-  return render(
-    <MemoryRouter initialEntries={[`/projects/${projectId}`]}>
-      <ProjectTasks projectId={projectId} members={members} />
-    </MemoryRouter>,
-  );
+  return render(tasksTree(projectId, members, options));
 }
 
 function visibleDropdown(): HTMLElement {
@@ -263,6 +302,12 @@ beforeEach(() => {
   link.mockResolvedValue({ ...taskOpen, thread_id: "t9", title: "周报草稿" });
   unlink.mockResolvedValue(undefined);
   getOne.mockResolvedValue(taskOpen);
+  create.mockResolvedValue({
+    ...taskOpen,
+    thread_id: "t-new",
+    title: "项目新任务",
+    source: "project",
+  });
   shares.mockResolvedValue({ items: [] });
   share.mockResolvedValue({
     user_id: 4,
@@ -596,6 +641,326 @@ describe("ProjectTasks owner behavior", () => {
 
     expect(await screen.findByText("另一个任务")).toBeInTheDocument();
     expect(screen.queryByText("写周报")).toBeNull();
+  });
+});
+
+describe("ProjectTasks create project task", () => {
+  async function openCreateModal(options: RenderTasksOptions = {}) {
+    const user = userEvent.setup();
+    renderTasks("p1", defaultMembers, options);
+    await screen.findByText("写周报");
+    await user.click(screen.getByRole("button", { name: "新建项目任务" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "新建项目任务",
+    });
+    return { user, dialog };
+  }
+
+  function confirmBox(dialog: HTMLElement) {
+    return within(dialog).getByRole("checkbox", { name: /我已阅读并确认/ });
+  }
+
+  function submitButton(dialog: HTMLElement) {
+    return within(dialog).getByRole("button", {
+      name: "创建任务并前往对话",
+    });
+  }
+
+  it("previews the exact instructions, requires confirmation and navigates to the created chat", async () => {
+    const { user, dialog } = await openCreateModal();
+
+    expect(
+      within(dialog).getByTestId("project-task-create-instructions"),
+    ).toHaveTextContent(projectInstructions);
+    expect(
+      within(dialog).getByText(
+        "项目所有者或管理员编写的指令可能调用你已启用的个人工具。任务沿用所选专家当前工作空间；没有独立的项目目录或云端执行。",
+      ),
+    ).toBeInTheDocument();
+
+    expect(confirmBox(dialog)).not.toBeChecked();
+    expect(submitButton(dialog)).toBeDisabled();
+    expect(create).not.toHaveBeenCalled();
+
+    await user.click(confirmBox(dialog));
+    expect(submitButton(dialog)).toBeEnabled();
+    await user.click(submitButton(dialog));
+
+    await waitFor(() =>
+      expect(create).toHaveBeenCalledWith(
+        "p1",
+        "agent-1",
+        projectInstructionsSha,
+      ),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        "/chat/agent-1/t-new",
+      ),
+    );
+    expect(screen.queryByRole("dialog", { name: "新建项目任务" })).toBeNull();
+    // A created task is a server-confirmed card, never a sent first turn and
+    // never an optimistic row.
+    expect(messages).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("project-task-t-new")).toBeNull();
+    expect(screen.getByText("写周报")).toBeInTheDocument();
+  });
+
+  it("sends the selected accessible agent instead of the default", async () => {
+    const { user, dialog } = await openCreateModal();
+    await user.click(confirmBox(dialog));
+
+    fireEvent.mouseDown(
+      within(dialog).getByRole("combobox", { name: "选择专家" }),
+    );
+    fireEvent.click(within(visibleDropdown()).getByText("小助手"));
+
+    await user.click(submitButton(dialog));
+    await waitFor(() =>
+      expect(create).toHaveBeenCalledWith(
+        "p1",
+        "agent-2",
+        projectInstructionsSha,
+      ),
+    );
+  });
+
+  it("explains the unavailable reason when no expert is running", async () => {
+    agentState.value = {
+      agents: [{ agent_id: "agent-3", name: "停用专家", state: "stopped" }],
+      activeAgentId: null,
+    };
+    const { dialog } = await openCreateModal();
+
+    expect(
+      within(dialog).getByText(
+        "没有已启用的专家，无法新建项目任务；请先在专家列表中启用或启动一个专家。",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("combobox", { name: "选择专家" }),
+    ).toBeDisabled();
+    expect(submitButton(dialog)).toBeDisabled();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("does not offer a running team host whose delegated peers lack project context", async () => {
+    agentState.value = {
+      agents: [
+        { agent_id: "team-1", name: "专家团", state: "running", kind: "team" },
+      ],
+      activeAgentId: "team-1",
+    };
+    const { user, dialog } = await openCreateModal();
+
+    expect(
+      within(dialog).getByRole("combobox", { name: "选择专家" }),
+    ).toBeDisabled();
+    await user.click(confirmBox(dialog));
+    expect(submitButton(dialog)).toBeDisabled();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("keeps a single in-flight submit while the server creates the task", async () => {
+    let resolveCreate: ((task: ProjectTask) => void) | null = null;
+    create.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveCreate = resolve)),
+    );
+    const { user, dialog } = await openCreateModal();
+    await user.click(confirmBox(dialog));
+    await user.click(submitButton(dialog));
+    expect(create).toHaveBeenCalledTimes(1);
+
+    await user.click(submitButton(dialog));
+    expect(create).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveCreate?.({
+        ...taskOpen,
+        thread_id: "t-new",
+        title: "项目新任务",
+        source: "project",
+      });
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        "/chat/agent-1/t-new",
+      ),
+    );
+  });
+
+  it("clears consent and reloads the project after a stale digest 409", async () => {
+    create.mockRejectedValueOnce(
+      new Error(
+        '409 - {"error":{"code":"PROJECT_INSTRUCTIONS_CHANGED","message":"project instructions changed"}}',
+      ),
+    );
+    const user = userEvent.setup();
+    const view = renderTasks();
+    await screen.findByText("写周报");
+    await user.click(screen.getByRole("button", { name: "新建项目任务" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "新建项目任务",
+    });
+    await user.click(confirmBox(dialog));
+    await user.click(submitButton(dialog));
+
+    expect(
+      await within(dialog).findByText("project instructions changed"),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(onProjectReload).toHaveBeenCalledTimes(1));
+    expect(confirmBox(dialog)).not.toBeChecked();
+    expect(submitButton(dialog)).toBeDisabled();
+
+    // Until a different server digest arrives, checking the old preview again
+    // must not re-submit the stale snapshot while reload is still pending.
+    await user.click(confirmBox(dialog));
+    expect(submitButton(dialog)).toBeDisabled();
+    expect(create).toHaveBeenCalledTimes(1);
+
+    // Closing and reopening the modal cannot discard the rejected digest.
+    await user.click(within(dialog).getByRole("button", { name: /取\s*消/ }));
+    await user.click(screen.getByRole("button", { name: "新建项目任务" }));
+    const reopened = await screen.findByRole("dialog", {
+      name: "新建项目任务",
+    });
+    await user.click(confirmBox(reopened));
+    expect(submitButton(reopened)).toBeDisabled();
+    expect(create).toHaveBeenCalledTimes(1);
+
+    // A detail reload may temporarily omit the digest. Returning the same
+    // rejected digest must stay blocked, even after that loading gap.
+    view.rerender(
+      tasksTree("p1", defaultMembers, { instructionsSha256: null }),
+    );
+    expect(submitButton(reopened)).toBeDisabled();
+    view.rerender(
+      tasksTree("p1", defaultMembers, {
+        instructionsSha256: projectInstructionsSha,
+      }),
+    );
+    await user.click(confirmBox(reopened));
+    expect(submitButton(reopened)).toBeDisabled();
+    expect(create).toHaveBeenCalledTimes(1);
+
+    // A refreshed digest never silently re-checks the confirmation box; the
+    // member must confirm the new instructions before retrying.
+    view.rerender(
+      tasksTree("p1", defaultMembers, { instructionsSha256: "sha-new" }),
+    );
+    const refreshed = screen.getByRole("dialog", { name: "新建项目任务" });
+    expect(confirmBox(refreshed)).not.toBeChecked();
+    expect(submitButton(refreshed)).toBeDisabled();
+
+    create.mockResolvedValueOnce({
+      ...taskOpen,
+      thread_id: "t-new",
+      source: "project",
+    });
+    await user.click(confirmBox(refreshed));
+    await user.click(submitButton(refreshed));
+    await waitFor(() =>
+      expect(create).toHaveBeenLastCalledWith("p1", "agent-1", "sha-new"),
+    );
+  });
+
+  it("reloads the project and clears consent when create returns 404", async () => {
+    create.mockRejectedValueOnce(
+      new Error(
+        '404 - {"error":{"code":"NOT_FOUND","message":"project not found"}}',
+      ),
+    );
+    const { user, dialog } = await openCreateModal();
+    await user.click(confirmBox(dialog));
+    await user.click(submitButton(dialog));
+
+    expect(
+      await within(dialog).findByText("project not found"),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(onProjectReload).toHaveBeenCalledTimes(1));
+    expect(confirmBox(dialog)).not.toBeChecked();
+    expect(screen.getByTestId("location")).toHaveTextContent("/projects/p1");
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("project-task-t-new")).toBeNull();
+  });
+
+  it("keeps a 403 archived/access failure visible and retryable", async () => {
+    create.mockRejectedValueOnce(
+      new Error(
+        '403 - {"error":{"code":"FORBIDDEN","message":"project is archived"}}',
+      ),
+    );
+    const { user, dialog } = await openCreateModal();
+    await user.click(confirmBox(dialog));
+    await user.click(submitButton(dialog));
+
+    expect(
+      await within(dialog).findByText("project is archived"),
+    ).toBeInTheDocument();
+    expect(onProjectReload).not.toHaveBeenCalled();
+    expect(confirmBox(dialog)).toBeChecked();
+    expect(submitButton(dialog)).toBeEnabled();
+    expect(screen.getByTestId("location")).toHaveTextContent("/projects/p1");
+  });
+
+  it("keeps a network failure visible and retryable without a fake task", async () => {
+    create
+      .mockRejectedValueOnce(new Error("Network error"))
+      .mockResolvedValueOnce({
+        ...taskOpen,
+        thread_id: "t-new",
+        source: "project",
+      });
+    const { user, dialog } = await openCreateModal();
+    await user.click(confirmBox(dialog));
+    await user.click(submitButton(dialog));
+
+    expect(
+      await within(dialog).findByText("Network error"),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("project-task-t-new")).toBeNull();
+    expect(screen.getByTestId("location")).toHaveTextContent("/projects/p1");
+
+    await user.click(submitButton(dialog));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        "/chat/agent-1/t-new",
+      ),
+    );
+  });
+
+  it("closes the modal and drops a late create response after the project changes", async () => {
+    let resolveCreate: ((task: ProjectTask) => void) | null = null;
+    create.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveCreate = resolve)),
+    );
+    const user = userEvent.setup();
+    const view = renderTasks();
+    await screen.findByText("写周报");
+    await user.click(screen.getByRole("button", { name: "新建项目任务" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "新建项目任务",
+    });
+    await user.click(confirmBox(dialog));
+    await user.click(submitButton(dialog));
+    expect(create).toHaveBeenCalledTimes(1);
+
+    list.mockResolvedValueOnce(page([taskOtherProject]));
+    view.rerender(tasksTree("p2"));
+
+    expect(await screen.findByText("另一个任务")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "新建项目任务" })).toBeNull(),
+    );
+    await act(async () => {
+      resolveCreate?.({ ...taskOpen, thread_id: "t-new", source: "project" });
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId("location").textContent).not.toContain("/chat");
+    expect(screen.queryByTestId("project-task-t-new")).toBeNull();
   });
 });
 

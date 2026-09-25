@@ -9,6 +9,7 @@ import { request } from "../request";
  * `docs/xiongbao/PROJECT_TASK_CONTENT_READ_CONTRACT.md`):
  *   GET    /projects/{project_id}/tasks?scope=own|shared|all&q=&limit=&offset=
  *   GET    /projects/{project_id}/tasks/{thread_id}
+ *   POST   /projects/{project_id}/tasks                  { agent_id, expected_instructions_sha256 }
  *   POST   /projects/{project_id}/tasks/links            { thread_id }
  *   DELETE /projects/{project_id}/tasks/{thread_id}
  *   GET    /projects/{project_id}/tasks/{thread_id}/shares
@@ -32,10 +33,18 @@ import { request } from "../request";
  * or artifacts. Non-members receive 404, a task already linked to another
  * project returns 409 + `PROJECT_TASK_LINK_CONFLICT`, and deleting a link
  * never deletes the original conversation.
+ *
+ * `create` freezes the project instructions the caller previewed: the body
+ * carries only the chosen `agent_id` and that preview's
+ * `expected_instructions_sha256` (never the instructions body, user id, role
+ * or source). A changed digest returns 409 + `PROJECT_INSTRUCTIONS_CHANGED`
+ * before any row exists, so the caller must refresh and confirm again. The
+ * 201 response is just the existing safe task summary — creating a task is
+ * never a sent first turn and the response must not be rendered as one.
  */
 
 /** Server-assigned link source; clients cannot choose it. */
-export type ProjectTaskSource = "manual";
+export type ProjectTaskSource = "manual" | "project";
 
 /** Server-side list scope. `all` is own + explicitly shared cards only. */
 export type ProjectTaskScope = "own" | "shared" | "all";
@@ -180,6 +189,24 @@ export const projectTasksApi = {
   },
   get: (projectId: string, threadId: string) =>
     request<ProjectTask>(taskPath(projectId, threadId)),
+  /**
+   * Creates a private project-owned task. `expectedInstructionsSha256` is the
+   * digest of the instructions the member previewed; the server rechecks the
+   * current project row and rejects a stale preview with
+   * 409 + `PROJECT_INSTRUCTIONS_CHANGED`.
+   */
+  create: (
+    projectId: string,
+    agentId: string,
+    expectedInstructionsSha256: string,
+  ) =>
+    request<ProjectTask>(tasksBase(projectId), {
+      method: "POST",
+      body: JSON.stringify({
+        agent_id: agentId,
+        expected_instructions_sha256: expectedInstructionsSha256,
+      }),
+    }),
   link: (projectId: string, threadId: string) =>
     request<ProjectTask>(`${tasksBase(projectId)}/links`, {
       method: "POST",

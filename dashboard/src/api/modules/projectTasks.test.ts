@@ -65,6 +65,40 @@ describe("projectTasksApi against the PS-05B-1 contract", () => {
     expect(request).toHaveBeenCalledWith("/projects/p1/tasks/t%201%2F2");
   });
 
+  it("creates a project task with only the agent and the previewed instruction digest", () => {
+    projectTasksApi.create("p 1/2", "agent 1/2", "sha 256");
+
+    expect(request).toHaveBeenCalledWith("/projects/p%201%2F2/tasks", {
+      method: "POST",
+      body: JSON.stringify({
+        agent_id: "agent 1/2",
+        expected_instructions_sha256: "sha 256",
+      }),
+    });
+    const body = JSON.parse(request.mock.calls[0][1].body as string) as Record<
+      string,
+      unknown
+    >;
+    expect(Object.keys(body).sort()).toEqual([
+      "agent_id",
+      "expected_instructions_sha256",
+    ]);
+  });
+
+  it("returns the existing safe summary for a server-created project task", async () => {
+    const created: ProjectTask = {
+      ...task,
+      source: "project",
+      thread_id: "t-new",
+    };
+    request.mockResolvedValueOnce(created);
+
+    await expect(
+      projectTasksApi.create("p1", "agent-1", "digest"),
+    ).resolves.toEqual(created);
+    expect(created.source).toBe("project");
+  });
+
   it("links a thread with only {thread_id} — no actor, role or source", () => {
     projectTasksApi.link("p1", "t 1/2");
 

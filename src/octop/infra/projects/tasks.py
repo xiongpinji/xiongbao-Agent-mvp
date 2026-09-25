@@ -31,6 +31,7 @@ Error contract:
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -40,8 +41,19 @@ from octop.infra.db.repos.project_tasks import ProjectTaskSummary
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.gateway.threads import ThreadRegistry
 from octop.infra.projects.service import DEFAULT_PAGE_LIMIT
+from octop.infra.utils.ulid import new_ulid
 
 TaskScope = Literal["own", "shared", "all"]
+
+
+def instructions_sha256(text: str) -> str:
+    """Canonical digest of project instructions: SHA-256 over the UTF-8 bytes.
+
+    This is exactly the value stored on the 026 snapshot and exposed on the
+    member-visible project detail so the create confirmation can echo it back.
+    The project instructions never appear in task responses, events, or logs.
+    """
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -295,6 +307,63 @@ class ProjectTaskService:
         if mutation.summary is None:  # pragma: no cover - created/duplicate carry a summary
             raise OctopError(ErrorCode.INTERNAL_ERROR, "task summary missing after attach")
         return self._view(mutation.summary), mutation.outcome == "created"
+
+    # ------------------------------------------------------------ create
+
+    def authorize_create_target(self, project_id: str, *, user_id: int) -> None:
+        """Create-route pre-check: members only, same 404 as unknown projects.
+
+        Runs before the router's agent ACL check so a non-member never learns
+        whether the named agent exists or is accessible.
+        """
+        self._require_membership(project_id, user_id)
+
+    def create_project_task(
+        self,
+        project_id: str,
+        *,
+        user_id: int,
+        agent_id: str,
+        expected_instructions_sha256: str,
+        is_admin: bool = False,
+    ) -> TaskSummaryView:
+        """Create a private task frozen against the current project instructions.
+
+        The repository re-validates membership, archive state, agent kind, and
+        the freshly-read digest inside one write transaction that also inserts
+        the thread, projection, ``source='project'`` link, and snapshot. A
+        stale digest raises 409 ``PROJECT_INSTRUCTIONS_CHANGED`` with no task
+        row; the caller's active dashboard session is never rebound.
+        """
+        self._require_membership(project_id, user_id)
+        mutation = self._repo.create_with_context(
+            project_id=project_id,
+            user_id=user_id,
+            agent_id=agent_id,
+            thread_id=f"thr_{new_ulid()}",
+            session_key=ThreadRegistry.dashboard_key(agent_id=agent_id, user_id=user_id),
+            expected_instructions_sha256=expected_instructions_sha256.strip().lower(),
+            is_admin=is_admin,
+        )
+        if mutation.outcome == "not_member":
+            raise _project_not_found()
+        if mutation.outcome == "archived":
+            raise _archived_error()
+        if mutation.outcome == "stale_instructions":
+            raise OctopError(
+                ErrorCode.PROJECT_INSTRUCTIONS_CHANGED,
+                "project instructions changed since they were confirmed",
+            )
+        if mutation.outcome == "invalid_agent":
+            # Team hosts are excluded from this slice: delegated peer agents
+            # do not inherit the project context the snapshot freezes.
+            raise OctopError(
+                ErrorCode.FORBIDDEN,
+                "agent no longer accessible or supported for project tasks",
+            )
+        if mutation.summary is None:  # pragma: no cover - created carries a summary
+            raise OctopError(ErrorCode.INTERNAL_ERROR, "task summary missing after create")
+        return self._view(mutation.summary)
 
     # ------------------------------------------------------------ reads
 

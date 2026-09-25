@@ -33,6 +33,12 @@ export interface ProjectSummary {
 /** Only detail/create/update responses contain project instructions. */
 export interface ProjectRecord extends ProjectSummary {
   instructions: string;
+  /**
+   * Server-computed SHA-256 of the current `instructions` UTF-8 bytes. Task
+   * creation sends this previewed digest so a concurrent edit is rejected
+   * instead of freezing unexpected instructions. Never contains the body.
+   */
+  instructions_sha256: string;
 }
 
 export interface ProjectListResponse {
