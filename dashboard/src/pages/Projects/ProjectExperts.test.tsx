@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -371,6 +371,233 @@ describe("ProjectExperts", () => {
 
     expect(within(selectedList()).queryByText("研究员")).toBeNull();
     expect(within(selectedList()).getByText("专家不可用")).toBeInTheDocument();
+  });
+
+  it("keeps a still-valid locally added expert's label after a conflict refresh", async () => {
+    const user = userEvent.setup();
+    list.mockResolvedValueOnce(baseResponse).mockResolvedValueOnce({
+      revision: 5,
+      items: [a1],
+    });
+    set.mockRejectedValueOnce(
+      new Error(
+        '409 - {"error":{"code":"PROJECT_EXPERTS_CHANGED","message":"changed"}}',
+      ),
+    );
+    renderPanel("owner");
+
+    await screen.findByText("研究员");
+    await user.click(screen.getByRole("button", { name: "管理专家" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(
+      within(dialog).getByRole("button", { name: "添加 写作助手" }),
+    );
+    await user.click(within(dialog).getByRole("button", { name: /确\s*定/ }));
+    await within(dialog).findByText(/配置已被其他管理员修改/);
+
+    // The server list no longer names a2, but it was locally added and is
+    // still shared/running/single, so its candidate label stays visible.
+    expect(within(selectedList()).getByText("写作助手")).toBeInTheDocument();
+    expect(within(dialog).queryByText("专家不可用")).toBeNull();
+    expect(within(dialog).getByText("已添加（2/20）")).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: /确\s*定/ }));
+    expect(set).toHaveBeenNthCalledWith(2, "p1", 5, ["a1", "a2"]);
+  });
+
+  it("redacts locally added experts that are no longer shared, running or single", async () => {
+    const user = userEvent.setup();
+    const refresh = deferred<ProjectExpertsResponse>();
+    agentState.value = {
+      agents: [
+        candidate("a1", "研究员"),
+        candidate("a2", "写作助手"),
+        candidate("a3", "停用专家"),
+        candidate("a4", "专家团"),
+        candidate("a5", "仍可用"),
+      ],
+      activeAgentId: null,
+    };
+    list
+      .mockResolvedValueOnce(baseResponse)
+      .mockReturnValueOnce(refresh.promise);
+    set.mockRejectedValueOnce(
+      new Error(
+        '409 - {"error":{"code":"PROJECT_EXPERTS_CHANGED","message":"changed"}}',
+      ),
+    );
+    renderPanel("owner");
+
+    await screen.findByText("研究员");
+    await user.click(screen.getByRole("button", { name: "管理专家" }));
+    const dialog = await screen.findByRole("dialog");
+    for (const name of ["写作助手", "停用专家", "专家团", "仍可用"]) {
+      await user.click(
+        within(dialog).getByRole("button", { name: `添加 ${name}` }),
+      );
+    }
+    await user.click(within(dialog).getByRole("button", { name: /确\s*定/ }));
+    await within(dialog).findByText(/配置已被其他管理员修改/);
+
+    // Only the still shared/running/single Agent keeps its local label.
+    agentState.value = {
+      agents: [
+        candidate("a1", "研究员"),
+        candidate("a2", "写作助手", { is_shared: false }),
+        candidate("a3", "停用专家", { state: "stopped" }),
+        candidate("a4", "专家团", { kind: "team" }),
+        candidate("a5", "仍可用"),
+      ],
+      activeAgentId: null,
+    };
+    refresh.resolve({ revision: 5, items: [a1] });
+
+    await waitFor(() =>
+      expect(within(selectedList()).queryByText("写作助手")).toBeNull(),
+    );
+    expect(within(selectedList()).queryByText("停用专家")).toBeNull();
+    expect(within(selectedList()).queryByText("专家团")).toBeNull();
+    expect(within(selectedList()).getByText("仍可用")).toBeInTheDocument();
+    expect(within(selectedList()).getAllByText("专家不可用")).toHaveLength(3);
+  });
+
+  it("keeps the draft open and blocks confirm when the conflict refresh fails", async () => {
+    const user = userEvent.setup();
+    list
+      .mockResolvedValueOnce(baseResponse)
+      .mockRejectedValueOnce(new Error("network down"))
+      .mockResolvedValueOnce({
+        revision: 5,
+        items: [
+          a1,
+          {
+            agent_id: "a3",
+            name: "新专家",
+            description: null,
+            status: "available",
+          },
+        ],
+      });
+    set
+      .mockRejectedValueOnce(
+        new Error(
+          '409 - {"error":{"code":"PROJECT_EXPERTS_CHANGED","message":"changed"}}',
+        ),
+      )
+      .mockResolvedValueOnce({ revision: 6, items: [a1] });
+    renderPanel("owner");
+
+    await screen.findByText("研究员");
+    await user.click(screen.getByRole("button", { name: "管理专家" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(
+      within(dialog).getByRole("button", { name: "添加 写作助手" }),
+    );
+    await user.click(within(dialog).getByRole("button", { name: /确\s*定/ }));
+
+    // The failed refresh must not be reported as a successful one.
+    expect(
+      await within(dialog).findByText(/刷新服务端名单失败/),
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByText(/已刷新服务端名单/)).toBeNull();
+    expect(within(dialog).getByText("已添加（2/20）")).toBeInTheDocument();
+    const confirm = within(dialog).getByRole("button", { name: /确\s*定/ });
+    expect(confirm).toBeDisabled();
+    await user.click(confirm);
+    expect(set).toHaveBeenCalledTimes(1);
+
+    // Explicit reload succeeds: the draft is intact and confirm is unlocked.
+    await user.click(within(dialog).getByRole("button", { name: "重新加载" }));
+    await waitFor(() =>
+      expect(within(dialog).queryByText(/刷新服务端名单失败/)).toBeNull(),
+    );
+    expect(within(dialog).getByText("已添加（2/20）")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: /确\s*定/ }));
+    expect(set).toHaveBeenNthCalledWith(2, "p1", 5, ["a1", "a2"]);
+  });
+
+  it("ignores a late explicit reload after the dialog closes and reopens", async () => {
+    const user = userEvent.setup();
+    const pendingReload = deferred<ProjectExpertsResponse>();
+    list
+      .mockResolvedValueOnce(baseResponse)
+      .mockRejectedValueOnce(new Error("network down"))
+      .mockReturnValueOnce(pendingReload.promise);
+    set.mockRejectedValueOnce(
+      new Error(
+        '409 - {"error":{"code":"PROJECT_EXPERTS_CHANGED","message":"changed"}}',
+      ),
+    );
+    renderPanel("owner");
+
+    await screen.findByText("研究员");
+    await user.click(screen.getByRole("button", { name: "管理专家" }));
+    let dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: /确\s*定/ }));
+    await within(dialog).findByText(/刷新服务端名单失败/);
+    await user.click(within(dialog).getByRole("button", { name: "重新加载" }));
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(3));
+
+    await user.click(within(dialog).getByRole("button", { name: /取\s*消/ }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await user.click(screen.getByRole("button", { name: "管理专家" }));
+    dialog = await screen.findByRole("dialog");
+
+    await act(async () => {
+      pendingReload.resolve({
+        revision: 5,
+        items: [
+          {
+            agent_id: "a3",
+            name: "其他管理员的专家",
+            description: null,
+            status: "available",
+          },
+        ],
+      });
+      await pendingReload.promise;
+    });
+    expect(within(selectedList()).getByText("研究员")).toBeInTheDocument();
+    expect(within(dialog).queryByText("专家不可用")).toBeNull();
+  });
+
+  it("blocks confirm while a server-listed unavailable expert stays selected", async () => {
+    const user = userEvent.setup();
+    list.mockResolvedValue({
+      revision: 4,
+      items: [
+        a1,
+        {
+          agent_id: "gone",
+          name: null,
+          description: null,
+          status: "unavailable",
+        },
+      ],
+    });
+    set.mockResolvedValue({ revision: 5, items: [a1] });
+    renderPanel("owner");
+
+    await screen.findByText("研究员");
+    await user.click(screen.getByRole("button", { name: "管理专家" }));
+    const dialog = await screen.findByRole("dialog");
+
+    // It stays visible as a generic placeholder and removable — never dropped.
+    expect(within(selectedList()).getByText("专家不可用")).toBeInTheDocument();
+    expect(within(dialog).getByText(/请先移除/)).toBeInTheDocument();
+    const confirm = within(dialog).getByRole("button", { name: /确\s*定/ });
+    expect(confirm).toBeDisabled();
+    await user.click(confirm);
+    expect(set).not.toHaveBeenCalled();
+
+    await user.click(
+      within(dialog).getByRole("button", { name: "移除 专家不可用" }),
+    );
+    await waitFor(() =>
+      expect(within(dialog).queryByText(/请先移除/)).toBeNull(),
+    );
+    await user.click(within(dialog).getByRole("button", { name: /确\s*定/ }));
+    expect(set).toHaveBeenCalledWith("p1", 4, ["a1"]);
   });
 
   it("disables cancel and never submits twice while saving", async () => {

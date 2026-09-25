@@ -13,9 +13,15 @@
  * Cancel discards the draft. Confirm sends one PUT with the revision the
  * dialog opened with; a 409 (`PROJECT_EXPERTS_CHANGED`) keeps the draft
  * visible, reloads the server revision/list and asks for confirmation again
- * instead of silently overwriting either side. Saving disables cancel, the
- * mask and the close button and can never be submitted twice. The list is a
- * candidate gate for new project tasks only — it is not an Agent grant and
+ * instead of silently overwriting either side. A still-valid locally added
+ * expert keeps its candidate label across that refresh because it was
+ * explicitly added in this dialog; redacted/stopped/team Agents never do. If
+ * the conflict refresh itself fails, the dialog says so and blocks Confirm
+ * until an explicit reload succeeds. A server-listed unavailable expert stays
+ * visible as a generic placeholder and removable, but blocks Confirm while
+ * selected so the user must remove it before saving. Saving disables cancel,
+ * the mask and the close button and can never be submitted twice. The list is
+ * a candidate gate for new project tasks only — it is not an Agent grant and
  * never exposes private Agent resources.
  */
 
@@ -87,6 +93,9 @@ export default function ProjectExperts({ projectId, role }: Props) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<unknown>(null);
   const [conflict, setConflict] = useState(false);
+  /** The post-409 refresh failed: Confirm stays disabled until a reload works. */
+  const [refreshFailed, setRefreshFailed] = useState(false);
+  const [reloading, setReloading] = useState(false);
 
   const loadSeq = useRef(0);
   const saveSeq = useRef(0);
@@ -131,6 +140,8 @@ export default function ProjectExperts({ projectId, role }: Props) {
     setSearch("");
     setSaveError(null);
     setConflict(false);
+    setRefreshFailed(false);
+    setReloading(false);
   }, [projectId]);
 
   const loaded = loadedProjectId === projectId;
@@ -205,23 +216,40 @@ export default function ProjectExperts({ projectId, role }: Props) {
     [agents, draft, items, localDraftIds, t],
   );
 
+  /** A server-listed unavailable expert must be removed before the PUT. */
+  const hasUnavailableSelected = useMemo(
+    () =>
+      draft.some(
+        (agentId) =>
+          items.find((item) => item.agent_id === agentId)?.status ===
+          "unavailable",
+      ),
+    [draft, items],
+  );
+
   const openManage = () => {
     setDraft(items.map((item) => item.agent_id));
     setLocalDraftIds(new Set());
     setSearch("");
     setSaveError(null);
     setConflict(false);
+    setRefreshFailed(false);
     setManageOpen(true);
   };
 
   const closeManage = () => {
     if (savingRef.current) return;
+    // A manual conflict reload may still be pending. Its response must not
+    // replace the list/revision of a later dialog opened for this project.
+    saveSeq.current++;
     setManageOpen(false);
     setDraft([]);
     setLocalDraftIds(new Set());
     setSearch("");
     setSaveError(null);
     setConflict(false);
+    setRefreshFailed(false);
+    setReloading(false);
   };
 
   const addDraft = (agentId: string) => {
@@ -259,12 +287,13 @@ export default function ProjectExperts({ projectId, role }: Props) {
   };
 
   const confirm = async () => {
-    if (savingRef.current) return;
+    if (savingRef.current || refreshFailed || hasUnavailableSelected) return;
     savingRef.current = true;
     const seq = ++saveSeq.current;
     setSaving(true);
     setSaveError(null);
     setConflict(false);
+    setRefreshFailed(false);
     try {
       const response = await projectExpertsApi.set(projectId, revision, draft);
       if (seq !== saveSeq.current) return;
@@ -275,6 +304,7 @@ export default function ProjectExperts({ projectId, role }: Props) {
       setDraft([]);
       setLocalDraftIds(new Set());
       setSearch("");
+      setRefreshFailed(false);
     } catch (err) {
       if (seq !== saveSeq.current) return;
       setSaveError(err);
@@ -286,9 +316,13 @@ export default function ProjectExperts({ projectId, role }: Props) {
           setItems(fresh.items);
           setRevision(fresh.revision);
           setLoadedProjectId(projectId);
-          setLocalDraftIds(new Set());
+          // A locally added expert was explicitly chosen in this dialog, so
+          // keep its candidate label when it is still shared/running/single;
+          // draftEntries still redacts server rows and invalid Agents.
         } catch {
-          /* Keep the old revision; the next confirm surfaces the conflict. */
+          if (seq !== saveSeq.current) return;
+          // Never claim the list was refreshed: block Confirm until reload.
+          setRefreshFailed(true);
         }
       }
     } finally {
@@ -296,6 +330,28 @@ export default function ProjectExperts({ projectId, role }: Props) {
         savingRef.current = false;
         setSaving(false);
       }
+    }
+  };
+
+  /** Explicit retry after a failed post-409 refresh; unlocks Confirm on success. */
+  const reloadAfterConflict = async () => {
+    if (savingRef.current || reloading) return;
+    const seq = ++saveSeq.current;
+    setReloading(true);
+    try {
+      const fresh = await projectExpertsApi.list(projectId);
+      if (seq !== saveSeq.current) return;
+      setItems(fresh.items);
+      setRevision(fresh.revision);
+      setLoadedProjectId(projectId);
+      setRefreshFailed(false);
+      setSaveError(null);
+    } catch (err) {
+      if (seq !== saveSeq.current) return;
+      setSaveError(err);
+      setRefreshFailed(true);
+    } finally {
+      if (seq === saveSeq.current) setReloading(false);
     }
   };
 
@@ -421,7 +477,9 @@ export default function ProjectExperts({ projectId, role }: Props) {
               key="confirm"
               type="primary"
               loading={saving}
-              disabled={saving}
+              disabled={
+                saving || reloading || refreshFailed || hasUnavailableSelected
+              }
               onClick={() => void confirm()}
             >
               {t("projects.experts.confirm", "确定")}
@@ -589,7 +647,27 @@ export default function ProjectExperts({ projectId, role }: Props) {
             </div>
           </div>
 
-          {conflict && (
+          {refreshFailed ? (
+            <Alert
+              type="error"
+              showIcon
+              style={{ marginTop: 12 }}
+              message={t(
+                "projects.experts.conflictRefreshFailed",
+                "刷新服务端名单失败，你的修改仍保留；请重新加载成功后再保存。",
+              )}
+              action={
+                <Button
+                  size="small"
+                  loading={reloading}
+                  disabled={saving}
+                  onClick={() => void reloadAfterConflict()}
+                >
+                  {t("projects.experts.reload", "重新加载")}
+                </Button>
+              }
+            />
+          ) : conflict ? (
             <Alert
               type="warning"
               showIcon
@@ -599,8 +677,19 @@ export default function ProjectExperts({ projectId, role }: Props) {
                 "配置已被其他管理员修改，已刷新服务端名单；你的修改仍保留，请确认后重试。",
               )}
             />
+          ) : null}
+          {hasUnavailableSelected && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginTop: 12 }}
+              message={t(
+                "projects.experts.unavailableBlocksSave",
+                "已选名单中包含不可用专家，请先移除后再保存。",
+              )}
+            />
           )}
-          {saveError != null && !conflict && (
+          {saveError != null && !conflict && !refreshFailed && (
             <Alert
               type="error"
               showIcon

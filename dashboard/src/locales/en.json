@@ -382,6 +382,9 @@
       "cancel": "Cancel",
       "confirm": "Confirm",
       "conflict": "Another owner or admin changed the list. The server list was refreshed; your changes are kept — review and confirm again.",
+      "conflictRefreshFailed": "Failed to refresh the server list. Your changes are kept; reload successfully before saving.",
+      "reload": "Reload",
+      "unavailableBlocksSave": "The selection includes an unavailable expert. Remove it before saving.",
       "saveFailed": "Failed to save project experts"
     },
     "members": {

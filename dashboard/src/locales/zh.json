@@ -382,6 +382,9 @@
       "cancel": "取消",
       "confirm": "确定",
       "conflict": "配置已被其他管理员修改，已刷新服务端名单；你的修改仍保留，请确认后重试。",
+      "conflictRefreshFailed": "刷新服务端名单失败，你的修改仍保留；请重新加载成功后再保存。",
+      "reload": "重新加载",
+      "unavailableBlocksSave": "已选名单中包含不可用专家，请先移除后再保存。",
       "saveFailed": "保存项目专家失败"
     },
     "members": {

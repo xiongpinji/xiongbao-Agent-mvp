@@ -152,7 +152,7 @@ async def create_project_task(
     hosts, and non-running agents are refused. When the project has a
     nonempty 029 expert list, a missing/stale ``expected_experts_revision``
     answers 409 ``PROJECT_EXPERTS_CHANGED``, and a selected Agent that is no
-    longer listed/shared/enabled answers the uniform recoverable 409
+    longer listed/shared/enabled/running answers the uniform recoverable 409
     ``PROJECT_EXPERT_UNAVAILABLE`` — never an ownership/existence leak. The
     response is the same safe private-task summary as manual attach — never
     the instruction text."""
@@ -166,14 +166,19 @@ async def create_project_task(
     )
     try:
         require_agent_row(body.agent_id, user=user, as_user=None, server=server)
+        require_running_agent(server, body.agent_id)
     except OctopError as exc:
         # With the expert gate on, the list itself already passed membership;
-        # an Agent that vanished or lost its grant between the two reads must
-        # not surface owner/existence details to an authorized member.
-        if experts_gated and exc.code in (ErrorCode.AGENT_NOT_FOUND, ErrorCode.FORBIDDEN):
+        # an Agent that vanished, lost its grant, or stopped between the two
+        # reads must not surface owner/existence/lifecycle details to an
+        # authorized member.
+        if experts_gated and exc.code in (
+            ErrorCode.AGENT_NOT_FOUND,
+            ErrorCode.FORBIDDEN,
+            ErrorCode.AGENT_NOT_RUNNING,
+        ):
             raise expert_unavailable_error() from None
         raise
-    require_running_agent(server, body.agent_id)
     view = service.create_project_task(
         project_id,
         user_id=user.id,

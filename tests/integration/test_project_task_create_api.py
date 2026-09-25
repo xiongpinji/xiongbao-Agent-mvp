@@ -549,6 +549,48 @@ async def test_nonempty_expert_list_requires_matching_revision(
     assert _context_revision(ctx["srv"], payload["thread_id"]) == 1
 
 
+async def test_nonempty_expert_list_maps_stopped_agent_to_unavailable(
+    env_with_provider: Any,
+) -> None:
+    """The final runtime check must not leak AGENT_NOT_RUNNING through the gate.
+
+    ``status='available'`` in the expert list only covers shared/enabled/kind,
+    so a stopped listed expert still reaches ``require_running_agent``. With
+    the gate on that refusal is the same recoverable 409 as an unshared one —
+    only the empty-list 028 path keeps the raw lifecycle code.
+    """
+    ctx = await _base(env_with_provider)
+    srv = ctx["srv"]
+    _share_agent(srv, ctx["agents"]["member"])
+    revision = await _configure_experts(ctx, [ctx["agents"]["member"]])
+    digest = (await _detail(ctx))["instructions_sha256"]
+
+    r = await ctx["client"].post(
+        f"/api/agents/{ctx['agents']['member']}/stop", headers=ctx["auth"]["member"]
+    )
+    assert r.status_code == 204, r.text
+
+    body = {
+        "agent_id": ctx["agents"]["member"],
+        "expected_instructions_sha256": digest,
+        "expected_experts_revision": revision,
+    }
+    r = await _create(ctx, body=body)
+    assert r.status_code == 409, r.text
+    assert r.json()["error"]["code"] == "PROJECT_EXPERT_UNAVAILABLE"
+    assert "AGENT_NOT_RUNNING" not in r.text
+    _assert_no_create_rows(srv, ctx["agents"]["member"], ctx["uids"]["member"])
+
+    # Restarting the expert makes the same confirmed request succeed.
+    r = await ctx["client"].post(
+        f"/api/agents/{ctx['agents']['member']}/start", headers=ctx["auth"]["member"]
+    )
+    assert r.status_code == 204, r.text
+    r = await _create(ctx, body=body)
+    assert r.status_code == 201, r.text
+    assert r.json()["agent_id"] == ctx["agents"]["member"]
+
+
 async def test_empty_expert_list_keeps_028_behavior_and_checks_supplied_revision(
     env_with_provider: Any,
 ) -> None:
