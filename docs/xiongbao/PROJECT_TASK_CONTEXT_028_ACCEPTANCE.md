@@ -1,6 +1,6 @@
 # 028 · 项目内创建私密任务与指令快照验收
 
-状态：实现与本地定向验收已完成；固定提交的 GLM 只读审查、最终 SHA 推送核对及下列未实测项分别记录。本批是 [028 合同](PROJECT_TASK_CREATE_CONTEXT_028_CONTRACT.md) 的 PS-05C/PS-07A 第一片，不核销整条项目空间旅程。
+状态：实现、本地验收与固定提交的 GLM 只读审查已完成。代码提交 `63757a57b2e9038191ea187fa6742ab3a2386ace` 已推送到用户仓库 `main`，远端 SHA 复核一致。本批是 [028 合同](PROJECT_TASK_CREATE_CONTEXT_028_CONTRACT.md) 的 PS-05C/PS-07A 第一片，不核销整条项目空间旅程。
 
 ## 已实现的行为
 
@@ -13,11 +13,11 @@
 
 - Codex 独立运行前端 API 与项目任务/详情组件测试 **70/70**，包括旧摘要、关闭重开、短暂空摘要、专家团过滤、私密摘要、晚到响应与失败重试。目标 ESLint、Prettier、TypeScript 与生产构建通过；Vite 仍有原有动态/静态混合导入及大包警告。
 - 后端创建/API/网关/模型 middleware 的第一轮定向测试 **45/45**；迁移发现、v25 升级、错误码及仓储相邻回归 **42/42**。Codex 另以失败测试发现共享专家撤权后、写事务前的竞态，并在事务内增加当前 Agent ACL/启用状态复核；修复后项目与相邻后端扩大回归 **175/175**。全 `src`/`tests` Ruff check/format、严格 mypy **536 个源文件**与 `git diff --check` 通过。
-- 仓库的 Windows pre-commit 钩子调用 `make precommit`，本机没有 `make`，因此第一次提交尝试在运行检查前停止。Codex 手动执行同类质量项：全后端 Ruff、mypy、全前端 ESLint（0 错误、67 条现存 warning）、改动文件 Prettier、受影响测试与生产构建。全前端 `prettier --check .` 报 **997 个未触及的既有文件**格式差异，本批不对全仓做大规模格式改写；受影响文件均通过。`pytest --testmon` 在本检出无可用影响范围基线，开始选中几乎全仓，故停止串行扫描，改用 4 worker 跑完整非 live 后端测试：**4020 通过、123 跳过、0 失败、9 警告**。提交时会明确使用钩子的跳过开关。
+- 仓库的 Windows pre-commit 钩子调用 `make precommit`，本机没有 `make`，因此第一次提交尝试在运行检查前停止。Codex 手动执行同类质量项：全后端 Ruff、mypy、全前端 ESLint（0 错误、67 条现存 warning）、改动文件 Prettier、受影响测试与生产构建。全前端 `prettier --check .` 报 **997 个未触及的既有文件**格式差异，本批不对全仓做大规模格式改写；受影响文件均通过。`pytest --testmon` 在本检出无可用影响范围基线，开始选中几乎全仓，故停止串行扫描，改用 4 worker 跑完整非 live 后端测试：**4020 通过、123 跳过、0 失败、9 警告**。代码提交明确使用了 `SKIP_PRECOMMIT=1`，由上述手动检查替代钩子。
 - 隔离本地服务使用新建测试 home 与 fake harness，没有调用付费模型。三身份真实 HTTP 走通 owner 建项目、member 加入、outsider 404、旧指令摘要 409 且无任务、新摘要创建、owner/outsider 无法读成员私密卡片、退组后项目任务 404 而本人原对话仍在。另用真实 Chrome 登录测试 member，进入项目“任务”页、预览指令、确认、创建并跳转新对话；新对话保持无首轮消息。
 
 ## 独立审查与未达项
 
-- `qwen-code-review / glm-5.3` 对 028 冻结合同给出有条件 GO；固定实现 SHA 的只读代码审查、P0/P1 修复及推送记录待填。`claude-bailian / qwen3.8-max` 两次实施作业只产生 `unrecognized_model`/thinking 状态，没有可接受代码；后端候选实际由已授权的 `opencode-bailian / deepseek-v4.1-flash` 实现，Codex 独立接线、修复、验证。不得把未交付的 Qwen 作业算作实施完成。
+- `qwen-code-review / glm-5.3` 对 028 冻结合同给出有条件 GO；对代码提交 `63757a57` 的后端/运行时与前端两份只读补丁审查均给出 **GO、无 P0/P1**。审查作业 `qwen-code-review-20260925-032935-194c15`、`qwen-code-review-20260925-032942-999bf8` 未运行测试或读取完整仓库，Codex 独立核对了它们提示的后端/前端 409 国际化键、聊天路由和 PostgreSQL `users.id` 外键。前端审查列出两个非阻断 P3：创建中关闭弹窗可能使已创建任务没有即时提示；关闭后晚到的 409 不会刷新摘要，下一次提交仍由服务端 409 拦截。两项继续跟踪。`claude-bailian / qwen3.8-max` 两次实施作业只产生 `unrecognized_model`/thinking 状态，没有可接受代码；后端候选实际由已授权的 `opencode-bailian / deepseek-v4.1-flash` 实现，Codex 独立接线、修复、验证。不得把未交付的 Qwen 作业算作实施完成。
 - PostgreSQL 实库迁移与并发、安装后的 Windows 桌面、真实模型首轮及后续轮对指令的遵从、HITL 恢复轮、WorkBuddy 逐状态 UI/键盘/窄屏对照均未实测。代码单元测试证明指令组装路径，不代替真实模型或供应商验收。
 - 单专家仍使用原有 Agent 工作空间；项目级隔离目录、团队专家团传递、成员协同写入、移交、本地/云端运行、项目技能/连接器/定时任务、公共团队凭证和聊天页“项目上下文有效”标记未交付。当前 11 条项目空间旅程仍是 **0/11 完整功能与 WorkBuddy 视觉双验收**。
