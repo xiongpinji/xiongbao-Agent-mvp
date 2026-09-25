@@ -459,6 +459,11 @@ describe("ProjectExperts", () => {
     expect(within(selectedList()).queryByText("专家团")).toBeNull();
     expect(within(selectedList()).getByText("仍可用")).toBeInTheDocument();
     expect(within(selectedList()).getAllByText("专家不可用")).toHaveLength(3);
+    expect(within(dialog).getByText(/请先移除/)).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("button", { name: /确\s*定/ }),
+    ).toBeDisabled();
+    expect(set).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the draft open and blocks confirm when the conflict refresh fails", async () => {

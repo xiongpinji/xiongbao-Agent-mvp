@@ -19,9 +19,10 @@
  * the conflict refresh itself fails, the dialog says so and blocks Confirm
  * until an explicit reload succeeds. A server-listed unavailable expert stays
  * visible as a generic placeholder and removable, but blocks Confirm while
- * selected so the user must remove it before saving. Saving disables cancel,
- * the mask and the close button and can never be submitted twice. The list is
- * a candidate gate for new project tasks only — it is not an Agent grant and
+ * selected so the user must remove it before saving. Locally added experts
+ * that become unavailable follow the same rule. Saving disables cancel, the
+ * mask and the close button and can never be submitted twice. The list is a
+ * candidate gate for new project tasks only — it is not an Agent grant and
  * never exposes private Agent resources.
  */
 
@@ -55,6 +56,7 @@ interface DraftEntry {
   agentId: string;
   label: string;
   description: string | null;
+  unavailable: boolean;
 }
 
 const mutedStyle: React.CSSProperties = {
@@ -183,12 +185,14 @@ export default function ProjectExperts({ projectId, role }: Props) {
               agentId,
               label: t("projects.experts.unavailable", "专家不可用"),
               description: null,
+              unavailable: true,
             };
           }
           return {
             agentId,
             label: serverItem.name ?? agentId,
             description: serverItem.description,
+            unavailable: false,
           };
         }
         const local = localDraftIds.has(agentId)
@@ -205,26 +209,22 @@ export default function ProjectExperts({ projectId, role }: Props) {
             agentId,
             label: local.name,
             description: local.description,
+            unavailable: false,
           };
         }
         return {
           agentId,
           label: t("projects.experts.unavailable", "专家不可用"),
           description: null,
+          unavailable: true,
         };
       }),
     [agents, draft, items, localDraftIds, t],
   );
 
-  /** A server-listed unavailable expert must be removed before the PUT. */
-  const hasUnavailableSelected = useMemo(
-    () =>
-      draft.some(
-        (agentId) =>
-          items.find((item) => item.agent_id === agentId)?.status ===
-          "unavailable",
-      ),
-    [draft, items],
+  /** Every unavailable draft row must be removed before the PUT. */
+  const hasUnavailableSelected = draftEntries.some(
+    (entry) => entry.unavailable,
   );
 
   const openManage = () => {
