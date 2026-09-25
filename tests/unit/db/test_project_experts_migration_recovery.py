@@ -19,7 +19,9 @@ def test_project_experts_migration_recovers_before_watermark(tmp_path: Path) -> 
     run_migrations(pool)
 
     with pool.connect() as conn:
-        assert conn.execute("SELECT version FROM _schema_version").fetchone()[0] == 27
+        assert conn.execute("SELECT version FROM _schema_version").fetchone()[
+            0
+        ] == _max_discovered_version("sqlite")
         project_columns = {row["name"] for row in conn.execute("PRAGMA table_info(project_spaces)")}
         context_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(project_task_contexts)")

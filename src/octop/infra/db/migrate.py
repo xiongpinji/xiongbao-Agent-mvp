@@ -1599,6 +1599,45 @@ def _ensure_project_experts_v27(db: DatabasePool) -> None:
         conn.execute("UPDATE _schema_version SET version = 27")
 
 
+def _ensure_project_task_files_v28(db: DatabasePool) -> None:
+    """Apply SQLite v28 atomically, including recovery from a partial replay.
+
+    028 adds CHECK-constrained columns with ``ALTER TABLE``, so a stopped
+    upgrade can leave some artifacts applied while ``_schema_version`` still
+    reads 27; replaying the file blindly would fail on the existing columns.
+    Keep the same schema as 028_project_task_files.sql, but inspect columns
+    first and execute everything inside one explicit transaction, watermark
+    last. Statement order mirrors the file: the ``mode`` CHECK references the
+    two id columns, so ``mode`` must be added after them.
+    """
+    with db.transaction() as conn:
+        agent_columns = {row["name"] for row in conn.execute("PRAGMA table_info(agents)")}
+        if "runtime_kind" not in agent_columns:
+            conn.execute(
+                "ALTER TABLE agents ADD COLUMN runtime_kind TEXT NOT NULL DEFAULT 'standard' "
+                "CHECK (runtime_kind IN ('standard', 'project_task_files'))"
+            )
+        context_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(project_task_contexts)")
+        }
+        if "source_expert_id" not in context_columns:
+            conn.execute("ALTER TABLE project_task_contexts ADD COLUMN source_expert_id TEXT")
+        if "runtime_agent_id" not in context_columns:
+            conn.execute("ALTER TABLE project_task_contexts ADD COLUMN runtime_agent_id TEXT")
+        if "mode" not in context_columns:
+            conn.execute(
+                "ALTER TABLE project_task_contexts ADD COLUMN mode TEXT NOT NULL DEFAULT 'chat' "
+                "CHECK (mode IN ('chat', 'files')) "
+                "CHECK (mode <> 'files' OR (source_expert_id IS NOT NULL "
+                "AND runtime_agent_id IS NOT NULL))"
+            )
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_project_task_contexts_runtime_agent "
+            "ON project_task_contexts(runtime_agent_id) WHERE runtime_agent_id IS NOT NULL"
+        )
+        conn.execute("UPDATE _schema_version SET version = 28")
+
+
 def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
     """Apply one SQLite migration.
 
@@ -1630,6 +1669,8 @@ def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
     Version 16 adds ``agents.kind`` so team hosts can be listed.
     Version 17 adds sticky ``conversation_mode`` and ``pending_plan_path`` on threads.
     Version 27 adds project experts with one atomic, replay-safe transaction.
+    Version 28 adds project-task file runtime columns with one atomic,
+    replay-safe transaction.
     """
     if version == 2:
         if _table_exists(db, "cron_jobs"):
@@ -1747,6 +1788,9 @@ def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
         return
     if version == 27:
         _ensure_project_experts_v27(db)
+        return
+    if version == 28:
+        _ensure_project_task_files_v28(db)
         return
     sql = path.read_text(encoding="utf-8")
     with db.connect() as conn:

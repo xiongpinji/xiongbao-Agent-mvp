@@ -3,9 +3,62 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any, Literal
 
 from octop.infra.db.pool import DatabasePool
 from octop.infra.db.repos._base import UNSET, DbRow, bool_int, map_rows, now_ts, optional_updates
+
+RUNTIME_KIND_STANDARD = "standard"
+RUNTIME_KIND_PROJECT_TASK_FILES = "project_task_files"
+_VALID_RUNTIME_KINDS = frozenset({RUNTIME_KIND_STANDARD, RUNTIME_KIND_PROJECT_TASK_FILES})
+
+# 030A B1 fixed quota for internal project-task file runtimes: at most 8
+# registered runtime rows per owner and 64 per instance. Disabled or detached
+# runtimes still count as registered until cleanup deletes them. The limits
+# are contract-fixed and never configurable.
+PROJECT_TASK_FILES_OWNER_LIMIT = 8
+PROJECT_TASK_FILES_GLOBAL_LIMIT = 64
+
+# Single fixed PostgreSQL transaction-level advisory lock serializing runtime
+# registration across server processes. The quota transaction acquires this
+# lock first and takes no other lock, so no lock-order inversion with other
+# flows is possible; it is released automatically at commit/rollback. SQLite
+# needs no key: BEGIN IMMEDIATE already serializes writers.
+_PG_RUNTIME_QUOTA_LOCK_KEY = 828_030
+
+
+class ProjectTaskFilesQuotaError(RuntimeError):
+    """Internal runtime registration refused at a fixed quota boundary.
+
+    ``scope`` names the limit that was hit (``"owner"`` or ``"global"``);
+    ``limit`` is the fixed threshold and ``current`` the number of registered
+    internal runtime rows counted inside the serialized transaction. Services
+    map this to the 030A ``PROJECT_TASK_FILES_QUOTA`` API error; the repo
+    layer itself stays SQL-only.
+    """
+
+    def __init__(self, scope: Literal["owner", "global"], *, limit: int, current: int) -> None:
+        super().__init__(
+            f"project_task_files runtime quota reached (scope={scope}: {current}/{limit})"
+        )
+        self.scope = scope
+        self.limit = limit
+        self.current = current
+
+
+def _count_project_task_runtimes(conn: Any, *, user_id: int | None = None) -> int:
+    """Count registered ``project_task_files`` rows, optionally for one owner.
+
+    The count is driven by the database-trusted ``runtime_kind`` column;
+    ``config_json`` contents can never influence it.
+    """
+    sql = "SELECT COUNT(*) AS n FROM agents WHERE runtime_kind = 'project_task_files'"
+    params: tuple[object, ...] = ()
+    if user_id is not None:
+        sql += " AND user_id = ?"
+        params = (user_id,)
+    row = conn.execute(sql, params).fetchone()
+    return 0 if row is None else int(row["n"])
 
 
 def _opt_str(r: DbRow, key: str) -> str | None:
@@ -47,6 +100,7 @@ class AgentRow:
     knowledge_base_ids: str | None = None
     mcp_servers: str | None = None
     kind: str = "expert"
+    runtime_kind: str = RUNTIME_KIND_STANDARD
 
     @classmethod
     def from_row(cls, r: DbRow) -> AgentRow:
@@ -61,6 +115,13 @@ class AgentRow:
         kind = str(kind_raw).strip() if kind_raw else "expert"
         if kind not in {"expert", "team"}:
             kind = "expert"
+        try:
+            runtime_kind_raw = r["runtime_kind"]
+        except (KeyError, IndexError):
+            runtime_kind_raw = None
+        runtime_kind = str(runtime_kind_raw).strip() if runtime_kind_raw else RUNTIME_KIND_STANDARD
+        if runtime_kind not in _VALID_RUNTIME_KINDS:
+            runtime_kind = RUNTIME_KIND_STANDARD
         return cls(
             id=r["id"],
             agent_id=r["agent_id"],
@@ -88,6 +149,7 @@ class AgentRow:
             knowledge_base_ids=_opt_str(r, "knowledge_base_ids"),
             mcp_servers=_opt_str(r, "mcp_servers"),
             kind=kind,
+            runtime_kind=runtime_kind,
         )
 
 
@@ -148,6 +210,72 @@ class AgentRepo:
                     knowledge_base_ids,
                     mcp_servers,
                     agent_kind,
+                    ts,
+                    ts,
+                ),
+            )
+        return agent_id
+
+    def create_project_task_runtime_with_quota(
+        self,
+        *,
+        user_id: int,
+        agent_id: str,
+        name: str,
+        default_model: str | None = None,
+        system_prompt: str | None = None,
+        icon_name: str | None = None,
+        color: str | None = None,
+    ) -> str:
+        """Register one internal ``project_task_files`` runtime Agent (030A B1).
+
+        The only insertion path allowed to write ``runtime_kind =
+        'project_task_files'``; the public :meth:`create` and
+        :meth:`update_config` never touch the column. Everything happens in
+        ONE write transaction that serializes concurrent registrations —
+        SQLite ``BEGIN IMMEDIATE``, PostgreSQL a fixed transaction-level
+        advisory lock acquired before any count — then counts the owner's
+        registered internal rows, counts the instance-wide internal rows,
+        and inserts exactly one row. Fixed limits:
+        ``PROJECT_TASK_FILES_OWNER_LIMIT`` per owner and
+        ``PROJECT_TASK_FILES_GLOBAL_LIMIT`` per instance.
+
+        On refusal raises :class:`ProjectTaskFilesQuotaError` carrying the
+        hit scope; on SQL failure (e.g. duplicate ``agent_id`` or duplicate
+        per-user ``name``) the driver exception propagates. Either way the
+        transaction rolls back and no partial row is left behind. ``user_id``
+        must be non-null because every internal runtime is owner-scoped, and
+        ``name`` is expected to be a random non-colliding display name that
+        carries no project id or task title.
+        """
+        if user_id is None:
+            raise ValueError("project-task runtime requires an owner")
+        ts = now_ts()
+        with self._db.transaction() as conn:
+            if self._db.dialect == "postgresql":
+                conn.execute("SELECT pg_advisory_xact_lock(?)", (_PG_RUNTIME_QUOTA_LOCK_KEY,))
+            owner_count = _count_project_task_runtimes(conn, user_id=user_id)
+            if owner_count >= PROJECT_TASK_FILES_OWNER_LIMIT:
+                raise ProjectTaskFilesQuotaError(
+                    "owner", limit=PROJECT_TASK_FILES_OWNER_LIMIT, current=owner_count
+                )
+            global_count = _count_project_task_runtimes(conn)
+            if global_count >= PROJECT_TASK_FILES_GLOBAL_LIMIT:
+                raise ProjectTaskFilesQuotaError(
+                    "global", limit=PROJECT_TASK_FILES_GLOBAL_LIMIT, current=global_count
+                )
+            conn.execute(
+                "INSERT INTO agents(agent_id, user_id, name, default_model, system_prompt, "
+                "icon_name, color, runtime_kind, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, 'project_task_files', ?, ?)",
+                (
+                    agent_id,
+                    user_id,
+                    name,
+                    default_model,
+                    system_prompt,
+                    icon_name,
+                    color,
                     ts,
                     ts,
                 ),
