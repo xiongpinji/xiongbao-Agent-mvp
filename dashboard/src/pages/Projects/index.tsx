@@ -1,24 +1,30 @@
 /**
  * Projects home — 项目 (human project space).
  *
- * A compact branded hero introduces the space, then "我的项目" lists
- * server-side search + paging results from `GET /projects`, followed by the
- * five template entries. All rows come from the API — no fake project arrays,
- * and template clicks only prefill the create form. Invitation links require
- * an explicit user click. `teamsApi` (expert Agent teams) is unrelated.
+ * A compact branded hero (the page h1) introduces the space, then "我的项目"
+ * lists server-side search + paging results from `GET /projects`, followed by
+ * the five template entries. The home owns its full-height scroll region
+ * instead of nesting inside PageShell's content card, so the template entries
+ * stay reachable in a short window. All rows come from the API — no fake
+ * project arrays, and template clicks only prefill the create form.
+ * Invitation links require an explicit user click. `teamsApi` (expert Agent
+ * teams) is unrelated.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Alert, Button, Card, Input, Spin, Tag, Tooltip } from "antd";
-import { Plus, RefreshCw, Users } from "lucide-react";
-import PageShell from "../../layouts/PageShell";
+import { Plus, RefreshCw } from "lucide-react";
 import { EmptyState } from "../../components/EmptyState";
 import { OCTOP_EMPTY_MASCOT_SRC } from "../../assets/mascot";
 import { useServerTimezone } from "../../hooks/useServerTimezone";
 import { formatServerDateTime } from "../../utils/formatMessageTime";
 import { apiErrorMessage, parseApiError } from "../../utils/apiError";
+import {
+  DESKTOP_DRAG_REGION_CLASS,
+  DESKTOP_NO_DRAG_CLASS,
+} from "../../utils/desktopChrome";
 import {
   PROJECTS_PAGE_SIZE,
   projectsApi,
@@ -229,7 +235,7 @@ export default function ProjectsPage() {
                   hoverable
                   size="small"
                   className={styles.projectCard}
-                  styles={{ body: { padding: 14 } }}
+                  styles={{ body: { padding: "14px 16px" } }}
                 >
                   <div className={styles.projectCardHeader}>
                     <span className={styles.projectName}>{project.name}</span>
@@ -237,17 +243,8 @@ export default function ProjectsPage() {
                       {t(role.labelKey, role.fallback)}
                     </Tag>
                   </div>
-                  <div className={styles.projectDescription}>
-                    {project.description || ""}
-                  </div>
                   <div className={styles.projectMeta}>
-                    <span className={styles.projectMembers}>
-                      <Users size={12} />
-                      {t("projects.memberCount", "{{total}} 名成员", {
-                        total: project.member_count,
-                      })}
-                    </span>
-                    <span>
+                    <span className={styles.projectUpdated}>
                       {t("projects.updatedAt", "更新于 {{time}}", {
                         time: formatServerDateTime(
                           project.updated_at,
@@ -276,136 +273,154 @@ export default function ProjectsPage() {
   }
 
   return (
-    <PageShell
-      title={t("pageShell.projects.title", "项目")}
-      actions={refreshButton}
-    >
-      <div className={styles.hero}>
-        <div className={styles.heroBody}>
-          <p className={styles.heroIntro}>
-            {t(
-              "pageShell.projects.subtitle",
-              "人的长期协作空间：成员、计划、任务与资产按项目沉淀。",
-            )}
-          </p>
-          <Button type="primary" icon={<Plus size={14} />} onClick={openCreate}>
-            {t("projects.newProject", "新建项目")}
-          </Button>
-        </div>
-        <img
-          className={styles.heroArt}
-          src={OCTOP_EMPTY_MASCOT_SRC}
-          alt=""
-          draggable={false}
-        />
-      </div>
-
-      {inviteToken && (
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message={t("projects.join.title", "收到项目邀请")}
-          description={t(
-            "projects.join.hint",
-            "加入后才能查看项目内容；需要审批的邀请会先提交申请。",
-          )}
-          action={
-            <div style={{ display: "flex", gap: 8 }}>
+    <>
+      <div className={`${DESKTOP_DRAG_REGION_CLASS} ${styles.shell}`}>
+        <div className={`${DESKTOP_NO_DRAG_CLASS} ${styles.scroll}`}>
+          <section
+            className={styles.hero}
+            aria-labelledby="projects-home-title"
+          >
+            <div className={styles.heroBody}>
+              <h1 id="projects-home-title" className={styles.heroTitle}>
+                {t("pageShell.projects.title", "项目")}
+              </h1>
+              <p className={styles.heroIntro}>
+                {t(
+                  "pageShell.projects.subtitle",
+                  "人的长期协作空间：成员、计划、任务与资产按项目沉淀。",
+                )}
+              </p>
+            </div>
+            <div className={styles.heroActions}>
+              {refreshButton}
               <Button
-                loading={inviteBusy}
                 type="primary"
-                onClick={() => void acceptInvite()}
+                icon={<Plus size={14} />}
+                onClick={openCreate}
               >
-                {t("projects.join.accept", "接受邀请")}
-              </Button>
-              <Button
-                disabled={inviteBusy}
-                onClick={() => {
-                  setInviteError(null);
-                  navigate("/projects", { replace: true });
-                }}
-              >
-                {t("projects.join.cancel", "取消")}
+                {t("projects.newProject", "新建项目")}
               </Button>
             </div>
-          }
-        />
-      )}
-      {inviteError != null && (
-        <Alert
-          type="error"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message={apiErrorMessage(
-            inviteError,
-            t("projects.join.failed", "加入项目失败"),
-            t,
-          )}
-        />
-      )}
-      {invitePending && !inviteToken && (
-        <Alert
-          type="success"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message={t(
-            "projects.join.pending",
-            "加入申请已提交，等待项目管理员审批。",
-          )}
-        />
-      )}
+            <img
+              className={styles.heroArt}
+              src={OCTOP_EMPTY_MASCOT_SRC}
+              alt=""
+              draggable={false}
+            />
+          </section>
 
-      <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>
-          {t("projects.myProjects", "我的项目")}
-        </h2>
-        <Input.Search
-          className={styles.search}
-          allowClear
-          placeholder={t("projects.searchPlaceholder", "搜索项目名称")}
-          onSearch={(value) => setQuery(value)}
-          enterButton
-        />
-      </div>
-      {content}
+          {inviteToken && (
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message={t("projects.join.title", "收到项目邀请")}
+              description={t(
+                "projects.join.hint",
+                "加入后才能查看项目内容；需要审批的邀请会先提交申请。",
+              )}
+              action={
+                <div style={{ display: "flex", gap: 8 }}>
+                  <Button
+                    loading={inviteBusy}
+                    type="primary"
+                    onClick={() => void acceptInvite()}
+                  >
+                    {t("projects.join.accept", "接受邀请")}
+                  </Button>
+                  <Button
+                    disabled={inviteBusy}
+                    onClick={() => {
+                      setInviteError(null);
+                      navigate("/projects", { replace: true });
+                    }}
+                  >
+                    {t("projects.join.cancel", "取消")}
+                  </Button>
+                </div>
+              }
+            />
+          )}
+          {inviteError != null && (
+            <Alert
+              type="error"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message={apiErrorMessage(
+                inviteError,
+                t("projects.join.failed", "加入项目失败"),
+                t,
+              )}
+            />
+          )}
+          {invitePending && !inviteToken && (
+            <Alert
+              type="success"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message={t(
+                "projects.join.pending",
+                "加入申请已提交，等待项目管理员审批。",
+              )}
+            />
+          )}
 
-      <section
-        className={styles.templateSection}
-        aria-labelledby="project-templates-heading"
-      >
-        <h2
-          id="project-templates-heading"
-          className={`${styles.sectionTitle} ${styles.templateHeading}`}
-        >
-          {t("projects.create.templatesTitle", "从模板开始")}
-        </h2>
-        <div className={styles.templateGrid}>
-          {TEMPLATES.map((tpl) => {
-            const name = t(`projects.templates.${tpl.id}.name`, tpl.name);
-            const description = t(
-              `projects.templates.${tpl.id}.description`,
-              tpl.description,
-            );
-            return (
-              <button
-                key={tpl.id}
-                type="button"
-                className={styles.templateCard}
-                onClick={() => openCreateFromTemplate(tpl.id)}
-                aria-label={t("projects.useTemplate", "使用模板：{{name}}", {
-                  name,
-                })}
-              >
-                <span className={styles.templateName}>{name}</span>
-                <span className={styles.templateDescription}>
-                  {description}
-                </span>
-              </button>
-            );
-          })}
+          <div className={styles.sectionHeader}>
+            <h2 className={styles.sectionTitle}>
+              {t("projects.myProjects", "我的项目")}
+            </h2>
+            <Input.Search
+              className={styles.search}
+              allowClear
+              placeholder={t("projects.searchPlaceholder", "搜索项目名称")}
+              onSearch={(value) => setQuery(value)}
+              enterButton
+            />
+          </div>
+          {content}
+
+          <section
+            className={styles.templateSection}
+            aria-labelledby="project-templates-heading"
+          >
+            <h2
+              id="project-templates-heading"
+              className={`${styles.sectionTitle} ${styles.templateHeading}`}
+            >
+              {t("projects.create.templatesTitle", "从模板开始")}
+            </h2>
+            <div className={styles.templateGrid}>
+              {TEMPLATES.map((tpl) => {
+                const name = t(`projects.templates.${tpl.id}.name`, tpl.name);
+                const description = t(
+                  `projects.templates.${tpl.id}.description`,
+                  tpl.description,
+                );
+                return (
+                  <button
+                    key={tpl.id}
+                    type="button"
+                    className={styles.templateCard}
+                    onClick={() => openCreateFromTemplate(tpl.id)}
+                    aria-label={t(
+                      "projects.useTemplate",
+                      "使用模板：{{name}}",
+                      {
+                        name,
+                      },
+                    )}
+                  >
+                    <span className={styles.templateName}>{name}</span>
+                    <span className={styles.templateDescription}>
+                      {description}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
         </div>
-      </section>
+      </div>
 
       <CreateProjectModal
         open={createOpen}
@@ -416,6 +431,6 @@ export default function ProjectsPage() {
           navigate(`/projects/${encodeURIComponent(project.project_id)}`);
         }}
       />
-    </PageShell>
+    </>
   );
 }

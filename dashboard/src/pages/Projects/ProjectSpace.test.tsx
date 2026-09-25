@@ -24,23 +24,6 @@ vi.mock("../../hooks/useIsMobile", () => ({ useIsMobile: () => false }));
 vi.mock("../../hooks/useServerTimezone", () => ({
   useServerTimezone: () => "UTC",
 }));
-vi.mock("../../layouts/PageShell", () => ({
-  default: ({
-    title,
-    actions,
-    children,
-  }: {
-    title: string;
-    actions?: ReactNode;
-    children: ReactNode;
-  }) => (
-    <main>
-      <h1>{title}</h1>
-      {actions}
-      {children}
-    </main>
-  ),
-}));
 vi.mock("../../components/EmptyState", () => ({
   EmptyState: ({
     title,
@@ -528,5 +511,59 @@ describe("project-space pages against the real API response shapes", () => {
     await user.click(keepDraft);
     expect(name).toHaveValue("自定义项目");
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it("frames the home introduction as one labelled region with a single h1", async () => {
+    list.mockResolvedValue({
+      items: [],
+      limit: 20,
+      offset: 0,
+      has_more: false,
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/projects"]}>
+        <ProjectsPage />
+      </MemoryRouter>,
+    );
+
+    const intro = await screen.findByRole("region", { name: "项目" });
+    expect(within(intro).getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(
+      within(intro).getByText(
+        "人的长期协作空间：成员、计划、任务与资产按项目沉淀。",
+      ),
+    ).toBeInTheDocument();
+    expect(within(intro).getByRole("button", { name: "刷新" })).toBeEnabled();
+    expect(
+      within(intro).getByRole("button", { name: /新建项目/ }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+  });
+
+  it("shows compact cards with only server-derived summary fields", async () => {
+    list.mockResolvedValue({
+      items: [summary],
+      limit: 20,
+      offset: 0,
+      has_more: false,
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/projects"]}>
+        <ProjectsPage />
+      </MemoryRouter>,
+    );
+
+    const link = await screen.findByRole("link", {
+      name: "打开项目：熊宝项目",
+    });
+    expect(link).toHaveAttribute("href", "/projects/project-1");
+    expect(within(link).getByText("熊宝项目")).toBeInTheDocument();
+    expect(within(link).getByText("所有者")).toBeInTheDocument();
+    expect(within(link).getByText(/更新于.*2023/)).toBeInTheDocument();
+    expect(within(link).queryByText("真实项目描述")).toBeNull();
+    expect(within(link).queryByText(/名成员/)).toBeNull();
+    expect(within(link).queryByRole("button")).toBeNull();
   });
 });
