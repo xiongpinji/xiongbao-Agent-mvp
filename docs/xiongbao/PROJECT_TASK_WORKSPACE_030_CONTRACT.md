@@ -31,7 +31,7 @@
 ## 删除、解绑与恢复
 
 - 现有 `DELETE /api/projects/{id}/tasks/{thread_id}` 对 `chat`/`files` 都是**解绑**，不删除本人对话、文件或 runtime；项目成员移除、项目删除也只让指令快照/项目关联失效，私人文件任务仍可经本人会话列表打开。`runtime_kind` 与 `threads.agent_id` 独立保存，不能以 context/link 消失判断“孤儿”。解绑后不再注入项目指令，不能因此继续访问项目资产。
-- 本人对唯一 runtime 线程执行“删除整任务”时先停止运行、删 checkpoint，再安全删除工作区和 Agent/线程元数据；任何步骤失败返回错误且留下可重试记录，不得在文件删除失败后误报成功并仅删除数据库行。旧普通线程删除保持旧行为。针对 runtime 的通用 `DELETE /agents/{id}/threads/{thread_id}` 必须转入该完整清理流程或明确拒绝并给对应专用路由；通用 Agent 删除（HTTP `DELETE /api/agents/{id}` 与 CLI `delete_agent_offline`）必须拒绝内部 runtime，**专用整任务删除是唯一删除入口**。前端删除按钮走相同路径。重复删除在首次完成后统一 404；启动扫描只回收无 thread 引用的未完成创建，不清理仍可恢复的个人任务。
+- 本人对唯一 runtime 线程执行“删除整任务”时走独立于项目关联的 `DELETE /api/project-task-files/{thread_id}`，先停止运行、删 checkpoint，再安全删除工作区和 Agent/线程元数据；任何步骤失败返回错误且留下可重试记录，不得在文件删除失败后误报成功并仅删除数据库行。独立路径保证项目解绑后仍可删除本人私有任务；项目成员身份不是删除授权。旧普通线程删除保持旧行为。针对 runtime 的通用 `DELETE /agents/{id}/threads/{thread_id}` 必须转入该完整清理流程或明确拒绝并给对应专用路由；通用 Agent 删除（HTTP `DELETE /api/agents/{id}` 与 CLI `delete_agent_offline`）必须拒绝内部 runtime，**专用整任务删除是唯一删除入口**。前端删除按钮走相同路径。重复删除在首次完成后统一 404；启动扫描只回收无 thread 引用的未完成创建，不清理仍可恢复的个人任务。
 
 ## 并行所有权与验收
 
