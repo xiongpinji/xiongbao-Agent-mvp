@@ -463,3 +463,289 @@ async def test_create_body_is_strictly_validated(env_with_provider: Any) -> None
     )
     assert r.status_code == 422, r.text
     _assert_no_create_rows(ctx["srv"], ctx["agents"]["member"], ctx["uids"]["member"])
+
+
+# ---------------------------------------------------------------------------
+# 029 expert gate on create
+# ---------------------------------------------------------------------------
+
+
+def _share_agent(srv: Any, agent_id: str, value: int = 1) -> None:
+    with srv.services.db.transaction() as conn:
+        conn.execute("UPDATE agents SET is_shared = ? WHERE agent_id = ?", (value, agent_id))
+
+
+def _set_agent(srv: Any, agent_id: str, column: str, value: object) -> None:
+    with srv.services.db.transaction() as conn:
+        conn.execute(f"UPDATE agents SET {column} = ? WHERE agent_id = ?", (value, agent_id))
+
+
+def _delete_agent(srv: Any, agent_id: str) -> None:
+    with srv.services.db.transaction() as conn:
+        conn.execute("DELETE FROM agents WHERE agent_id = ?", (agent_id,))
+
+
+async def _configure_experts(
+    ctx: dict[str, Any],
+    agent_ids: list[str],
+    *,
+    expected_revision: int = 0,
+    role: str = "owner",
+) -> int:
+    r = await ctx["client"].put(
+        f"/api/projects/{ctx['pid']}/experts",
+        headers=ctx["auth"][role],
+        json={"expected_revision": expected_revision, "agent_ids": agent_ids},
+    )
+    assert r.status_code == 200, r.text
+    return int(r.json()["revision"])
+
+
+def _context_revision(srv: Any, thread_id: str) -> int | None:
+    with srv.services.db.connect() as conn:
+        row = conn.execute(
+            "SELECT expert_selection_revision FROM project_task_contexts WHERE thread_id = ?",
+            (thread_id,),
+        ).fetchone()
+    return None if row is None else int(row["expert_selection_revision"])
+
+
+async def test_nonempty_expert_list_requires_matching_revision(
+    env_with_provider: Any,
+) -> None:
+    ctx = await _base(env_with_provider)
+    _share_agent(ctx["srv"], ctx["agents"]["member"])
+    revision = await _configure_experts(ctx, [ctx["agents"]["member"]])
+    assert revision == 1
+
+    for body in (
+        {
+            "agent_id": ctx["agents"]["member"],
+            "expected_instructions_sha256": instructions_sha256(INSTRUCTIONS),
+        },
+        {
+            "agent_id": ctx["agents"]["member"],
+            "expected_instructions_sha256": instructions_sha256(INSTRUCTIONS),
+            "expected_experts_revision": 0,
+        },
+    ):
+        r = await _create(ctx, body=body)
+        assert r.status_code == 409, r.text
+        assert r.json()["error"]["code"] == "PROJECT_EXPERTS_CHANGED"
+    _assert_no_create_rows(ctx["srv"], ctx["agents"]["member"], ctx["uids"]["member"])
+
+    r = await _create(
+        ctx,
+        body={
+            "agent_id": ctx["agents"]["member"],
+            "expected_instructions_sha256": instructions_sha256(INSTRUCTIONS),
+            "expected_experts_revision": revision,
+        },
+    )
+    assert r.status_code == 201, r.text
+    payload = r.json()
+    assert set(payload) == _SUMMARY_KEYS
+    assert payload["agent_id"] == ctx["agents"]["member"]
+    assert _context_revision(ctx["srv"], payload["thread_id"]) == 1
+
+
+async def test_empty_expert_list_keeps_028_behavior_and_checks_supplied_revision(
+    env_with_provider: Any,
+) -> None:
+    ctx = await _base(env_with_provider)
+    digest = (await _detail(ctx))["instructions_sha256"]
+
+    r = await _create(ctx, digest=digest)
+    assert r.status_code == 201, r.text
+    assert _context_revision(ctx["srv"], r.json()["thread_id"]) == 0
+
+    r = await _create(
+        ctx,
+        body={
+            "agent_id": ctx["agents"]["member"],
+            "expected_instructions_sha256": digest,
+            "expected_experts_revision": 0,
+        },
+    )
+    assert r.status_code == 201, r.text
+    assert _context_revision(ctx["srv"], r.json()["thread_id"]) == 0
+
+    r = await _create(
+        ctx,
+        body={
+            "agent_id": ctx["agents"]["member"],
+            "expected_instructions_sha256": digest,
+            "expected_experts_revision": 5,
+        },
+    )
+    assert r.status_code == 409, r.text
+    assert r.json()["error"]["code"] == "PROJECT_EXPERTS_CHANGED"
+    assert _count(ctx["srv"], "threads", "user_id = ?", (ctx["uids"]["member"],)) == 2
+
+
+async def test_expert_gate_rejects_unshared_disabled_and_outside_agents(
+    env_with_provider: Any,
+) -> None:
+    ctx = await _base(env_with_provider)
+    srv = ctx["srv"]
+    _share_agent(srv, ctx["agents"]["member"])
+    _share_agent(srv, ctx["agents"]["owner"])
+    revision = await _configure_experts(ctx, [ctx["agents"]["owner"], ctx["agents"]["member"]])
+
+    digest = (await _detail(ctx))["instructions_sha256"]
+    body = {
+        "agent_id": ctx["agents"]["member"],
+        "expected_instructions_sha256": digest,
+        "expected_experts_revision": revision,
+    }
+
+    # The member's agent is no longer shared even though the list still names it.
+    _share_agent(srv, ctx["agents"]["member"], 0)
+    r = await _create(ctx, body=body)
+    assert r.status_code == 409, r.text
+    assert r.json()["error"]["code"] == "PROJECT_EXPERT_UNAVAILABLE"
+    assert "pe-" not in r.text
+    _assert_no_create_rows(srv, ctx["agents"]["member"], ctx["uids"]["member"])
+
+    _share_agent(srv, ctx["agents"]["member"])
+    _set_agent(srv, ctx["agents"]["member"], "enabled", 0)
+    r = await _create(ctx, body=body)
+    assert r.status_code == 409, r.text
+    assert r.json()["error"]["code"] == "PROJECT_EXPERT_UNAVAILABLE"
+
+    _set_agent(srv, ctx["agents"]["member"], "enabled", 1)
+    # An accessible but unlisted agent is refused uniformly (member2 owns it).
+    r = await _create(
+        ctx,
+        role="member",
+        body={**body, "agent_id": ctx["agents"]["member2"]},
+    )
+    assert r.status_code == 409, r.text
+    assert r.json()["error"]["code"] == "PROJECT_EXPERT_UNAVAILABLE"
+
+    # A ghost id is refused with the same shape — never AGENT_NOT_FOUND.
+    r = await _create(ctx, body={**body, "agent_id": "ag_ghost"})
+    assert r.status_code == 409, r.text
+    assert r.json()["error"]["code"] == "PROJECT_EXPERT_UNAVAILABLE"
+    _assert_no_create_rows(srv, ctx["agents"]["member"], ctx["uids"]["member"])
+
+
+async def test_outsider_never_learns_about_private_agents_with_expert_list(
+    env_with_provider: Any,
+) -> None:
+    ctx = await _base(env_with_provider)
+    _share_agent(ctx["srv"], ctx["agents"]["owner"])
+    revision = await _configure_experts(ctx, [ctx["agents"]["owner"]])
+    digest = (await _detail(ctx))["instructions_sha256"]
+    assert revision == 1
+
+    for agent_id in ("ag_ghost", ctx["agents"]["outsider"]):
+        r = await _create(
+            ctx,
+            role="outsider",
+            body={
+                "agent_id": agent_id,
+                "expected_instructions_sha256": digest,
+                "expected_experts_revision": 1,
+            },
+        )
+        assert r.status_code == 404, r.text
+        assert r.json()["error"]["code"] == "NOT_FOUND"
+        assert "ag_" not in r.text and "pe-outsider" not in r.text
+
+
+async def test_hard_deleted_listed_agent_is_uniformly_unavailable(
+    env_with_provider: Any,
+) -> None:
+    ctx = await _base(env_with_provider)
+    srv = ctx["srv"]
+    _share_agent(srv, ctx["agents"]["owner"])
+    _share_agent(srv, ctx["agents"]["member"])
+    revision = await _configure_experts(ctx, [ctx["agents"]["owner"], ctx["agents"]["member"]])
+    digest = (await _detail(ctx))["instructions_sha256"]
+
+    _delete_agent(srv, ctx["agents"]["member"])
+    r = await _create(
+        ctx,
+        body={
+            "agent_id": ctx["agents"]["member"],
+            "expected_instructions_sha256": digest,
+            "expected_experts_revision": revision,
+        },
+    )
+    assert r.status_code == 409, r.text
+    assert r.json()["error"]["code"] == "PROJECT_EXPERT_UNAVAILABLE"
+    _assert_no_create_rows(srv, ctx["agents"]["member"], ctx["uids"]["member"])
+
+    # Deleting the whole list cascades back to the empty-list 028 path.
+    _delete_agent(srv, ctx["agents"]["owner"])
+    r = await _create(
+        ctx,
+        body={
+            "agent_id": ctx["agents"]["member"],
+            "expected_instructions_sha256": digest,
+            "expected_experts_revision": revision,
+        },
+    )
+    assert r.status_code == 404, r.text
+    assert r.json()["error"]["code"] == "AGENT_NOT_FOUND"
+    assert _count(srv, "project_task_links", "owner_user_id = ?", (ctx["uids"]["member"],)) == 0
+
+
+async def test_prior_private_task_survives_expert_list_change(
+    env_with_provider: Any,
+) -> None:
+    ctx = await _base(env_with_provider)
+    srv = ctx["srv"]
+    _share_agent(srv, ctx["agents"]["member"])
+    _share_agent(srv, ctx["agents"]["owner"])
+    revision = await _configure_experts(ctx, [ctx["agents"]["member"]])
+    digest = (await _detail(ctx))["instructions_sha256"]
+
+    r = await _create(
+        ctx,
+        body={
+            "agent_id": ctx["agents"]["member"],
+            "expected_instructions_sha256": digest,
+            "expected_experts_revision": revision,
+        },
+    )
+    assert r.status_code == 201, r.text
+    tid = r.json()["thread_id"]
+
+    await _configure_experts(ctx, [ctx["agents"]["owner"]], expected_revision=revision)
+
+    r = await ctx["client"].get(
+        f"/api/projects/{ctx['pid']}/tasks/{tid}", headers=ctx["auth"]["member"]
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["agent_id"] == ctx["agents"]["member"]
+    r = await ctx["client"].get(
+        f"/api/agents/{ctx['agents']['member']}/threads/{tid}/history",
+        headers=ctx["auth"]["member"],
+    )
+    assert r.status_code == 200, r.text
+    assert _count(srv, "project_task_links", "thread_id = ?", (tid,)) == 1
+    assert _count(srv, "project_task_contexts", "thread_id = ?", (tid,)) == 1
+    assert _context_revision(srv, tid) == 1
+
+
+async def test_expected_experts_revision_body_is_validated(
+    env_with_provider: Any,
+) -> None:
+    ctx = await _base(env_with_provider)
+    digest = (await _detail(ctx))["instructions_sha256"]
+    endpoint = f"/api/projects/{ctx['pid']}/tasks"
+    headers = ctx["auth"]["member"]
+    for value in (-1, "x", 1.5):
+        r = await ctx["client"].post(
+            endpoint,
+            headers=headers,
+            json={
+                "agent_id": ctx["agents"]["member"],
+                "expected_instructions_sha256": digest,
+                "expected_experts_revision": value,
+            },
+        )
+        assert r.status_code == 422, (value, r.text)
+    _assert_no_create_rows(ctx["srv"], ctx["agents"]["member"], ctx["uids"]["member"])

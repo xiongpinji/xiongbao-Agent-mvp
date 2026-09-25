@@ -85,6 +85,19 @@ describe("projectTasksApi against the PS-05B-1 contract", () => {
     ]);
   });
 
+  it("sends the project expert configuration revision without adding private fields", () => {
+    projectTasksApi.create("p1", "agent-1", "digest", 7);
+
+    expect(request).toHaveBeenCalledWith("/projects/p1/tasks", {
+      method: "POST",
+      body: JSON.stringify({
+        agent_id: "agent-1",
+        expected_instructions_sha256: "digest",
+        expected_experts_revision: 7,
+      }),
+    });
+  });
+
   it("returns the existing safe summary for a server-created project task", async () => {
     const created: ProjectTask = {
       ...task,

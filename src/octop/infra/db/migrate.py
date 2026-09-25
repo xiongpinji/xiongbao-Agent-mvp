@@ -1558,6 +1558,47 @@ def _apply_postgresql_migration(conn: Any, sql: str) -> None:
         conn.execute(stmt)
 
 
+def _ensure_project_experts_v27(db: DatabasePool) -> None:
+    """Apply SQLite v27 atomically, including recovery from a partial replay.
+
+    SQLite's ``executescript`` commits individual DDL statements before the
+    version watermark. A stopped upgrade may therefore leave either new
+    column or the table present while ``_schema_version`` remains 26. Keep
+    the same schema as 027_project_experts.sql, but check columns and execute
+    all changes in one explicit transaction before writing the watermark.
+    """
+    with db.transaction() as conn:
+        project_columns = {row["name"] for row in conn.execute("PRAGMA table_info(project_spaces)")}
+        if "experts_revision" not in project_columns:
+            conn.execute(
+                "ALTER TABLE project_spaces ADD COLUMN experts_revision INTEGER NOT NULL DEFAULT 0"
+            )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS project_experts ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "project_id TEXT NOT NULL REFERENCES project_spaces(project_id) "
+            "ON DELETE CASCADE, "
+            "agent_id TEXT NOT NULL REFERENCES agents(agent_id) ON DELETE CASCADE, "
+            "sort_order INTEGER NOT NULL CHECK (sort_order >= 0), "
+            "added_by INTEGER REFERENCES users(id) ON DELETE SET NULL, "
+            "added_at INTEGER NOT NULL CHECK (added_at >= 0), "
+            "UNIQUE (project_id, agent_id))"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_project_experts_project "
+            "ON project_experts(project_id, sort_order)"
+        )
+        context_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(project_task_contexts)")
+        }
+        if "expert_selection_revision" not in context_columns:
+            conn.execute(
+                "ALTER TABLE project_task_contexts ADD COLUMN "
+                "expert_selection_revision INTEGER NOT NULL DEFAULT 0"
+            )
+        conn.execute("UPDATE _schema_version SET version = 27")
+
+
 def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
     """Apply one SQLite migration.
 
@@ -1588,6 +1629,7 @@ def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
     multi-identity ``user_sso_identities``.
     Version 16 adds ``agents.kind`` so team hosts can be listed.
     Version 17 adds sticky ``conversation_mode`` and ``pending_plan_path`` on threads.
+    Version 27 adds project experts with one atomic, replay-safe transaction.
     """
     if version == 2:
         if _table_exists(db, "cron_jobs"):
@@ -1702,6 +1744,9 @@ def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
         _ensure_thread_conversation_mode_schema(db)
         with db.connect() as conn:
             conn.execute("UPDATE _schema_version SET version = ?", (version,))
+        return
+    if version == 27:
+        _ensure_project_experts_v27(db)
         return
     sql = path.read_text(encoding="utf-8")
     with db.connect() as conn:

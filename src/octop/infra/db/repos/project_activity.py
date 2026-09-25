@@ -35,6 +35,7 @@ from octop.infra.db.repos.project_todos import (
 )
 from octop.infra.db.repos.projects import (
     EVENT_CREATED,
+    EVENT_EXPERTS_UPDATED,
     EVENT_MEMBER_JOINED,
     EVENT_MEMBER_REMOVED,
     EVENT_MEMBER_ROLE_CHANGED,
@@ -50,6 +51,7 @@ EVENT_MESSAGE_CREATED = "project.message_created"
 ACTIVITY_EVENT_TYPES: tuple[str, ...] = (
     EVENT_CREATED,
     EVENT_UPDATED,
+    EVENT_EXPERTS_UPDATED,
     EVENT_MEMBER_JOINED,
     EVENT_MEMBER_ROLE_CHANGED,
     EVENT_MEMBER_REMOVED,

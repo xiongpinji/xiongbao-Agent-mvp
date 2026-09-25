@@ -43,6 +43,10 @@ const { threadsList, threadsDelete } = vi.hoisted(() => ({
   threadsDelete: vi.fn(),
 }));
 
+const { getProjectExperts } = vi.hoisted(() => ({
+  getProjectExperts: vi.fn(),
+}));
+
 const { agentState } = vi.hoisted(() => ({
   agentState: {
     value: {
@@ -51,6 +55,7 @@ const { agentState } = vi.hoisted(() => ({
         name: string;
         state: string;
         kind?: "expert" | "team";
+        is_shared?: boolean;
       }>,
       activeAgentId: "agent-1" as string | null,
     },
@@ -81,6 +86,10 @@ vi.mock("../../api/modules/projectTasks", async (importOriginal) => {
 
 vi.mock("../../api/modules/octopThreads", () => ({
   octopThreadsApi: { list: threadsList, delete: threadsDelete },
+}));
+
+vi.mock("../../api/modules/projectExperts", () => ({
+  projectExpertsApi: { list: getProjectExperts },
 }));
 
 vi.mock("../../context/AgentContext", () => ({
@@ -308,6 +317,7 @@ beforeEach(() => {
     title: "项目新任务",
     source: "project",
   });
+  getProjectExperts.mockResolvedValue({ revision: 0, items: [] });
   shares.mockResolvedValue({ items: [] });
   share.mockResolvedValue({
     user_id: 4,
@@ -691,6 +701,7 @@ describe("ProjectTasks create project task", () => {
         "p1",
         "agent-1",
         projectInstructionsSha,
+        0,
       ),
     );
     await waitFor(() =>
@@ -704,6 +715,100 @@ describe("ProjectTasks create project task", () => {
     expect(messages).not.toHaveBeenCalled();
     expect(screen.queryByTestId("project-task-t-new")).toBeNull();
     expect(screen.getByText("写周报")).toBeInTheDocument();
+  });
+
+  it("limits a configured project to its currently shared running single experts and sends the revision", async () => {
+    getProjectExperts.mockResolvedValueOnce({
+      revision: 4,
+      items: [
+        {
+          agent_id: "agent-2",
+          name: "小助手",
+          description: null,
+          status: "available",
+        },
+      ],
+    });
+    agentState.value.agents = [
+      { agent_id: "agent-1", name: "阿熊", state: "running" },
+      {
+        agent_id: "agent-2",
+        name: "小助手",
+        state: "running",
+        is_shared: true,
+      },
+    ];
+    const { user, dialog } = await openCreateModal();
+    expect(await within(dialog).findByText("小助手")).toBeInTheDocument();
+    fireEvent.mouseDown(
+      within(dialog).getByRole("combobox", { name: "选择专家" }),
+    );
+    expect(within(visibleDropdown()).queryByText("阿熊")).toBeNull();
+    await user.click(confirmBox(dialog));
+    await user.click(submitButton(dialog));
+    await waitFor(() =>
+      expect(create).toHaveBeenCalledWith(
+        "p1",
+        "agent-2",
+        projectInstructionsSha,
+        4,
+      ),
+    );
+  });
+
+  it("does not offer a configured expert that has become unavailable", async () => {
+    getProjectExperts.mockResolvedValueOnce({
+      revision: 5,
+      items: [
+        {
+          agent_id: "agent-2",
+          name: null,
+          description: null,
+          status: "unavailable",
+        },
+      ],
+    });
+    const { dialog } = await openCreateModal();
+    await waitFor(() =>
+      expect(
+        within(dialog).getByRole("combobox", { name: "选择专家" }),
+      ).toBeDisabled(),
+    );
+    expect(submitButton(dialog)).toBeDisabled();
+    expect(
+      within(dialog).getByText(/项目配置的专家当前不可用/),
+    ).toBeInTheDocument();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("refreshes project experts and clears consent after a stale selection 409", async () => {
+    getProjectExperts
+      .mockResolvedValueOnce({
+        revision: 1,
+        items: [
+          {
+            agent_id: "agent-2",
+            name: "小助手",
+            description: null,
+            status: "available",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ revision: 2, items: [] });
+    agentState.value.agents[1].is_shared = true;
+    create.mockRejectedValueOnce(
+      new Error(
+        '409 - {"error":{"code":"PROJECT_EXPERTS_CHANGED","message":"expert selection changed"}}',
+      ),
+    );
+    const { user, dialog } = await openCreateModal();
+    await waitFor(() => expect(submitButton(dialog)).toBeDisabled());
+    await user.click(confirmBox(dialog));
+    await user.click(submitButton(dialog));
+    await waitFor(() => expect(getProjectExperts).toHaveBeenCalledTimes(2));
+    expect(confirmBox(dialog)).not.toBeChecked();
+    expect(onProjectReload).toHaveBeenCalledTimes(1);
+    expect(create).toHaveBeenCalledTimes(1);
   });
 
   it("sends the selected accessible agent instead of the default", async () => {
@@ -721,6 +826,7 @@ describe("ProjectTasks create project task", () => {
         "p1",
         "agent-2",
         projectInstructionsSha,
+        0,
       ),
     );
   });
@@ -781,6 +887,33 @@ describe("ProjectTasks create project task", () => {
         title: "项目新任务",
         source: "project",
       });
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        "/chat/agent-1/t-new",
+      ),
+    );
+  });
+
+  it("keeps the creation dialog open while a private task request is in flight", async () => {
+    let resolveCreate: ((task: ProjectTask) => void) | null = null;
+    create.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveCreate = resolve)),
+    );
+    const { user, dialog } = await openCreateModal();
+    await user.click(confirmBox(dialog));
+    await user.click(submitButton(dialog));
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(
+      within(dialog).getByRole("button", { name: /取\s*消/ }),
+    ).toBeDisabled();
+    await user.keyboard("{Escape}");
+    expect(
+      screen.getByRole("dialog", { name: "新建项目任务" }),
+    ).toBeInTheDocument();
+    await act(async () => {
+      resolveCreate?.({ ...taskOpen, thread_id: "t-new", source: "project" });
       await Promise.resolve();
     });
     await waitFor(() =>
@@ -861,7 +994,7 @@ describe("ProjectTasks create project task", () => {
     await user.click(confirmBox(refreshed));
     await user.click(submitButton(refreshed));
     await waitFor(() =>
-      expect(create).toHaveBeenLastCalledWith("p1", "agent-1", "sha-new"),
+      expect(create).toHaveBeenLastCalledWith("p1", "agent-1", "sha-new", 0),
     );
   });
 

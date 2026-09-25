@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Path, Query, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from octop.api.deps import current_user, get_server
 from octop.infra.errors import ErrorCode, OctopError
@@ -16,8 +16,10 @@ from octop.infra.projects.service import (
     INVITE_MIN_EXPIRES_DAYS,
     MAX_PAGE_LIMIT,
     MAX_PROJECT_DESCRIPTION_LENGTH,
+    MAX_PROJECT_EXPERTS,
     MAX_PROJECT_INSTRUCTIONS_LENGTH,
     ProjectDetailView,
+    ProjectExpertsView,
     ProjectInviteView,
     ProjectJoinRequestView,
     ProjectService,
@@ -101,6 +103,21 @@ class UpdateMemberRoleBody(BaseModel):
     role: Literal["member", "admin"]
 
 
+class SetExpertsBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: int = Field(
+        ge=0,
+        description="Revision the client last read; a mismatch is refused with 409",
+    )
+    agent_ids: list[str] = Field(
+        description=(
+            f"Ordered shared single-expert Agent ids (at most {MAX_PROJECT_EXPERTS}, "
+            "no duplicates); an empty list keeps the default member choice flow"
+        )
+    )
+
+
 def _project_service(server: OctopServer) -> ProjectService:
     if server.services is None:
         raise OctopError(ErrorCode.INTERNAL_ERROR, "server services unavailable")
@@ -157,6 +174,22 @@ def _request_payload(view: ProjectJoinRequestView) -> dict[str, Any]:
         "requested_at": view.requested_at,
         "resolved_at": view.resolved_at,
         "resolved_by": view.resolved_by,
+    }
+
+
+def _experts_payload(view: ProjectExpertsView) -> dict[str, Any]:
+    """Ordered masked list: unavailable experts carry null name/description."""
+    return {
+        "revision": view.revision,
+        "items": [
+            {
+                "agent_id": item.agent_id,
+                "name": item.name,
+                "description": item.description,
+                "status": item.status,
+            }
+            for item in view.items
+        ],
     }
 
 
@@ -254,6 +287,50 @@ async def remove_project_member(
 ) -> None:
     _project_service(server).remove_member(project_id, user_id, actor_user_id=user.id)
     return None
+
+
+@router.get(
+    "/{project_id}/experts",
+    summary="List the project's ordered experts (members only)",
+)
+async def list_project_experts(
+    project_id: str,
+    server: OctopServer = Depends(get_server),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    """Members read the live ordered list with the admin-PUT revision. Rows for
+    experts that are currently disabled, unshared, or no longer single experts
+    return ``name=null, description=null, status='unavailable'``; hard-deleted
+    agents cascade out of the list. Non-members and unknown projects share one
+    404, and private Agent profiles never appear in the response."""
+    view = _project_service(server).list_experts(project_id, user_id=user.id)
+    return _experts_payload(view)
+
+
+@router.put(
+    "/{project_id}/experts",
+    summary="Replace the project's ordered experts (owner/admin)",
+)
+async def set_project_experts(
+    project_id: str,
+    body: SetExpertsBody,
+    server: OctopServer = Depends(get_server),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    """Owner/admin replace the ordered list of globally shared, enabled single
+    experts. The list only gates which experts members may pick for NEW private
+    tasks — it grants no Agent, OAuth, file, or history access. A stale
+    ``expected_revision`` answers 409 ``PROJECT_EXPERTS_CHANGED`` with no
+    writes; an identical ordered list keeps the revision; a real change bumps
+    it once. A disabled/team/private/unknown Agent is refused uniformly with
+    422 ``PROJECT_EXPERT_INVALID``."""
+    view = _project_service(server).set_experts(
+        project_id,
+        actor_user_id=user.id,
+        expected_revision=body.expected_revision,
+        agent_ids=body.agent_ids,
+    )
+    return _experts_payload(view)
 
 
 @router.post("/invites/accept", summary="Accept a project invite link")

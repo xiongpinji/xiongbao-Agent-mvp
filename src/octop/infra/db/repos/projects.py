@@ -18,6 +18,7 @@ from octop.infra.db.repos._base import (
     map_rows,
     now_ts,
     partial_updates,
+    sql_in_placeholders,
 )
 from octop.infra.db.repos.project_todos import EVENT_TODO_UPDATED
 from octop.infra.utils.ulid import new_ulid
@@ -32,6 +33,10 @@ EVENT_JOIN_REJECTED = "project.join_rejected"
 EVENT_MEMBER_JOINED = "project.member_joined"
 EVENT_MEMBER_ROLE_CHANGED = "project.member_role_changed"
 EVENT_MEMBER_REMOVED = "project.member_removed"
+EVENT_EXPERTS_UPDATED = "project.experts_updated"
+
+#: Roles allowed to replace the versioned project expert list.
+_PROJECT_EDIT_ROLES = ("owner", "admin")
 
 
 @dataclass(frozen=True)
@@ -227,6 +232,52 @@ class MemberMutation:
     role: str = ""
 
 
+@dataclass(frozen=True)
+class ExpertSelection:
+    """Live ordered expert rows plus the admin-PUT revision.
+
+    ``revision`` versions only :meth:`ProjectRepo.replace_experts` writes; an
+    Agent unshare/disable/hard-delete changes the masked rows here without
+    touching it. ``items`` never carries a disabled/unshared Agent's profile:
+    the SQL masks ``name``/``description`` to NULL and answers ``unavailable``.
+    """
+
+    revision: int
+    items: list[ProjectExpertRow]
+
+
+@dataclass(frozen=True)
+class ProjectExpertRow:
+    agent_id: str
+    sort_order: int
+    name: str | None
+    description: str | None
+    status: str
+
+    @classmethod
+    def from_row(cls, r: DbRow) -> ProjectExpertRow:
+        return cls(
+            agent_id=str(r["agent_id"]),
+            sort_order=int(r["sort_order"]),
+            name=(None if r["name"] is None else str(r["name"])),
+            description=(None if r["description"] is None else str(r["description"])),
+            status=str(r["status"]),
+        )
+
+
+@dataclass(frozen=True)
+class ExpertReplaceMutation:
+    """Outcome of :meth:`ProjectRepo.replace_experts`.
+
+    ``outcome`` is one of: replaced, unchanged, stale, invalid_agent, archived,
+    not_member, forbidden. Every refusal is decided inside the write
+    transaction, so a conflict leaves the previous list and revision untouched.
+    """
+
+    outcome: str
+    revision: int = 0
+
+
 class _RedeemConflict(Exception):
     """Raised inside the redemption transaction to force a clean rollback."""
 
@@ -254,6 +305,23 @@ _JOIN_REQUEST_SELECT = (
     "FROM project_join_requests r "
     "JOIN users u ON u.id = r.user_id "
     "LEFT JOIN project_invites pi ON pi.invite_id = r.invite_id "
+)
+
+# Masked expert read: the LEFT JOIN subquery decides availability, and the
+# outer CASE returns NULL for name/description whenever the Agent is missing,
+# disabled, unshared, or no longer an expert. Private profile never leaves SQL.
+_EXPERTS_SELECT = (
+    "SELECT e.agent_id, e.sort_order, "
+    "CASE WHEN x.available = 1 THEN x.name ELSE NULL END AS name, "
+    "CASE WHEN x.available = 1 THEN x.description ELSE NULL END AS description, "
+    "CASE WHEN x.available = 1 THEN 'available' ELSE 'unavailable' END AS status "
+    "FROM project_experts e "
+    "LEFT JOIN ("
+    "SELECT agent_id, name, description, "
+    "CASE WHEN COALESCE(enabled, 0) = 1 AND COALESCE(is_shared, 0) = 1 "
+    "AND COALESCE(kind, 'expert') = 'expert' THEN 1 ELSE 0 END AS available "
+    "FROM agents"
+    ") x ON x.agent_id = e.agent_id"
 )
 
 
@@ -466,6 +534,124 @@ class ProjectRepo:
                 (project_id, actor_user_id, EVENT_UPDATED, project_id, payload, ts),
             )
         return self.get_project(project_id)
+
+    # ------------------------------------------------------------------
+    # Versioned expert selection (029)
+    # ------------------------------------------------------------------
+
+    def _member_role_locked(self, conn: Any, project_id: str, user_id: int) -> str | None:
+        """Read a membership role, locking the member row first on PostgreSQL."""
+        lock = " FOR SHARE" if self._db.dialect == "postgresql" else ""
+        row = conn.execute(
+            "SELECT role FROM project_members WHERE project_id = ? AND user_id = ?" + lock,
+            (project_id, user_id),
+        ).fetchone()
+        return None if row is None else str(row["role"])
+
+    def get_experts(self, project_id: str) -> ExpertSelection | None:
+        """Live masked expert list; ``None`` when the project does not exist.
+
+        The revision is a protocol/audit value only — callers must re-read the
+        rows (and each Agent's current state) on every request.
+        """
+        with self._db.connect() as conn:
+            project = conn.execute(
+                "SELECT experts_revision FROM project_spaces WHERE project_id = ?",
+                (project_id,),
+            ).fetchone()
+            if project is None:
+                return None
+            rows = conn.execute(
+                _EXPERTS_SELECT + " WHERE e.project_id = ? ORDER BY e.sort_order, e.agent_id",
+                (project_id,),
+            ).fetchall()
+        return ExpertSelection(
+            revision=int(project["experts_revision"]),
+            items=map_rows(rows, ProjectExpertRow),
+        )
+
+    def replace_experts(
+        self,
+        *,
+        project_id: str,
+        actor_user_id: int,
+        expected_revision: int,
+        agent_ids: list[str],
+    ) -> ExpertReplaceMutation:
+        """Replace the ordered expert list in one write transaction.
+
+        Lock order (PostgreSQL): member row ``FOR SHARE`` → project row
+        ``FOR UPDATE`` → target Agent rows ``FOR SHARE`` sorted by ``agent_id``;
+        SQLite serializes writers with ``BEGIN IMMEDIATE``. Membership, role,
+        archive state, revision, and every Agent's shared/enabled/kind state
+        are re-checked inside the transaction before the first delete/insert.
+        An identical ordered list is a no-op; a real change replaces rows and
+        bumps ``experts_revision`` exactly once. The event payload carries only
+        the new count — never an Agent id or profile.
+        """
+        ts = now_ts()
+        share_lock = " FOR SHARE" if self._db.dialect == "postgresql" else ""
+        project_lock = " FOR UPDATE" if self._db.dialect == "postgresql" else ""
+        with self._db.transaction() as conn:
+            role = self._member_role_locked(conn, project_id, actor_user_id)
+            if role is None:
+                return ExpertReplaceMutation(outcome="not_member")
+            if role not in _PROJECT_EDIT_ROLES:
+                return ExpertReplaceMutation(outcome="forbidden")
+            project = conn.execute(
+                "SELECT archived, experts_revision FROM project_spaces WHERE project_id = ?"
+                + project_lock,
+                (project_id,),
+            ).fetchone()
+            if project is None:
+                return ExpertReplaceMutation(outcome="not_member")
+            revision = int(project["experts_revision"])
+            if int(project["archived"]):
+                return ExpertReplaceMutation(outcome="archived", revision=revision)
+            if revision != expected_revision:
+                return ExpertReplaceMutation(outcome="stale", revision=revision)
+            if len(set(agent_ids)) != len(agent_ids):
+                return ExpertReplaceMutation(outcome="invalid_agent", revision=revision)
+            if agent_ids:
+                valid = conn.execute(
+                    "SELECT agent_id FROM agents "
+                    f"WHERE agent_id IN ({sql_in_placeholders(len(agent_ids))}) "
+                    "AND kind = 'expert' AND enabled = 1 AND is_shared = 1 "
+                    "ORDER BY agent_id" + share_lock,
+                    tuple(agent_ids),
+                ).fetchall()
+                if len(valid) != len(agent_ids):
+                    return ExpertReplaceMutation(outcome="invalid_agent", revision=revision)
+            current = conn.execute(
+                "SELECT agent_id FROM project_experts WHERE project_id = ? "
+                "ORDER BY sort_order, agent_id",
+                (project_id,),
+            ).fetchall()
+            if [str(row["agent_id"]) for row in current] == list(agent_ids):
+                return ExpertReplaceMutation(outcome="unchanged", revision=revision)
+            conn.execute("DELETE FROM project_experts WHERE project_id = ?", (project_id,))
+            for index, agent_id in enumerate(agent_ids):
+                conn.execute(
+                    "INSERT INTO project_experts("
+                    "project_id, agent_id, sort_order, added_by, added_at"
+                    ") VALUES (?, ?, ?, ?, ?)",
+                    (project_id, agent_id, index, actor_user_id, ts),
+                )
+            new_revision = revision + 1
+            conn.execute(
+                "UPDATE project_spaces SET experts_revision = ? WHERE project_id = ?",
+                (new_revision, project_id),
+            )
+            _append_event(
+                conn,
+                project_id,
+                actor_user_id,
+                EVENT_EXPERTS_UPDATED,
+                project_id,
+                json.dumps({"count": len(agent_ids)}),
+                ts,
+            )
+        return ExpertReplaceMutation(outcome="replaced", revision=new_revision)
 
     # ------------------------------------------------------------------
     # Invites

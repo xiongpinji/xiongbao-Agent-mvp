@@ -142,6 +142,27 @@ def _archived_error() -> OctopError:
     return OctopError(ErrorCode.FORBIDDEN, "project is archived")
 
 
+def expert_unavailable_error() -> OctopError:
+    """Uniform 029 refusal for a configured expert that is no longer usable.
+
+    Also used by the route when its Agent ACL pre-check loses a race with an
+    unshare/disable/delete, so an authorized member always sees one recoverable
+    code instead of AGENT_NOT_FOUND/FORBIDDEN leaking private ownership state.
+    The error carries no Agent id or profile.
+    """
+    return OctopError(
+        ErrorCode.PROJECT_EXPERT_UNAVAILABLE,
+        "the selected project expert is no longer available",
+    )
+
+
+def _experts_changed_error() -> OctopError:
+    return OctopError(
+        ErrorCode.PROJECT_EXPERTS_CHANGED,
+        "project experts changed since they were confirmed",
+    )
+
+
 def _safe_text_message(row: Any) -> TaskMessageView | None:
     """Project only plain user/assistant text from a stored projection row."""
     try:
@@ -310,13 +331,40 @@ class ProjectTaskService:
 
     # ------------------------------------------------------------ create
 
-    def authorize_create_target(self, project_id: str, *, user_id: int) -> None:
-        """Create-route pre-check: members only, same 404 as unknown projects.
+    def authorize_create_target(
+        self,
+        project_id: str,
+        *,
+        user_id: int,
+        agent_id: str,
+        expected_experts_revision: int | None = None,
+    ) -> bool:
+        """Create-route pre-check; returns whether the project experts gate on.
 
-        Runs before the router's agent ACL check so a non-member never learns
-        whether the named agent exists or is accessible.
+        Runs before the router's Agent ACL check so a non-member never learns
+        whether the named Agent exists or is accessible. With the 029 gate on
+        (nonempty live list), an old client that omitted the revision and any
+        stale revision are refused 409, and a selected Agent that is unlisted
+        or presently unavailable is refused with the uniform recoverable
+        ``PROJECT_EXPERT_UNAVAILABLE`` before any Agent detail is read. An
+        empty list keeps the 028 owner/shared flow but still rejects a supplied
+        revision that no longer matches.
         """
         self._require_membership(project_id, user_id)
+        selection = self._project_repo.get_experts(project_id)
+        if selection is None:
+            raise _project_not_found()
+        revision = int(selection.revision)
+        if not selection.items:
+            if expected_experts_revision is not None and expected_experts_revision != revision:
+                raise _experts_changed_error()
+            return False
+        if expected_experts_revision is None or expected_experts_revision != revision:
+            raise _experts_changed_error()
+        selected = next((row for row in selection.items if row.agent_id == agent_id), None)
+        if selected is None or selected.status != "available":
+            raise expert_unavailable_error()
+        return True
 
     def create_project_task(
         self,
@@ -325,15 +373,20 @@ class ProjectTaskService:
         user_id: int,
         agent_id: str,
         expected_instructions_sha256: str,
+        expected_experts_revision: int | None = None,
         is_admin: bool = False,
     ) -> TaskSummaryView:
         """Create a private task frozen against the current project instructions.
 
-        The repository re-validates membership, archive state, agent kind, and
-        the freshly-read digest inside one write transaction that also inserts
-        the thread, projection, ``source='project'`` link, and snapshot. A
-        stale digest raises 409 ``PROJECT_INSTRUCTIONS_CHANGED`` with no task
-        row; the caller's active dashboard session is never rebound.
+        The repository re-validates membership, archive state, the expert list
+        and revision, agent kind, and the freshly-read digest inside one write
+        transaction that also inserts the thread, projection,
+        ``source='project'`` link, and snapshot. A stale digest raises 409
+        ``PROJECT_INSTRUCTIONS_CHANGED`` and a stale expert revision raises 409
+        ``PROJECT_EXPERTS_CHANGED`` with no task row; a configured expert that
+        stopped being shared/enabled/listed raises the uniform recoverable
+        ``PROJECT_EXPERT_UNAVAILABLE``. The caller's active dashboard session
+        is never rebound.
         """
         self._require_membership(project_id, user_id)
         mutation = self._repo.create_with_context(
@@ -343,6 +396,7 @@ class ProjectTaskService:
             thread_id=f"thr_{new_ulid()}",
             session_key=ThreadRegistry.dashboard_key(agent_id=agent_id, user_id=user_id),
             expected_instructions_sha256=expected_instructions_sha256.strip().lower(),
+            expected_experts_revision=expected_experts_revision,
             is_admin=is_admin,
         )
         if mutation.outcome == "not_member":
@@ -354,6 +408,10 @@ class ProjectTaskService:
                 ErrorCode.PROJECT_INSTRUCTIONS_CHANGED,
                 "project instructions changed since they were confirmed",
             )
+        if mutation.outcome == "stale_experts":
+            raise _experts_changed_error()
+        if mutation.outcome == "invalid_expert":
+            raise expert_unavailable_error()
         if mutation.outcome == "invalid_agent":
             # Team hosts are excluded from this slice: delegated peer agents
             # do not inherit the project context the snapshot freezes.

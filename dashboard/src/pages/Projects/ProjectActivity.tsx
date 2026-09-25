@@ -108,6 +108,11 @@ function activityAction(item: ProjectActivityItem): ActivityAction {
         labelKey: "projects.activity.eventProjectUpdated",
         fallback: "更新了项目",
       };
+    case "project.experts_updated":
+      return {
+        labelKey: "projects.activity.eventExpertsUpdated",
+        fallback: "更新了项目专家",
+      };
     case "project.member_joined":
       return {
         labelKey: "projects.activity.eventMemberJoined",

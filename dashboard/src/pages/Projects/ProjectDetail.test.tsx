@@ -23,6 +23,12 @@ const { tasksProps } = vi.hoisted(() => ({
   },
 }));
 
+const { expertsProps } = vi.hoisted(() => ({
+  expertsProps: {
+    current: null as null | { projectId: string; role: string },
+  },
+}));
+
 vi.mock("../../api/modules/projects", () => ({
   PROJECTS_PAGE_SIZE: 20,
   projectsApi: {
@@ -107,6 +113,12 @@ vi.mock("./ProjectTasks", () => ({
 }));
 vi.mock("./ProjectMembersPanel", () => ({
   default: () => <div>members-stub</div>,
+}));
+vi.mock("./ProjectExperts", () => ({
+  default: (props: { projectId: string; role: string }) => {
+    expertsProps.current = props;
+    return <div>experts-stub</div>;
+  },
 }));
 vi.mock("./CreateProjectModal", () => ({
   default: () => null,
@@ -212,6 +224,21 @@ describe("ProjectDetail assets tab mount", () => {
     expect(await screen.findByText("tasks-stub")).toBeInTheDocument();
     expect(screen.getByText("members-stub")).toBeInTheDocument();
     expect(screen.getByText("项目配置")).toBeInTheDocument();
+  });
+
+  it("mounts the project expert panel and keeps the other config cards unavailable", async () => {
+    renderDetail("project-1");
+
+    expect(await screen.findByText("experts-stub")).toBeInTheDocument();
+    expect(expertsProps.current).toMatchObject({
+      projectId: "project-1",
+      role: "owner",
+    });
+    expect(screen.getByText("项目配置")).toBeInTheDocument();
+    expect(screen.getAllByText("暂未开放")).toHaveLength(3);
+    expect(
+      screen.getByText("暂未开放：连接器、技能与定时任务仍需后续后端支持。"),
+    ).toBeInTheDocument();
   });
 
   it("passes the loaded member roster to the tasks tab and states card sharing honestly", async () => {

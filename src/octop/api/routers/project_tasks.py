@@ -26,7 +26,12 @@ from octop.api.common.workspace import require_running_agent
 from octop.api.deps import current_user, get_server
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.projects.service import DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT
-from octop.infra.projects.tasks import ProjectTaskService, TaskShareView, TaskSummaryView
+from octop.infra.projects.tasks import (
+    ProjectTaskService,
+    TaskShareView,
+    TaskSummaryView,
+    expert_unavailable_error,
+)
 from octop.infra.server import OctopServer
 from octop.infra.users.identity import User
 
@@ -88,6 +93,14 @@ class CreateTaskBody(BaseModel):
         pattern=r"^[0-9a-fA-F]{64}$",
         description="SHA-256 the user previewed on the project detail and confirmed",
     )
+    expected_experts_revision: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Project expert revision the client last read; required by the new "
+            "frontend whenever the project has a nonempty expert list"
+        ),
+    )
 
 
 class GrantShareBody(BaseModel):
@@ -136,18 +149,37 @@ async def create_project_task(
     longer matches answers 409 ``PROJECT_INSTRUCTIONS_CHANGED`` with no task
     row, so the dashboard refreshes and asks the user to confirm again.
     Non-members and unknown projects share one 404; archived projects, team
-    hosts, and non-running agents are refused. The response is the same safe
-    private-task summary as manual attach — never the instruction text."""
+    hosts, and non-running agents are refused. When the project has a
+    nonempty 029 expert list, a missing/stale ``expected_experts_revision``
+    answers 409 ``PROJECT_EXPERTS_CHANGED``, and a selected Agent that is no
+    longer listed/shared/enabled answers the uniform recoverable 409
+    ``PROJECT_EXPERT_UNAVAILABLE`` — never an ownership/existence leak. The
+    response is the same safe private-task summary as manual attach — never
+    the instruction text."""
     service = _task_service(server)
     # Membership first so an outsider cannot probe agent existence/ACL.
-    service.authorize_create_target(project_id, user_id=user.id)
-    require_agent_row(body.agent_id, user=user, as_user=None, server=server)
+    experts_gated = service.authorize_create_target(
+        project_id,
+        user_id=user.id,
+        agent_id=body.agent_id,
+        expected_experts_revision=body.expected_experts_revision,
+    )
+    try:
+        require_agent_row(body.agent_id, user=user, as_user=None, server=server)
+    except OctopError as exc:
+        # With the expert gate on, the list itself already passed membership;
+        # an Agent that vanished or lost its grant between the two reads must
+        # not surface owner/existence details to an authorized member.
+        if experts_gated and exc.code in (ErrorCode.AGENT_NOT_FOUND, ErrorCode.FORBIDDEN):
+            raise expert_unavailable_error() from None
+        raise
     require_running_agent(server, body.agent_id)
     view = service.create_project_task(
         project_id,
         user_id=user.id,
         agent_id=body.agent_id,
         expected_instructions_sha256=body.expected_instructions_sha256,
+        expected_experts_revision=body.expected_experts_revision,
         is_admin=user.is_admin,
     )
     return _task_payload(view)

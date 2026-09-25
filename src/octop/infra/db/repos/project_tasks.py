@@ -105,8 +105,12 @@ class TaskCreateMutation:
     """Outcome of :meth:`ProjectTaskRepo.create_with_context`.
 
     ``outcome`` is one of: created, not_member, archived, stale_instructions,
-    invalid_agent. Every refusal is decided inside the write transaction, so a
-    conflict leaves no thread, projection, link, or snapshot row behind.
+    stale_experts, invalid_agent, invalid_expert. Every refusal is decided
+    inside the write transaction, so a conflict leaves no thread, projection,
+    link, or snapshot row behind. ``invalid_expert`` is the uniform outcome for
+    a nonempty 029 project expert list whose selected Agent is no longer in the
+    list or is unshared/disabled/deleted; ``invalid_agent`` keeps the 028
+    empty-list ACL refusal.
     """
 
     outcome: str
@@ -135,12 +139,21 @@ class ProjectTaskRepo:
         return None if row is None else str(row["role"])
 
     def _project_row_locked(self, conn: Any, project_id: str) -> Any:
-        """Read instructions/archived, locking the project row after membership."""
+        """Read instructions/archived/revision, locking the project row after membership."""
         return conn.execute(
-            "SELECT instructions, archived FROM project_spaces WHERE project_id = ?"
-            + self._member_share_lock(),
+            "SELECT instructions, archived, experts_revision FROM project_spaces "
+            "WHERE project_id = ?" + self._member_share_lock(),
             (project_id,),
         ).fetchone()
+
+    def _expert_ids(self, conn: Any, project_id: str) -> list[str]:
+        """Current ordered expert rows for one project (live, never cached)."""
+        rows = conn.execute(
+            "SELECT agent_id FROM project_experts WHERE project_id = ? "
+            "ORDER BY sort_order, agent_id",
+            (project_id,),
+        ).fetchall()
+        return [str(row["agent_id"]) for row in rows]
 
     def _insert_new_thread(
         self,
@@ -185,14 +198,15 @@ class ProjectTaskRepo:
         user_id: int,
         instructions: str,
         digest: str,
+        expert_selection_revision: int,
         ts: int,
     ) -> None:
         conn.execute(
             "INSERT INTO project_task_contexts("
             "thread_id, project_id, owner_user_id, instructions_snapshot, "
-            "snapshot_version, instructions_sha256, captured_at) "
-            "VALUES (?, ?, ?, ?, 1, ?, ?)",
-            (thread_id, project_id, user_id, instructions, digest, ts),
+            "snapshot_version, instructions_sha256, captured_at, expert_selection_revision) "
+            "VALUES (?, ?, ?, ?, 1, ?, ?, ?)",
+            (thread_id, project_id, user_id, instructions, digest, ts, expert_selection_revision),
         )
 
     def _summary_for(
@@ -277,6 +291,7 @@ class ProjectTaskRepo:
         thread_id: str,
         session_key: str,
         expected_instructions_sha256: str,
+        expected_experts_revision: int | None = None,
         is_admin: bool = False,
     ) -> TaskCreateMutation:
         """Create a project task atomically with a frozen instruction snapshot.
@@ -291,10 +306,21 @@ class ProjectTaskRepo:
         first insert so a 409 can never leave a partial task behind. The
         agent's ``kind`` is re-checked in the transaction because team hosts
         are excluded from instruction inheritance in this slice.
+
+        029 expert gate: when the project has a nonempty expert list, the
+        caller must supply the current ``expected_experts_revision`` and pick a
+        listed Agent that is still shared+enabled+kind expert; a mismatch is
+        ``stale_experts`` and a stale/unlisted Agent is ``invalid_expert`` —
+        both before any insert. An empty list keeps the 028 owner/shared ACL,
+        but a supplied revision must still match. The actual revision is
+        recorded on the context row for audit; the list is never an
+        authorization grant and is re-read live, not trusted from its revision.
         """
         ts = now_ts()
         with self._db.transaction() as conn:
-            # Lock order: membership row, then project row, then the new rows.
+            # Lock order: membership row, then project row, then the selected
+            # Agent row (PostgreSQL ``FOR SHARE``; sorted Agent locks only in
+            # ProjectRepo.replace_experts), then the new rows.
             if self._member_role_locked(conn, project_id, user_id) is None:
                 return TaskCreateMutation(outcome="not_member")
             project = self._project_row_locked(conn, project_id)
@@ -302,19 +328,42 @@ class ProjectTaskRepo:
                 return TaskCreateMutation(outcome="not_member")
             if int(project["archived"]):
                 return TaskCreateMutation(outcome="archived")
+            expert_revision = int(project["experts_revision"])
+            expert_ids = self._expert_ids(conn, project_id)
             agent = conn.execute(
-                "SELECT kind, user_id, is_shared, enabled FROM agents WHERE agent_id = ?",
+                "SELECT kind, user_id, is_shared, enabled FROM agents WHERE agent_id = ?"
+                + self._member_share_lock(),
                 (agent_id,),
             ).fetchone()
-            if (
-                agent is None
-                or str(agent["kind"]) != "expert"
-                or not int(agent["enabled"])
-                or not (
-                    is_admin or agent["user_id"] == user_id or int(agent["is_shared"] or 0) == 1
-                )
-            ):
-                return TaskCreateMutation(outcome="invalid_agent")
+            if expert_ids:
+                if (
+                    expected_experts_revision is None
+                    or expected_experts_revision != expert_revision
+                ):
+                    return TaskCreateMutation(outcome="stale_experts")
+                if (
+                    agent_id not in expert_ids
+                    or agent is None
+                    or str(agent["kind"]) != "expert"
+                    or not int(agent["enabled"])
+                    or int(agent["is_shared"] or 0) != 1
+                ):
+                    return TaskCreateMutation(outcome="invalid_expert")
+            else:
+                if (
+                    expected_experts_revision is not None
+                    and expected_experts_revision != expert_revision
+                ):
+                    return TaskCreateMutation(outcome="stale_experts")
+                if (
+                    agent is None
+                    or str(agent["kind"]) != "expert"
+                    or not int(agent["enabled"])
+                    or not (
+                        is_admin or agent["user_id"] == user_id or int(agent["is_shared"] or 0) == 1
+                    )
+                ):
+                    return TaskCreateMutation(outcome="invalid_agent")
             instructions = str(project["instructions"])
             digest = hashlib.sha256(instructions.encode("utf-8")).hexdigest()
             if digest != expected_instructions_sha256:
@@ -338,6 +387,7 @@ class ProjectTaskRepo:
                 user_id=user_id,
                 instructions=instructions,
                 digest=digest,
+                expert_selection_revision=expert_revision,
                 ts=ts,
             )
             return TaskCreateMutation(

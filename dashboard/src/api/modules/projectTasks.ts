@@ -9,7 +9,7 @@ import { request } from "../request";
  * `docs/xiongbao/PROJECT_TASK_CONTENT_READ_CONTRACT.md`):
  *   GET    /projects/{project_id}/tasks?scope=own|shared|all&q=&limit=&offset=
  *   GET    /projects/{project_id}/tasks/{thread_id}
- *   POST   /projects/{project_id}/tasks                  { agent_id, expected_instructions_sha256 }
+ *   POST   /projects/{project_id}/tasks                  { agent_id, expected_instructions_sha256, expected_experts_revision? }
  *   POST   /projects/{project_id}/tasks/links            { thread_id }
  *   DELETE /projects/{project_id}/tasks/{thread_id}
  *   GET    /projects/{project_id}/tasks/{thread_id}/shares
@@ -191,20 +191,24 @@ export const projectTasksApi = {
     request<ProjectTask>(taskPath(projectId, threadId)),
   /**
    * Creates a private project-owned task. `expectedInstructionsSha256` is the
-   * digest of the instructions the member previewed; the server rechecks the
-   * current project row and rejects a stale preview with
-   * 409 + `PROJECT_INSTRUCTIONS_CHANGED`.
+   * digest of the instructions the member previewed. New clients also send
+   * `expectedExpertsRevision` from the current project expert selection.
+   * The server rejects either stale preview before creating a task.
    */
   create: (
     projectId: string,
     agentId: string,
     expectedInstructionsSha256: string,
+    expectedExpertsRevision?: number,
   ) =>
     request<ProjectTask>(tasksBase(projectId), {
       method: "POST",
       body: JSON.stringify({
         agent_id: agentId,
         expected_instructions_sha256: expectedInstructionsSha256,
+        ...(expectedExpertsRevision == null
+          ? {}
+          : { expected_experts_revision: expectedExpertsRevision }),
       }),
     }),
   link: (projectId: string, threadId: string) =>

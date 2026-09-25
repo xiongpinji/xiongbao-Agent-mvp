@@ -19,7 +19,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Breadcrumb, Button, Input, Spin, Tabs, Tag, Typography } from "antd";
-import { GraduationCap, Link2, Pencil, Sparkles, Timer } from "lucide-react";
+import { Link2, Pencil, Sparkles, Timer } from "lucide-react";
 import PageShell from "../../layouts/PageShell";
 import { EmptyState } from "../../components/EmptyState";
 import { useIsMobile } from "../../hooks/useIsMobile";
@@ -34,6 +34,7 @@ import {
 import CreateProjectModal from "./CreateProjectModal";
 import ProjectActivity from "./ProjectActivity";
 import ProjectAssets from "./ProjectAssets";
+import ProjectExperts from "./ProjectExperts";
 import ProjectMembersPanel from "./ProjectMembersPanel";
 import ProjectPlan from "./ProjectPlan";
 import ProjectTasks from "./ProjectTasks";
@@ -250,11 +251,6 @@ export default function ProjectDetail() {
       label: t("projects.config.connectors", "连接器"),
     },
     {
-      key: "experts",
-      icon: <GraduationCap size={14} />,
-      label: t("projects.config.experts", "专家"),
-    },
-    {
       key: "skills",
       icon: <Sparkles size={14} />,
       label: t("projects.config.skills", "技能"),
@@ -312,6 +308,8 @@ export default function ProjectDetail() {
         )}
       </div>
 
+      <ProjectExperts projectId={project.project_id} role={project.my_role} />
+
       {configRows.map((row) => (
         <div key={row.key} style={configRowStyle}>
           <span
@@ -324,7 +322,10 @@ export default function ProjectDetail() {
         </div>
       ))}
       <div style={{ ...secondaryStyle, marginTop: 6 }}>
-        {t("projects.unavailable.config", "暂未开放：后端尚未提供项目级配置。")}
+        {t(
+          "projects.unavailable.config",
+          "暂未开放：连接器、技能与定时任务仍需后续后端支持。",
+        )}
       </div>
 
       <ProjectMembersPanel

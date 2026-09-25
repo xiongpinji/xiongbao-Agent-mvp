@@ -354,6 +354,27 @@ def test_list_excludes_invite_request_and_unknown_events(
         assert "SECRET-TOKEN" not in repr(row)
 
 
+def test_project_expert_update_is_visible_without_exposing_event_payload(
+    repo: ProjectActivityRepo, db: SqlitePool, pid: str, owner_id: int, member_id: int
+) -> None:
+    event_id, _ = _seed_event(
+        db,
+        pid,
+        actor_user_id=owner_id,
+        event_type="project.experts_updated",
+        object_id=pid,
+        payload_json='{"count": 2, "private": "SECRET-PROMPT"}',
+        ts=2200,
+    )
+    rows = repo.list_activity(pid, user_id=member_id, scope="members", limit=50)
+    assert rows is not None
+    event = next(row for row in rows if row.event_id == event_id)
+    assert event.event_type == "project.experts_updated"
+    assert event.object_kind == "project"
+    assert not hasattr(event, "payload_json")
+    assert "SECRET-PROMPT" not in repr(event)
+
+
 def test_list_requires_membership(
     repo: ProjectActivityRepo, pid: str, owner_id: int, member_id: int, outsider_id: int
 ) -> None:

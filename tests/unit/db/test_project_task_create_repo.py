@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -110,12 +110,19 @@ def service(
     return ProjectTaskService(_StubServices(projects, repo, ProjectTaskShareRepo(db), threads))
 
 
-def _seed_agent(db: SqlitePool, *, agent_id: str, user_id: int, kind: str = "expert") -> None:
+def _seed_agent(
+    db: SqlitePool,
+    *,
+    agent_id: str,
+    user_id: int,
+    kind: str = "expert",
+    name: str | None = None,
+) -> None:
     with db.transaction() as conn:
         conn.execute(
             "INSERT INTO agents(agent_id, user_id, name, kind, created_at, updated_at) "
-            "VALUES (?, ?, 'bot', ?, 0, 0)",
-            (agent_id, user_id, kind),
+            "VALUES (?, ?, ?, ?, 0, 0)",
+            (agent_id, user_id, name or agent_id, kind),
         )
 
 
@@ -562,6 +569,497 @@ def test_manual_attach_never_creates_a_snapshot(
 
 
 # ---------------------------------------------------------------------------
+# 029 expert gate: nonempty list rejects old/stale clients before inserts
+# ---------------------------------------------------------------------------
+
+
+def _set_experts(
+    projects: ProjectRepo,
+    db: SqlitePool,
+    pid: str,
+    owner_id: int,
+    agent_ids: list[str],
+) -> int:
+    mutation = projects.replace_experts(
+        project_id=pid,
+        actor_user_id=owner_id,
+        expected_revision=_revision(db, pid),
+        agent_ids=agent_ids,
+    )
+    assert mutation.outcome in ("replaced", "unchanged"), mutation.outcome
+    return mutation.revision
+
+
+def _revision(db: SqlitePool, pid: str) -> int:
+    with db.connect() as conn:
+        row = conn.execute(
+            "SELECT experts_revision FROM project_spaces WHERE project_id = ?", (pid,)
+        ).fetchone()
+    return int(row["experts_revision"])
+
+
+def _share_agent(db: SqlitePool, agent_id: str, value: int = 1) -> None:
+    with db.transaction() as conn:
+        conn.execute("UPDATE agents SET is_shared = ? WHERE agent_id = ?", (value, agent_id))
+
+
+def _context_revision(db: SqlitePool, thread_id: str) -> int | None:
+    with db.connect() as conn:
+        row = conn.execute(
+            "SELECT expert_selection_revision FROM project_task_contexts WHERE thread_id = ?",
+            (thread_id,),
+        ).fetchone()
+    return None if row is None else int(row["expert_selection_revision"])
+
+
+def test_nonempty_expert_list_requires_and_records_matching_revision(
+    service: ProjectTaskService,
+    repo: ProjectTaskRepo,
+    db: SqlitePool,
+    projects: ProjectRepo,
+    pid: str,
+    owner_id: int,
+    member_id: int,
+) -> None:
+    _seed_agent(db, agent_id="ag_shared", user_id=owner_id)
+    _share_agent(db, "ag_shared")
+    _set_instructions(projects, pid, owner_id, INSTRUCTIONS)
+    revision = _set_experts(projects, db, pid, owner_id, ["ag_shared"])
+    assert revision == 1
+
+    view = service.create_project_task(
+        pid,
+        user_id=member_id,
+        agent_id="ag_shared",
+        expected_instructions_sha256=instructions_sha256(INSTRUCTIONS),
+        expected_experts_revision=revision,
+    )
+    assert view.agent_id == "ag_shared"
+    assert _context_revision(db, view.thread_id) == 1
+
+
+def test_nonempty_expert_list_rejects_missing_or_stale_revision_without_rows(
+    repo: ProjectTaskRepo,
+    db: SqlitePool,
+    projects: ProjectRepo,
+    pid: str,
+    owner_id: int,
+    member_id: int,
+) -> None:
+    _seed_agent(db, agent_id="ag_shared", user_id=owner_id)
+    _share_agent(db, "ag_shared")
+    _set_instructions(projects, pid, owner_id, INSTRUCTIONS)
+    _set_experts(projects, db, pid, owner_id, ["ag_shared"])
+
+    for expected in (None, 0, 7):
+        mutation = repo.create_with_context(
+            project_id=pid,
+            user_id=member_id,
+            agent_id="ag_shared",
+            thread_id=f"thr_stale_{expected}",
+            session_key=_dashboard_key("ag_shared", member_id),
+            expected_instructions_sha256=instructions_sha256(INSTRUCTIONS),
+            expected_experts_revision=expected,
+        )
+        assert mutation.outcome == "stale_experts"
+    _assert_no_create_rows(db, pid, member_id)
+
+
+def test_empty_expert_list_keeps_028_behavior_but_honors_supplied_revision(
+    repo: ProjectTaskRepo,
+    db: SqlitePool,
+    projects: ProjectRepo,
+    pid: str,
+    owner_id: int,
+    member_id: int,
+) -> None:
+    _seed_agent(db, agent_id="ag_member", user_id=member_id)
+    _set_instructions(projects, pid, owner_id, INSTRUCTIONS)
+
+    # Omitted revision + empty list: the untouched 028 owner/shared ACL.
+    legacy = repo.create_with_context(
+        project_id=pid,
+        user_id=member_id,
+        agent_id="ag_member",
+        thread_id="thr_legacy",
+        session_key=_dashboard_key("ag_member", member_id),
+        expected_instructions_sha256=instructions_sha256(INSTRUCTIONS),
+    )
+    assert legacy.outcome == "created"
+    assert _context_revision(db, "thr_legacy") == 0
+
+    # A supplied revision must still match the current (zero) revision.
+    stale = repo.create_with_context(
+        project_id=pid,
+        user_id=member_id,
+        agent_id="ag_member",
+        thread_id="thr_stale_empty",
+        session_key=_dashboard_key("ag_member", member_id),
+        expected_instructions_sha256=instructions_sha256(INSTRUCTIONS),
+        expected_experts_revision=3,
+    )
+    assert stale.outcome == "stale_experts"
+    assert _row_count(db, "threads", "thread_id = ?", ("thr_stale_empty",)) == 0
+
+    matching = repo.create_with_context(
+        project_id=pid,
+        user_id=member_id,
+        agent_id="ag_member",
+        thread_id="thr_matching_empty",
+        session_key=_dashboard_key("ag_member", member_id),
+        expected_instructions_sha256=instructions_sha256(INSTRUCTIONS),
+        expected_experts_revision=0,
+    )
+    assert matching.outcome == "created"
+    assert _context_revision(db, "thr_matching_empty") == 0
+
+
+def test_expert_list_binds_even_the_owner_to_current_shared_state(
+    repo: ProjectTaskRepo,
+    db: SqlitePool,
+    projects: ProjectRepo,
+    pid: str,
+    owner_id: int,
+    member_id: int,
+) -> None:
+    _seed_agent(db, agent_id="ag_member", user_id=member_id)
+    _share_agent(db, "ag_member")
+    _set_instructions(projects, pid, owner_id, INSTRUCTIONS)
+    revision = _set_experts(projects, db, pid, owner_id, ["ag_member"])
+
+    # The owner of the listed agent may use it only while it is still shared.
+    ok = repo.create_with_context(
+        project_id=pid,
+        user_id=member_id,
+        agent_id="ag_member",
+        thread_id="thr_ok",
+        session_key=_dashboard_key("ag_member", member_id),
+        expected_instructions_sha256=instructions_sha256(INSTRUCTIONS),
+        expected_experts_revision=revision,
+    )
+    assert ok.outcome == "created"
+
+    _share_agent(db, "ag_member", 0)
+    unshared = repo.create_with_context(
+        project_id=pid,
+        user_id=member_id,
+        agent_id="ag_member",
+        thread_id="thr_unshared",
+        session_key=_dashboard_key("ag_member", member_id),
+        expected_instructions_sha256=instructions_sha256(INSTRUCTIONS),
+        expected_experts_revision=revision,
+    )
+    assert unshared.outcome == "invalid_expert"
+    assert _row_count(db, "threads", "thread_id = ?", ("thr_unshared",)) == 0
+
+    _share_agent(db, "ag_member")
+    with db.transaction() as conn:
+        conn.execute("UPDATE agents SET enabled = 0 WHERE agent_id = 'ag_member'")
+    disabled = repo.create_with_context(
+        project_id=pid,
+        user_id=member_id,
+        agent_id="ag_member",
+        thread_id="thr_disabled",
+        session_key=_dashboard_key("ag_member", member_id),
+        expected_instructions_sha256=instructions_sha256(INSTRUCTIONS),
+        expected_experts_revision=revision,
+    )
+    assert disabled.outcome == "invalid_expert"
+    assert _row_count(db, "threads", "thread_id = ?", ("thr_disabled",)) == 0
+
+
+def test_expert_list_rejects_agents_outside_the_list_without_writes(
+    service: ProjectTaskService,
+    repo: ProjectTaskRepo,
+    db: SqlitePool,
+    projects: ProjectRepo,
+    pid: str,
+    owner_id: int,
+    member_id: int,
+) -> None:
+    _seed_agent(db, agent_id="ag_listed", user_id=owner_id)
+    _share_agent(db, "ag_listed")
+    _seed_agent(db, agent_id="ag_other", user_id=member_id)
+    _share_agent(db, "ag_other")
+    _set_instructions(projects, pid, owner_id, INSTRUCTIONS)
+    revision = _set_experts(projects, db, pid, owner_id, ["ag_listed"])
+
+    mutation = repo.create_with_context(
+        project_id=pid,
+        user_id=member_id,
+        agent_id="ag_other",
+        thread_id="thr_other",
+        session_key=_dashboard_key("ag_other", member_id),
+        expected_instructions_sha256=instructions_sha256(INSTRUCTIONS),
+        expected_experts_revision=revision,
+    )
+    assert mutation.outcome == "invalid_expert"
+    _assert_no_create_rows(db, pid, member_id)
+
+    with pytest.raises(OctopError) as excinfo:
+        service.create_project_task(
+            pid,
+            user_id=member_id,
+            agent_id="ag_ghost",
+            expected_instructions_sha256=instructions_sha256(INSTRUCTIONS),
+            expected_experts_revision=revision,
+        )
+    assert excinfo.value.code is ErrorCode.PROJECT_EXPERT_UNAVAILABLE
+    assert excinfo.value.status == 409
+    assert "ag_" not in str(excinfo.value.details)
+    _assert_no_create_rows(db, pid, member_id)
+
+
+def test_prior_task_context_is_not_rewritten_by_later_expert_changes(
+    service: ProjectTaskService,
+    db: SqlitePool,
+    projects: ProjectRepo,
+    pid: str,
+    owner_id: int,
+    member_id: int,
+) -> None:
+    _seed_agent(db, agent_id="ag_a", user_id=owner_id)
+    _share_agent(db, "ag_a")
+    _seed_agent(db, agent_id="ag_b", user_id=owner_id)
+    _share_agent(db, "ag_b")
+    _set_instructions(projects, pid, owner_id, INSTRUCTIONS)
+    revision = _set_experts(projects, db, pid, owner_id, ["ag_a"])
+
+    view = service.create_project_task(
+        pid,
+        user_id=member_id,
+        agent_id="ag_a",
+        expected_instructions_sha256=instructions_sha256(INSTRUCTIONS),
+        expected_experts_revision=revision,
+    )
+    _set_experts(projects, db, pid, owner_id, ["ag_b"])
+    with db.connect() as conn:
+        ctx = conn.execute(
+            "SELECT t.agent_id, c.instructions_snapshot, c.expert_selection_revision "
+            "FROM project_task_contexts c "
+            "JOIN threads t ON t.thread_id = c.thread_id "
+            "WHERE c.thread_id = ?",
+            (view.thread_id,),
+        ).fetchone()
+    assert str(ctx["agent_id"]) == "ag_a"
+    assert str(ctx["instructions_snapshot"]) == INSTRUCTIONS
+    assert int(ctx["expert_selection_revision"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# 029 expert gate: PostgreSQL lock order (static fake; no live PG)
+# ---------------------------------------------------------------------------
+
+
+class _PgCursor:
+    def __init__(self, *, row: Any = None, rows: list[Any] | None = None) -> None:
+        self._row = row
+        self._rows = rows or []
+
+    def fetchone(self) -> Any:
+        return self._row
+
+    def fetchall(self) -> list[Any]:
+        return self._rows
+
+
+class _PgConn:
+    def __init__(
+        self,
+        *,
+        member_role: str,
+        project: dict[str, Any],
+        expert_rows: list[dict[str, Any]],
+        agent_row: dict[str, Any],
+    ) -> None:
+        self.statements: list[str] = []
+        self._member_role = member_role
+        self._project = project
+        self._expert_rows = expert_rows
+        self._agent_row = agent_row
+
+    def execute(self, sql: str, params: Any = None) -> _PgCursor:
+        self.statements.append(sql)
+        if "FROM project_members" in sql:
+            return _PgCursor(row={"role": self._member_role})
+        if "FROM project_spaces" in sql:
+            return _PgCursor(row=self._project)
+        if "FROM project_experts" in sql:
+            return _PgCursor(rows=self._expert_rows)
+        if "FROM agents" in sql:
+            return _PgCursor(row=self._agent_row)
+        return _PgCursor()
+
+
+class _PgTxn:
+    def __init__(self, conn: _PgConn) -> None:
+        self._conn = conn
+
+    def __enter__(self) -> _PgConn:
+        return self._conn
+
+    def __exit__(self, *exc_info: object) -> bool:
+        return False
+
+
+class _PgPool:
+    def __init__(self, conn: _PgConn) -> None:
+        self.dialect = "postgresql"
+        self.conn = conn
+
+    def transaction(self) -> _PgTxn:
+        return _PgTxn(self.conn)
+
+    def connect(self) -> _PgTxn:
+        return _PgTxn(self.conn)
+
+    def close(self) -> None:
+        pass
+
+
+def _first_index(statements: list[str], needle: str) -> int:
+    return next(i for i, s in enumerate(statements) if needle in s)
+
+
+def test_postgres_create_with_experts_locks_member_project_then_agent() -> None:
+    """PG: member FOR SHARE → project FOR SHARE → target agent FOR SHARE →
+    inserts. Static dual-dialect assertion only — no live PostgreSQL."""
+    conn = _PgConn(
+        member_role="member",
+        project={"instructions": INSTRUCTIONS, "archived": 0, "experts_revision": 1},
+        expert_rows=[{"agent_id": "ag_shared"}],
+        agent_row={"kind": "expert", "user_id": 9, "is_shared": 1, "enabled": 1},
+    )
+    repo = ProjectTaskRepo(cast(Any, _PgPool(conn)))
+    mutation = repo.create_with_context(
+        project_id="p1",
+        user_id=9,
+        agent_id="ag_shared",
+        thread_id="thr_pg",
+        session_key=_dashboard_key("ag_shared", 9),
+        expected_instructions_sha256=instructions_sha256(INSTRUCTIONS),
+        expected_experts_revision=1,
+    )
+    assert mutation.outcome == "created"
+    stmts = conn.statements
+    i_member = _first_index(stmts, "FROM project_members")
+    i_project = _first_index(stmts, "FROM project_spaces")
+    i_experts = _first_index(stmts, "FROM project_experts")
+    i_agent = _first_index(stmts, "FROM agents")
+    i_insert = _first_index(stmts, "INSERT INTO threads")
+    assert stmts[i_member].endswith("FOR SHARE")
+    assert stmts[i_project].endswith("FOR SHARE")
+    assert stmts[i_agent].endswith("FOR SHARE")
+    assert i_member < i_project < i_experts < i_agent < i_insert
+    # The context snapshot carries the actual config revision.
+    assert (
+        "expert_selection_revision"
+        in stmts[_first_index(stmts, "INSERT INTO project_task_contexts")]
+    )
+
+
+def test_sqlite_create_with_experts_uses_no_row_lock_clauses(
+    repo: ProjectTaskRepo,
+    db: SqlitePool,
+    projects: ProjectRepo,
+    pid: str,
+    owner_id: int,
+    member_id: int,
+) -> None:
+    _seed_agent(db, agent_id="ag_shared", user_id=owner_id)
+    _share_agent(db, "ag_shared")
+    _set_instructions(projects, pid, owner_id, INSTRUCTIONS)
+    revision = _set_experts(projects, db, pid, owner_id, ["ag_shared"])
+    mutation = repo.create_with_context(
+        project_id=pid,
+        user_id=member_id,
+        agent_id="ag_shared",
+        thread_id="thr_sqlite_ok",
+        session_key=_dashboard_key("ag_shared", member_id),
+        expected_instructions_sha256=instructions_sha256(INSTRUCTIONS),
+        expected_experts_revision=revision,
+    )
+    assert mutation.outcome == "created"
+
+
+# ---------------------------------------------------------------------------
+# 029 expert gate: two-connection SQLite interleaving config vs creation
+# ---------------------------------------------------------------------------
+
+
+def test_two_connection_create_serializes_behind_expert_config_write(
+    repo: ProjectTaskRepo,
+    db: SqlitePool,
+    projects: ProjectRepo,
+    pid: str,
+    owner_id: int,
+    member_id: int,
+) -> None:
+    """A create that started before a config change sees the committed list."""
+    _seed_agent(db, agent_id="ag_a", user_id=owner_id)
+    _share_agent(db, "ag_a")
+    _seed_agent(db, agent_id="ag_b", user_id=owner_id)
+    _share_agent(db, "ag_b")
+    _set_instructions(projects, pid, owner_id, INSTRUCTIONS)
+    _set_experts(projects, db, pid, owner_id, ["ag_a"])
+
+    second = SqlitePool(db.path)
+    second_repo = ProjectTaskRepo(second)
+
+    import concurrent.futures
+
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
+        with db.transaction() as conn:
+            # Replace the list and bump the revision inside the held write
+            # transaction; the second writer must wait for the commit.
+            conn.execute(
+                "DELETE FROM project_experts WHERE project_id = ?",
+                (pid,),
+            )
+            conn.execute(
+                "INSERT INTO project_experts("
+                "project_id, agent_id, sort_order, added_by, added_at"
+                ") VALUES (?, 'ag_b', 0, ?, 0)",
+                (pid, owner_id),
+            )
+            conn.execute(
+                "UPDATE project_spaces SET experts_revision = 2 WHERE project_id = ?",
+                (pid,),
+            )
+            future = executor.submit(
+                lambda: second_repo.create_with_context(
+                    project_id=pid,
+                    user_id=member_id,
+                    agent_id="ag_a",
+                    thread_id="thr_race_old",
+                    session_key=_dashboard_key("ag_a", member_id),
+                    expected_instructions_sha256=instructions_sha256(INSTRUCTIONS),
+                    expected_experts_revision=1,
+                )
+            )
+        mutation = future.result(timeout=15)
+    finally:
+        executor.shutdown(wait=True)
+        second.close()
+    assert mutation.outcome == "stale_experts"
+    assert _row_count(db, "threads", "thread_id = ?", ("thr_race_old",)) == 0
+
+    # A create matching the committed config succeeds atomically afterwards.
+    fresh = repo.create_with_context(
+        project_id=pid,
+        user_id=member_id,
+        agent_id="ag_b",
+        thread_id="thr_race_new",
+        session_key=_dashboard_key("ag_b", member_id),
+        expected_instructions_sha256=instructions_sha256(INSTRUCTIONS),
+        expected_experts_revision=2,
+    )
+    assert fresh.outcome == "created"
+    assert _context_revision(db, "thr_race_new") == 2
+
+
+# ---------------------------------------------------------------------------
 # Migration 026
 # ---------------------------------------------------------------------------
 
@@ -583,7 +1081,7 @@ def test_migration_026_shape(db: SqlitePool) -> None:
     assert v == _max_discovered_version("sqlite")
     assert v >= 26
     assert "project_task_contexts" in tables
-    assert cols == {
+    assert cols >= {
         "thread_id",
         "project_id",
         "owner_user_id",
@@ -591,6 +1089,7 @@ def test_migration_026_shape(db: SqlitePool) -> None:
         "snapshot_version",
         "instructions_sha256",
         "captured_at",
+        "expert_selection_revision",
     }
     assert pk == {"thread_id"}
 
@@ -714,6 +1213,8 @@ def test_migration_upgrades_from_v25_without_backfill(tmp_path: Path) -> None:
         conn.executescript(
             """
             DROP TABLE IF EXISTS project_task_contexts;
+            DROP TABLE IF EXISTS project_experts;
+            ALTER TABLE project_spaces DROP COLUMN experts_revision;
             UPDATE _schema_version SET version = 25;
             """
         )

@@ -19,6 +19,7 @@ from octop.infra.utils.ulid import new_ulid
 MAX_PROJECT_NAME_LENGTH = 15
 MAX_PROJECT_DESCRIPTION_LENGTH = 2000
 MAX_PROJECT_INSTRUCTIONS_LENGTH = 2000
+MAX_PROJECT_EXPERTS = 20
 DEFAULT_PAGE_LIMIT = 20
 MAX_PAGE_LIMIT = 100
 
@@ -128,6 +129,22 @@ class InviteAcceptanceView:
     project_id: str
     role: str = ""
     request_id: str = ""
+
+
+@dataclass(frozen=True)
+class ProjectExpertView:
+    """One masked project expert: unavailable rows carry no Agent profile."""
+
+    agent_id: str
+    name: str | None
+    description: str | None
+    status: str
+
+
+@dataclass(frozen=True)
+class ProjectExpertsView:
+    revision: int
+    items: list[ProjectExpertView]
 
 
 class ProjectService:
@@ -251,6 +268,81 @@ class ProjectService:
             ProjectMemberView(user_id=int(r.user_id), username=str(r.username), role=str(r.role))
             for r in rows
         ]
+
+    # ------------------------------------------------------------------
+    # Versioned expert selection (029)
+    # ------------------------------------------------------------------
+
+    def list_experts(self, project_id: str, *, user_id: int) -> ProjectExpertsView:
+        """Members read the live masked list; outsiders get the uniform 404."""
+        self._require_membership(project_id, user_id)
+        selection = self._repo.get_experts(project_id)
+        if selection is None:
+            raise OctopError(ErrorCode.NOT_FOUND, "project not found")
+        return self._experts_view(selection)
+
+    def set_experts(
+        self,
+        project_id: str,
+        *,
+        actor_user_id: int,
+        expected_revision: int,
+        agent_ids: list[str],
+    ) -> ProjectExpertsView:
+        """Owner/admin replace the ordered shared-expert list.
+
+        The repository re-checks membership, role, archive state, the expected
+        revision, and every Agent's shared/enabled/kind state inside one write
+        transaction before deleting or inserting anything. Stale revisions
+        answer 409 ``PROJECT_EXPERTS_CHANGED`` with no writes; an identical
+        ordered list is a no-op; a real change bumps the revision once.
+        """
+        self._require_membership(project_id, actor_user_id, edit=True)
+        if expected_revision < 0 or len(agent_ids) > MAX_PROJECT_EXPERTS:
+            raise OctopError(ErrorCode.PROJECT_EXPERT_INVALID, "project expert list is invalid")
+        if len(set(agent_ids)) != len(agent_ids):
+            raise OctopError(ErrorCode.PROJECT_EXPERT_INVALID, "project expert list has duplicates")
+        mutation = self._repo.replace_experts(
+            project_id=project_id,
+            actor_user_id=actor_user_id,
+            expected_revision=expected_revision,
+            agent_ids=agent_ids,
+        )
+        if mutation.outcome == "not_member":
+            raise OctopError(ErrorCode.NOT_FOUND, "project not found")
+        if mutation.outcome == "forbidden":
+            raise OctopError(ErrorCode.FORBIDDEN, "project update requires owner or admin role")
+        if mutation.outcome == "archived":
+            raise OctopError(ErrorCode.FORBIDDEN, "project is archived")
+        if mutation.outcome == "stale":
+            raise OctopError(
+                ErrorCode.PROJECT_EXPERTS_CHANGED,
+                "project experts changed since they were confirmed",
+            )
+        if mutation.outcome == "invalid_agent":
+            raise OctopError(
+                ErrorCode.PROJECT_EXPERT_INVALID,
+                "selected agents are not all shared, enabled experts",
+            )
+        selection = self._repo.get_experts(project_id)
+        if selection is None:
+            raise OctopError(ErrorCode.NOT_FOUND, "project not found")
+        return self._experts_view(selection)
+
+    @staticmethod
+    def _experts_view(selection: Any) -> ProjectExpertsView:
+        return ProjectExpertsView(
+            revision=int(selection.revision),
+            items=[
+                ProjectExpertView(
+                    agent_id=str(row.agent_id),
+                    name=row.name,
+                    description=row.description,
+                    status=str(row.status),
+                )
+                for row in selection.items
+            ],
+        )
 
     # ------------------------------------------------------------------
     # Invites

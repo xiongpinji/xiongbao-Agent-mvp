@@ -53,6 +53,10 @@ import {
 } from "../../api/modules/octopThreads";
 import type { ProjectMember } from "../../api/modules/projects";
 import {
+  projectExpertsApi,
+  type ProjectExpertsResponse,
+} from "../../api/modules/projectExperts";
+import {
   PROJECT_TASK_MESSAGE_PAGE_SIZE,
   PROJECT_TASKS_PAGE_SIZE,
   projectTasksApi,
@@ -194,6 +198,13 @@ export default function ProjectTasks({
   const [createConfirmed, setCreateConfirmed] = useState(false);
   const [createBusy, setCreateBusy] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [expertSelection, setExpertSelection] = useState<{
+    projectId: string;
+    data: ProjectExpertsResponse;
+  } | null>(null);
+  const [expertSelectionLoading, setExpertSelectionLoading] = useState(false);
+  const [expertSelectionError, setExpertSelectionError] =
+    useState<unknown>(null);
   /** Digest the server rejected as stale; blocks retry until a new one arrives. */
   const [createRejectedDigest, setCreateRejectedDigest] = useState<
     string | null
@@ -212,6 +223,8 @@ export default function ProjectTasks({
   const messagesSeq = useRef(0);
   const sharesSeq = useRef(0);
   const createSeq = useRef(0);
+  const expertSelectionSeq = useRef(0);
+  const createBusyRef = useRef(false);
   const currentProjectId = useRef(projectId);
   currentProjectId.current = projectId;
 
@@ -230,10 +243,25 @@ export default function ProjectTasks({
    * single-expert-only: a running team host delegates to peer agents that do
    * not inherit the project snapshot, so it must not be offered here.
    */
-  const createAgents = useMemo(
+  const singleRunningAgents = useMemo(
     () => runningAgents.filter((agent) => agent.kind !== "team"),
     [runningAgents],
   );
+  const selection =
+    expertSelection?.projectId === projectId ? expertSelection.data : null;
+  const createAgents = useMemo(() => {
+    if (selection == null) return [];
+    if (selection.items.length === 0) return singleRunningAgents;
+    const available = new Map(
+      singleRunningAgents
+        .filter((agent) => agent.is_shared === true)
+        .map((agent) => [agent.agent_id, agent]),
+    );
+    return selection.items.flatMap((item) => {
+      const agent = available.get(item.agent_id);
+      return item.status === "available" && agent != null ? [agent] : [];
+    });
+  }, [selection, singleRunningAgents]);
   const fallbackAgentId =
     activeAgentId != null &&
     runningAgents.some((agent) => agent.agent_id === activeAgentId)
@@ -256,6 +284,9 @@ export default function ProjectTasks({
     createRejectedDigest != null && createRejectedDigest === instructionsSha256;
   const createDisabled =
     createBusy ||
+    selection == null ||
+    expertSelectionLoading ||
+    expertSelectionError != null ||
     !createConfirmed ||
     createReadyAgentId == null ||
     !digestAvailable ||
@@ -338,18 +369,20 @@ export default function ProjectTasks({
     setShareBusyUserId(null);
     setShareActionError(null);
   }, []);
-  /**
-   * Closing the create dialog invalidates any in-flight create so a late
-   * response can neither navigate nor render a fake row for this project.
-   */
-  const closeCreate = useCallback(() => {
+  /** Project/scope switches may force-close; user closure is blocked in flight. */
+  const forceCloseCreate = useCallback(() => {
     createSeq.current += 1;
+    expertSelectionSeq.current += 1;
+    createBusyRef.current = false;
     setCreateOpen(false);
     setCreateAgentId(null);
     setCreateConfirmed(false);
     setCreateError(null);
     setCreateBusy(false);
   }, []);
+  const closeCreate = useCallback(() => {
+    if (!createBusyRef.current) forceCloseCreate();
+  }, [forceCloseCreate]);
 
   // A project or scope switch must never show the previous view's private
   // rows, alerts or open dialogs.
@@ -359,8 +392,18 @@ export default function ProjectTasks({
     closePicker();
     closeReader();
     closeShare();
-    closeCreate();
-  }, [projectId, scope, closePicker, closeReader, closeShare, closeCreate]);
+    forceCloseCreate();
+    setExpertSelection(null);
+    setExpertSelectionError(null);
+    setExpertSelectionLoading(false);
+  }, [
+    projectId,
+    scope,
+    closePicker,
+    closeReader,
+    closeShare,
+    forceCloseCreate,
+  ]);
 
   // A refreshed digest (after any project reload) is never silently
   // re-confirmed: the member must read and check the new instructions again.
@@ -904,14 +947,40 @@ export default function ProjectTasks({
     setPickerOpen(true);
   };
 
+  const loadExpertSelection = async () => {
+    const seq = ++expertSelectionSeq.current;
+    setExpertSelection(null);
+    setExpertSelectionError(null);
+    setExpertSelectionLoading(true);
+    try {
+      const data = await projectExpertsApi.list(projectId);
+      if (seq !== expertSelectionSeq.current) return;
+      if (projectId !== currentProjectId.current) return;
+      setExpertSelection({ projectId, data });
+      setCreateAgentId(null);
+    } catch (err: unknown) {
+      if (seq !== expertSelectionSeq.current) return;
+      if (projectId !== currentProjectId.current) return;
+      setExpertSelectionError(err);
+      setCreateConfirmed(false);
+      if (isNotFoundApiError(err)) onProjectReload?.();
+    } finally {
+      if (seq === expertSelectionSeq.current) {
+        setExpertSelectionLoading(false);
+      }
+    }
+  };
+
   const openCreate = () => {
     createSeq.current += 1;
+    createBusyRef.current = false;
     setActionError(null);
     setCreateAgentId(null);
     setCreateConfirmed(false);
     setCreateError(null);
     setCreateBusy(false);
     setCreateOpen(true);
+    void loadExpertSelection();
   };
 
   /**
@@ -925,16 +994,26 @@ export default function ProjectTasks({
     if (createBusy || !createConfirmed) return;
     const agentId = createReadyAgentId;
     const digest = instructionsSha256;
-    if (agentId == null || digest == null) return;
+    const expertsRevision = selection?.revision;
+    if (agentId == null || digest == null || expertsRevision == null) return;
     if (digest === createRejectedDigest) return;
     const seq = ++createSeq.current;
+    createBusyRef.current = true;
     setCreateBusy(true);
     setCreateError(null);
     try {
-      const created = await projectTasksApi.create(projectId, agentId, digest);
-      if (seq !== createSeq.current) return;
+      const created = await projectTasksApi.create(
+        projectId,
+        agentId,
+        digest,
+        expertsRevision,
+      );
+      if (seq !== createSeq.current) {
+        if (projectId === currentProjectId.current) reload();
+        return;
+      }
       if (projectId !== currentProjectId.current) return;
-      closeCreate();
+      forceCloseCreate();
       void message.success(
         t("projects.tasks.createSuccess", "已创建项目任务，正在前往对话。"),
       );
@@ -944,8 +1023,25 @@ export default function ProjectTasks({
         )}`,
       );
     } catch (err: unknown) {
-      if (seq !== createSeq.current) return;
       if (projectId !== currentProjectId.current) return;
+      const code = parseApiError(err)?.code;
+      if (code === "PROJECT_INSTRUCTIONS_CHANGED") {
+        setCreateRejectedDigest(digest);
+        setCreateConfirmed(false);
+        onProjectReload?.();
+      } else if (
+        code === "PROJECT_EXPERTS_CHANGED" ||
+        code === "PROJECT_EXPERT_UNAVAILABLE"
+      ) {
+        setCreateConfirmed(false);
+        setCreateAgentId(null);
+        void loadExpertSelection();
+        onProjectReload?.();
+      } else if (isNotFoundApiError(err)) {
+        setCreateConfirmed(false);
+        onProjectReload?.();
+      }
+      if (seq !== createSeq.current) return;
       setCreateError(
         apiErrorMessage(
           err,
@@ -953,16 +1049,11 @@ export default function ProjectTasks({
           t,
         ),
       );
-      if (parseApiError(err)?.code === "PROJECT_INSTRUCTIONS_CHANGED") {
-        setCreateRejectedDigest(digest);
-        setCreateConfirmed(false);
-        onProjectReload?.();
-      } else if (isNotFoundApiError(err)) {
-        setCreateConfirmed(false);
-        onProjectReload?.();
-      }
     } finally {
-      if (seq === createSeq.current) setCreateBusy(false);
+      if (seq === createSeq.current) {
+        createBusyRef.current = false;
+        setCreateBusy(false);
+      }
     }
   };
 
@@ -2318,9 +2409,12 @@ export default function ProjectTasks({
           open
           title={t("projects.tasks.createTitle", "新建项目任务")}
           onCancel={closeCreate}
+          closable={!createBusy}
+          maskClosable={!createBusy}
+          keyboard={!createBusy}
           destroyOnHidden
           footer={[
-            <Button key="cancel" onClick={closeCreate}>
+            <Button key="cancel" onClick={closeCreate} disabled={createBusy}>
               {t("common.cancel", "取消")}
             </Button>,
             <Button
@@ -2347,6 +2441,29 @@ export default function ProjectTasks({
           <div style={{ ...secondaryStyle, marginBottom: 4 }}>
             {t("projects.tasks.createAgentLabel", "执行专家")}
           </div>
+          {expertSelectionLoading && (
+            <div style={{ marginBottom: 12 }}>
+              <Spin size="small" />{" "}
+              {t("projects.tasks.expertsLoading", "正在读取项目专家配置…")}
+            </div>
+          )}
+          {expertSelectionError != null && (
+            <Alert
+              type="error"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message={apiErrorMessage(
+                expertSelectionError,
+                t("projects.tasks.expertsLoadFailed", "读取项目专家配置失败"),
+                t,
+              )}
+              action={
+                <Button size="small" onClick={() => void loadExpertSelection()}>
+                  {t("common.retry", "重试")}
+                </Button>
+              }
+            />
+          )}
           <Select<string>
             style={{ width: "100%", marginBottom: 12 }}
             value={createReadyAgentId ?? undefined}
@@ -2356,7 +2473,9 @@ export default function ProjectTasks({
             }))}
             placeholder={t("projects.tasks.selectAgent", "选择专家")}
             aria-label={t("projects.tasks.selectAgent", "选择专家")}
-            disabled={createAgents.length === 0 || createBusy}
+            disabled={
+              createAgents.length === 0 || createBusy || selection == null
+            }
             onChange={(value) => setCreateAgentId(value)}
           />
           <div style={{ ...secondaryStyle, marginTop: -8, marginBottom: 12 }}>
@@ -2365,7 +2484,27 @@ export default function ProjectTasks({
               "专家团会分派给其他专家，暂不能保证他们使用本项目的指令。请选择单专家。",
             )}
           </div>
-          {runningAgents.length === 0 ? (
+          {selection?.items.length === 0 ? (
+            <div style={{ ...secondaryStyle, marginBottom: 12 }}>
+              {t(
+                "projects.tasks.expertsDefaultHint",
+                "项目未指定专家；你可以使用自己当前可用的单专家。",
+              )}
+            </div>
+          ) : null}
+          {selection != null &&
+          selection.items.length > 0 &&
+          createAgents.length === 0 ? (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message={t(
+                "projects.tasks.configuredExpertsUnavailable",
+                "项目配置的专家当前不可用；请联系项目管理员调整，或刷新后重试。",
+              )}
+            />
+          ) : selection != null && runningAgents.length === 0 ? (
             <Alert
               type="info"
               showIcon
@@ -2375,7 +2514,7 @@ export default function ProjectTasks({
                 "没有已启用的专家，无法新建项目任务；请先在专家列表中启用或启动一个专家。",
               )}
             />
-          ) : createAgents.length === 0 ? (
+          ) : selection != null && createAgents.length === 0 ? (
             <Alert
               type="info"
               showIcon

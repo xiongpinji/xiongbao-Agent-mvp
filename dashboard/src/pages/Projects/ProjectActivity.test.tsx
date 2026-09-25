@@ -123,6 +123,19 @@ beforeEach(() => {
 });
 
 describe("ProjectActivity timeline", () => {
+  it("renders a project expert change without exposing its event payload", async () => {
+    list.mockResolvedValueOnce(
+      page([
+        {
+          ...projectCreated,
+          event_id: 22,
+          event_type: "project.experts_updated",
+        },
+      ]),
+    );
+    renderActivity();
+    expect(await screen.findByText("更新了项目专家")).toBeInTheDocument();
+  });
   it("loads related events by default with server-side paging", async () => {
     list.mockResolvedValue(page([projectCreated, messageByAlice]));
     renderActivity("p1");
