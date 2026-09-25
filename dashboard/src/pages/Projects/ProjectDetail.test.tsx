@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { get, members, list, usage } = vi.hoisted(() => ({
@@ -132,7 +132,14 @@ vi.mock("./ProjectTasks", () => ({
   },
 }));
 vi.mock("./ProjectMembersPanel", () => ({
-  default: () => <div>members-stub</div>,
+  // Mirror the real panel's outer landmark: ProjectMembersPanel renders its
+  // own <section aria-label="成员">, which the detail card wrapper must not
+  // duplicate with a second named region.
+  default: () => (
+    <section aria-label="成员">
+      <div>members-stub</div>
+    </section>
+  ),
 }));
 vi.mock("./ProjectExperts", () => ({
   default: (props: { projectId: string; role: string }) => {
@@ -446,19 +453,24 @@ describe("ProjectDetail assets tab mount", () => {
 });
 
 describe("ProjectDetail compact project shell", () => {
-  it("replaces the PageShell title and card with a compact path/action header plus a project-info disclosure", async () => {
+  it("keeps the compact path/action header, restores a page-level h1 and wires the project-info disclosure", async () => {
     const user = userEvent.setup();
     const { container } = renderDetail("project-1");
 
     await screen.findByText("activity-stub");
 
     expect(container.querySelector("header")).not.toBeNull();
-    expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
     expect(screen.getByRole("link", { name: "项目" })).toHaveAttribute(
       "href",
       "/projects",
     );
-    expect(screen.getByText("熊宝项目")).toBeInTheDocument();
+    // The compact header replaced PageShell's title, so the project name is
+    // restored as exactly one (visually hidden) h1 beside the breadcrumb:
+    // h1 + visible breadcrumb last item are the only two text matches.
+    const headings = screen.getAllByRole("heading", { level: 1 });
+    expect(headings).toHaveLength(1);
+    expect(headings[0]).toHaveTextContent("熊宝项目");
+    expect(screen.getAllByText("熊宝项目")).toHaveLength(2);
 
     const info = screen.getByRole("button", { name: "查看详情" });
     expect(info).toHaveAttribute("aria-expanded", "false");
@@ -527,14 +539,27 @@ const longInstructions = `${"先阅读项目资料并标注来源，".repeat(
 )}尾部标记-完成度检查。`;
 
 describe("ProjectDetail configuration cards", () => {
-  it("renders distinct labeled sections for instructions, connectors, experts, skills and scheduled tasks", async () => {
+  it("renders exactly one labeled region per config card, including expert and member panels", async () => {
     renderDetail("project-1");
 
     await screen.findByText("activity-stub");
 
-    for (const name of ["指令", "连接器", "专家", "技能", "定时任务"]) {
-      expect(screen.getByRole("region", { name })).toBeInTheDocument();
+    // 专家/成员 regions come from the child panels' own named <section>s —
+    // the styled card wrappers must not duplicate them into a second
+    // identically named region (033 review P2: card semantics).
+    for (const name of ["指令", "连接器", "专家", "技能", "定时任务", "成员"]) {
+      expect(screen.getAllByRole("region", { name })).toHaveLength(1);
     }
+    expect(
+      within(screen.getByRole("region", { name: "专家" })).getByText(
+        "experts-stub",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("region", { name: "成员" })).getByText(
+        "members-stub",
+      ),
+    ).toBeInTheDocument();
 
     // Unavailable cards never fake an action or a count.
     for (const name of ["连接器", "技能", "定时任务"]) {
@@ -542,7 +567,6 @@ describe("ProjectDetail configuration cards", () => {
       expect(within(region).getByText("暂未开放")).toBeInTheDocument();
       expect(within(region).queryByRole("button")).toBeNull();
     }
-    expect(screen.getByText("experts-stub")).toBeInTheDocument();
   });
 
   it("shows long instructions as a compact preview and reveals the verbatim text from the keyboard", async () => {
@@ -704,5 +728,165 @@ describe("ProjectDetail configuration cards", () => {
     expect(hint).toHaveTextContent(
       "在本页直接发送消息、协同写入、本地/云端与移交需后续后端权限；任务卡片摘要可在“任务”页显式分享给指定成员。",
     );
+  });
+});
+
+const INFO_PANEL_ID = "project-detail-info";
+const INFO_PANEL_LABEL = "项目信息";
+
+/** Same route pattern with different params keeps one component instance. */
+function renderDetailWithSwitchLink(fromId: string, toId: string) {
+  return render(
+    <MemoryRouter initialEntries={[`/projects/${fromId}`]}>
+      <Link to={`/projects/${toId}`}>switch-project</Link>
+      <Routes>
+        <Route path="/projects/:projectId" element={<ProjectDetail />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+/**
+ * 033 review P2: the info disclosure only had a trigger-to-close path and
+ * could retain open state across a route project switch. These tests pin
+ * the dismissal contract: Escape (from the trigger or from inside the
+ * panel), click/tap outside, and route project-ID changes close it, while
+ * clicks inside the readable content keep it open and focus stays
+ * predictable instead of trapped. Pixel bounding of the long description
+ * (viewport-relative max-height + internal scroll) is CSS; it belongs to
+ * the browser acceptance matrix, not JSDOM.
+ */
+describe("ProjectDetail info disclosure dismissal", () => {
+  it("keeps a long description inside a native keyboard-operable disclosure", async () => {
+    const longDescription = "很长的项目描述，需要滚动才能读完。".repeat(24);
+    get.mockResolvedValue({
+      ...summary,
+      description: longDescription,
+      instructions: "",
+      instructions_sha256: "sha-empty",
+    });
+    const user = userEvent.setup();
+    renderDetail("project-1");
+
+    await screen.findByText("activity-stub");
+
+    const trigger = screen.getByRole("button", { name: "查看详情" });
+    // Native button: Space/Enter activation and focusability come free.
+    expect(trigger.tagName).toBe("BUTTON");
+    expect(trigger).toHaveAttribute("type", "button");
+    trigger.focus();
+    expect(trigger).toHaveFocus();
+
+    await user.keyboard("{Enter}");
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+
+    const panel = screen.getByRole("group", { name: INFO_PANEL_LABEL });
+    expect(trigger).toHaveAttribute("aria-controls", INFO_PANEL_ID);
+    expect(panel.id).toBe(INFO_PANEL_ID);
+    // Focusable so keyboard users can scroll the bounded panel.
+    expect(panel).toHaveAttribute("tabindex", "0");
+    // The full description stays in the content (CSS bounds it with an
+    // internal scrollport at desktop heights).
+    expect(panel).toHaveTextContent(longDescription);
+
+    await user.keyboard("{Enter}");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(panel).toHaveAttribute("hidden");
+  });
+
+  it("closes on Escape from the trigger or the panel and refocuses the trigger", async () => {
+    const user = userEvent.setup();
+    renderDetail("project-1");
+
+    await screen.findByText("activity-stub");
+
+    const trigger = screen.getByRole("button", { name: "查看详情" });
+
+    // Escape while the trigger holds focus.
+    await user.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    await user.keyboard("{Escape}");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).toHaveFocus();
+    expect(document.getElementById(INFO_PANEL_ID)).toHaveAttribute("hidden");
+
+    // Escape while focus is inside the panel: focus returns to the trigger,
+    // so reopening stays one keystroke away and nothing is lost.
+    await user.keyboard("{Enter}");
+    const panel = screen.getByRole("group", { name: INFO_PANEL_LABEL });
+    panel.focus();
+    expect(panel).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(panel).toHaveAttribute("hidden");
+    expect(trigger).toHaveFocus();
+  });
+
+  it("lets keyboard focus move on past the open panel instead of trapping it", async () => {
+    const user = userEvent.setup();
+    renderDetail("project-1");
+
+    await screen.findByText("activity-stub");
+
+    const trigger = screen.getByRole("button", { name: "查看详情" });
+    await user.click(trigger);
+    const panel = screen.getByRole("group", { name: INFO_PANEL_LABEL });
+    panel.focus();
+    expect(panel).toHaveFocus();
+
+    await user.tab();
+    expect(panel.contains(document.activeElement)).toBe(false);
+    expect(document.activeElement).not.toBe(trigger);
+  });
+
+  it("closes on clicks outside but not while reading inside the panel", async () => {
+    const user = userEvent.setup();
+    renderDetail("project-1");
+
+    await screen.findByText("activity-stub");
+
+    const trigger = screen.getByRole("button", { name: "查看详情" });
+    await user.click(trigger);
+    const panel = screen.getByRole("group", { name: INFO_PANEL_LABEL });
+
+    // Clicking inside the readable content (selecting/copying the
+    // description or metadata) must not dismiss the panel.
+    await user.click(screen.getByText("真实项目描述"));
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(panel).not.toHaveAttribute("hidden");
+
+    // A click/tap anywhere outside dismisses it.
+    await user.click(screen.getByText("项目配置"));
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(panel).toHaveAttribute("hidden");
+  });
+
+  it("closes the stale disclosure when the route project ID changes", async () => {
+    get.mockImplementation((projectId: string) =>
+      Promise.resolve({
+        ...summary,
+        project_id: projectId,
+        instructions: "",
+        instructions_sha256: "sha-empty",
+      }),
+    );
+    const user = userEvent.setup();
+    renderDetailWithSwitchLink("project-1", "project-2");
+
+    await screen.findByText("activity-stub");
+    const trigger = screen.getByRole("button", { name: "查看详情" });
+    await user.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+
+    // Same route pattern, different :projectId — the component instance
+    // persists, so a stale open disclosure must be reset explicitly.
+    await user.click(screen.getByText("switch-project"));
+    await screen.findByText("activity-stub");
+
+    expect(screen.getByRole("button", { name: "查看详情" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    expect(document.getElementById(INFO_PANEL_ID)).toHaveAttribute("hidden");
   });
 });

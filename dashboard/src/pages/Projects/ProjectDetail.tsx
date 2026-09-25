@@ -12,9 +12,14 @@
  *   (all four tabs) and beside the fixed configuration column on desktop;
  *   direct project send remains unavailable
  * - loaded project: the oversized PageShell title/card is replaced by a
- *   compact breadcrumb/action header plus a keyboard-accessible project-info
- *   disclosure (role, description, member count, updated time); tabs get an
- *   elastic center work area
+ *   compact breadcrumb/action header — the project name survives as a
+ *   visually hidden h1 so the document keeps a true page-level heading —
+ *   plus a keyboard-accessible project-info disclosure (role, description,
+ *   member count, updated time). The disclosure dismisses on Escape, on a
+ *   click/tap outside and on any route project-ID change, never traps
+ *   focus, and its panel is viewport-bounded with an internal scrollport
+ *   so long descriptions stay fully readable on short desktop windows;
+ *   tabs get an elastic center work area
  * - fixed 项目配置 column: bounded cards for instructions, connectors,
  *   experts, skills and scheduled tasks. Real instructions render as a
  *   compact preview with a keyboard disclosure for the verbatim text and a
@@ -152,6 +157,10 @@ export default function ProjectDetail() {
 
   const canEdit = project?.my_role === "owner" || project?.my_role === "admin";
 
+  /** Root of the info disclosure: trigger + panel; outside clicks close. */
+  const infoRootRef = useRef<HTMLDivElement | null>(null);
+  const infoTriggerRef = useRef<HTMLButtonElement | null>(null);
+
   /** A different project or instruction revision starts collapsed again. */
   useEffect(() => {
     setInstructionsExpanded(false);
@@ -160,6 +169,51 @@ export default function ProjectDetail() {
     project?.instructions_sha256,
     project?.instructions,
   ]);
+
+  /**
+   * A route-level project switch keeps this component instance mounted, so
+   * the disclosure must not carry its open state into the next project.
+   */
+  useEffect(() => {
+    setInfoOpen(false);
+  }, [id]);
+
+  /**
+   * While the info disclosure is open it dismisses on Escape and on any
+   * pointer press outside its root (mouse click or touch tap). Escape
+   * refocuses the trigger, so dismissal is predictable and reopening stays
+   * one keystroke away; clicks inside keep the panel open because the
+   * description and metadata are meant to be read and selected.
+   */
+  useEffect(() => {
+    if (!infoOpen) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setInfoOpen(false);
+      infoTriggerRef.current?.focus();
+    };
+    const onPointerDown = (event: PointerEvent | MouseEvent) => {
+      const root = infoRootRef.current;
+      const target = event.target;
+      if (root && target instanceof Node && root.contains(target)) {
+        return;
+      }
+      setInfoOpen(false);
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    // pointerdown covers touch; mousedown keeps environments without
+    // PointerEvent support (including JSDOM) working. Both handlers are
+    // idempotent, so a browser that fires both only closes once.
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("mousedown", onPointerDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("mousedown", onPointerDown);
+    };
+  }, [infoOpen]);
 
   const notFound = error != null && isNotFoundApiError(error);
 
@@ -258,12 +312,15 @@ export default function ProjectDetail() {
   /**
    * Compact project metadata: role, description, member count and updated
    * time stay reachable behind a plain keyboard-operable disclosure instead
-   * of occupying the work area.
+   * of occupying the work area. The panel is tabbable so keyboard users can
+   * scroll its viewport-bounded content, and it is a labelled group rather
+   * than a dialog — focus is never trapped and Escape refocuses the trigger.
    */
   const projectInfo = (
-    <div className={styles.projectInfo}>
+    <div className={styles.projectInfo} ref={infoRootRef}>
       <button
         type="button"
+        ref={infoTriggerRef}
         className={styles.infoTrigger}
         aria-expanded={infoOpen}
         aria-controls={INFO_PANEL_ID}
@@ -272,7 +329,14 @@ export default function ProjectDetail() {
         <Info size={14} aria-hidden />
         {t("common.viewDetail", "查看详情")}
       </button>
-      <div id={INFO_PANEL_ID} className={styles.infoPanel} hidden={!infoOpen}>
+      <div
+        id={INFO_PANEL_ID}
+        className={styles.infoPanel}
+        role="group"
+        aria-label={t("projects.detail.infoPanel", "项目信息")}
+        tabIndex={0}
+        hidden={!infoOpen}
+      >
         {project.description?.trim() ? (
           <p className={styles.infoDescription}>{project.description}</p>
         ) : null}
@@ -421,6 +485,12 @@ export default function ProjectDetail() {
         t("projects.config.connectors", "连接器"),
       )}
 
+      {/*
+        ProjectExperts renders its own named <section aria-label="专家">
+        landmark, so the card wrapper deliberately stays a plain styled
+        div: a second named section here would duplicate the spoken region
+        without adding semantics.
+      */}
       <div className={styles.card}>
         <ProjectExperts projectId={project.project_id} role={project.my_role} />
       </div>
@@ -442,6 +512,11 @@ export default function ProjectDetail() {
         )}
       </div>
 
+      {/*
+        ProjectMembersPanel renders its own named <section aria-label="成员">
+        landmark; keep this wrapper non-landmark so assistive tech sees
+        exactly one region per card (same rule as the experts card).
+      */}
       <div className={styles.card}>
         <ProjectMembersPanel
           projectId={project.project_id}
@@ -460,6 +535,13 @@ export default function ProjectDetail() {
           className={styles.header}
           style={{ paddingRight: titleRowEndPadding(16) }}
         >
+          {/*
+            Page-level heading: the compact header replaced PageShell's
+            title, so the project name is restored as a visually hidden h1
+            — the breadcrumb stays the visible identity while assistive
+            tech still gets one true document heading.
+          */}
+          <h1 className={styles.visuallyHidden}>{project.name}</h1>
           <div className={styles.path}>
             <Breadcrumb
               items={[

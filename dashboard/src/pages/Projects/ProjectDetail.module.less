@@ -28,6 +28,7 @@
 }
 
 .header {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -69,8 +70,32 @@
   flex-shrink: 0;
 }
 
+/**
+ * Screen-reader-only page heading: the compact header keeps the visible
+ * breadcrumb while assistive tech still gets a real h1 naming the project.
+ * Absolutely positioned so it never affects the flex header layout.
+ */
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 .projectInfo {
   position: relative;
+
+  // On narrow screens, anchor the panel to the full-width header instead of
+  // the right-aligned trigger, which would push its left edge off screen.
+  @media (max-width: 767px) {
+    position: static;
+  }
 }
 
 .infoTrigger {
@@ -105,12 +130,49 @@
   z-index: 20;
   width: 300px;
   max-width: calc(100vw - 32px);
+  /*
+   * Bound the panel by the viewport that actually clips it: on desktop
+   * `.shell` has overflow:hidden, so an unbounded panel would cut a long
+   * description off mid-text in short windows (e.g. 1273×634). Subtract
+   * the chrome that can sit above/below it — the mobile-only global
+   * header (--fn-header-height; desktop renders none, so the result stays
+   * conservative), the iOS safe-area insets via layout.css's global
+   * tokens (index.html sets viewport-fit=cover), and shell padding +
+   * header row + gap + bottom breathing room (72px) — rather than a
+   * constant tuned to one screenshot. The chrome total lives in a custom
+   * property so both max-height lines stay short — its single long line
+   * is deliberate: Prettier prints custom-property values verbatim. dvh
+   * tracks dynamic browser toolbars and the vh line is the fallback.
+   * Long content then scrolls inside the panel.
+   */
+  --info-panel-chrome: calc(
+    var(--fn-header-height, 56px) + var(--safe-area-top, 0px) +
+      var(--safe-area-bottom, 0px) + 72px
+  );
+  max-height: calc(100vh - var(--info-panel-chrome));
+  max-height: calc(100dvh - var(--info-panel-chrome));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 12px;
   border: 1px solid var(--fn-border-secondary, #f3f4f6);
   border-radius: var(--fn-radius-md, 8px);
   background: var(--fn-bg-elevated, #fff);
   box-shadow: var(--fn-shadow-md, 0 4px 6px -1px rgba(0, 0, 0, 0.06));
   text-align: left;
+
+  @media (max-width: 767px) {
+    left: 0;
+    right: 0;
+    width: auto;
+    max-width: none;
+    box-sizing: border-box;
+  }
+
+  /* The panel is tabbable so keyboard users can scroll it. */
+  &:focus-visible {
+    outline: 2px solid var(--fn-color-brand, #e85d75);
+    outline-offset: 1px;
+  }
 }
 
 .infoDescription {
@@ -255,13 +317,25 @@
   border: none;
   border-radius: 2px;
   background: transparent;
-  color: var(--fn-color-brand, #e85d75);
+  /*
+   * 12px small text must clear WCAG AA (4.5:1) on the card background.
+   * --fn-color-brand-soft is the darkest brand-hue token verified in
+   * every palette and mode (rose light #d14a62 ≈ 4.3:1, rose dark
+   * #e85d75 ≈ 5.0:1) — an improvement over base brand (#e85d75 ≈ 3.4:1
+   * on the light card) without breaking brand. The resting underline
+   * adds a non-colour affordance; full AA in light mode would need a
+   * palette-level token change outside this file.
+   */
+  color: var(--fn-color-brand-soft, #d14a62);
   font-size: 12px;
   line-height: 1.5;
+  text-decoration: underline;
+  text-underline-offset: 2px;
   cursor: pointer;
 
   &:hover {
-    text-decoration: underline;
+    color: var(--fn-color-brand-hover, #d14a62);
+    text-decoration-thickness: 2px;
   }
 
   &:focus-visible {
