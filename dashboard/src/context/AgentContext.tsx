@@ -239,6 +239,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
                 a.icon_name === b.icon_name &&
                 a.color === b.color &&
                 a.kind === b.kind &&
+                a.is_shared === b.is_shared &&
                 sameMemberIds(a.member_ids, b.member_ids)
               );
             })
