@@ -1,6 +1,6 @@
 # 029 · 项目专家名单与新任务候选门禁验收
 
-状态：首个代码 `3fbc9f0cd9aad120dffac879f8611984e8e766b8` 及后续修复 `b6f51b325b80a082305121dd525366f28af2308d`、失败态边界补丁 `9d7c98bcf929970a5fcbdb536103765871dd3048` 已依次快进推送到用户仓库 `main`，029 代码快照的远端 SHA 已核对为 `9d7c98bcf929970a5fcbdb536103765871dd3048`。四份固定源码只读审查均 GO、无 P0/P1；最后一次只审两文件增量。本批只覆盖 PS-07 项目级专家配置的一片，不核销整条项目空间旅程。合同见 [029 项目专家选择](PROJECT_EXPERT_SELECTION_029_CONTRACT.md)。
+状态：首个代码 `3fbc9f0c`、后端修复 `b6f51b32`、失败态边界补丁 `9d7c98bc`、前端草稿修复 `64ab31be` 与 Agent 刷新修复 `7ca5064c` 已依次快进推送到用户仓库 `main`；最新远端 SHA 核对为 `7ca5064c6a997025c88575c8f9d4118ec2595bb0`。相应固定源码只读审查均 GO、无 P0/P1。本批只覆盖 PS-07 项目级专家配置的一片，不核销整条项目空间旅程。合同见 [029 项目专家选择](PROJECT_EXPERT_SELECTION_029_CONTRACT.md)。
 
 ## 用户可见行为
 
@@ -18,9 +18,10 @@
 - 仓库 Windows pre-commit 脚本调用 `make precommit`，本机没有 `make`，因此钩子未启动；代码提交采用仓库提供的 `SKIP_PRECOMMIT=1`，由上述独立检查及构建替代。未把钩子失败计成质量门通过。
 - P2 修复采用测试先行：只合入新测试时，后端停用专家返回 `AGENT_NOT_RUNNING` 而失败，前端新增的四个冲突/占位场景失败；再合入实现后，后端创建 API **19/19**、受影响项目 API/仓储 **107/107**、项目页与对应 API **209/209** 通过。Codex 另加“显式重载中关闭又重开弹窗”回归，先失败再修复；Ruff、严格 mypy **536 个源文件**、ESLint、Prettier、TypeScript 和生产构建通过。构建保留既有大包/混合导入警告。
 - 最后一处运行失败态补丁也先 RED 再 GREEN：名单中专家的 `last_state=failed` 原本从 Agent 管理器泄露 `AGENT_FAILED` HTTP 500；补丁改为统一 `PROJECT_EXPERT_UNAVAILABLE` 409，断言没有半成品 thread/link/context，并保持空名单 028 旧行为。两个集成文件 **29/29**、目标 Ruff 格式/检查及严格 mypy 通过。
+- 前端再以 RED→GREEN 修复两个实际状态边界：弹窗已选的**本地新加**专家失去共享/运行资格后，立即变为脱敏不可用且确认按钮不可提交；全局 Agent 列表仅 `is_shared` 变化时，静默刷新也更新专家候选。`ProjectExperts` 与 `AgentContext` 定向 **18/18**、改动文件 ESLint/Prettier、`npx tsc -b` 通过；这两提交均经 GLM 固定源码只读审查 GO、无 P0/P1，审查者未自行运行测试。
 
 ## 审查、路由与保留项
 
 - 冻结合同先由 `qwen-code-review / glm-5.3` 只读挑战，Codex 解决具体 P1/P2 后实施。`claude-bailian / qwen3.8-max` 主实现作业没有可接受代码，日志记录 `unrecognized_model`；后端与前端候选均由已批准的 `opencode-bailian / bailian-token-plan-personal/deepseek-v4.1-flash` 在隔离 worktree 交付。Codex 独立检查白名单、整合、修复和验证。
-- GLM 对固定代码 `3fbc9f0c` 的后端 `qwen-code-review-20260925-055348-fb8671` 和前端 `qwen-code-review-20260925-055407-1a4b47` 均给出 **GO、无 P0/P1**；只读者依据嵌入补丁，未运行测试。后端指出运行中 Agent 消失时可能返回非统一错误码；前端指出 409 后新加草稿标签丢失、刷新失败却提示成功、不可用名单原样保存必失败。OpenCode 第一次修复作业零差异，Codex 判为需修复；第二次严格六文件白名单交付并经独立测试接受。Codex 又以 RED→GREEN 修复弹窗关闭后的晚到显式重载。GLM 对 `b6f51b32` 的六文件最终字节审查 `qwen-code-review-20260925-065824-330608` 和 `9d7c98bc` 的两文件增量审查 `qwen-code-review-20260925-071157-ec6da6` 均 GO、无新 P0/P1；审查者未运行测试。保留一个非阻断 P2：本地新添加专家在弹窗中途失去共享/运行资格时会显示不可用占位，但确认按钮仍可点，随后服务端拒绝并显示通用保存失败；另保留空名单旧路径的 `AGENT_FAILED` 500 语义。PostgreSQL 半升级恢复和实库锁序仍未实测。
+- GLM 对固定代码 `3fbc9f0c` 的后端 `qwen-code-review-20260925-055348-fb8671` 和前端 `qwen-code-review-20260925-055407-1a4b47` 均给出 **GO、无 P0/P1**；只读者依据嵌入补丁，未运行测试。后端指出运行中 Agent 消失时可能返回非统一错误码；前端指出 409 后新加草稿标签丢失、刷新失败却提示成功、不可用名单原样保存必失败。OpenCode 第一次修复作业零差异，Codex 判为需修复；第二次严格六文件白名单交付并经独立测试接受。Codex 又以 RED→GREEN 修复弹窗关闭后的晚到显式重载。GLM 对 `b6f51b32` 的六文件最终字节审查 `qwen-code-review-20260925-065824-330608`、`9d7c98bc` 的两文件增量 `qwen-code-review-20260925-071157-ec6da6`、`64ab31be` 草稿修复 `qwen-code-review-20260925-073903-0ba602`、`7ca5064c` 刷新修复 `qwen-code-review-20260925-075634-a7d09b` 均 GO、无新 P0/P1；审查者未运行测试。保留空名单旧路径的 `AGENT_FAILED` 500 语义；通用 AgentContext 静默刷新还可能遗漏 `description/icon_url` 等字段，且并发响应无顺序保护，这属于后续通用 Agent 状态片。PostgreSQL 半升级恢复和实库锁序仍未实测。
 - 项目目录隔离、项目技能/连接器/定时任务、公共团队凭证、专家团传递、协同写入与移交、本地/云端任务模式、真实模型轮次、安装后的 Windows 桌面、PostgreSQL 实库并发和 WorkBuddy 逐状态 1:1 视觉/键盘验收均未完成。当前 11 条项目空间旅程仍是 **0/11 完整功能与 WorkBuddy 视觉双验收**。
