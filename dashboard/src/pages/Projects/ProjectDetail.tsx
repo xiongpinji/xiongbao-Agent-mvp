@@ -11,27 +11,44 @@
  * - one disabled bottom task composer stays mounted below every tab body
  *   (all four tabs) and beside the fixed configuration column on desktop;
  *   direct project send remains unavailable
- * - fixed 项目配置 column: real instructions (editable for owner/admin via
- *   PATCH); member invitations and approvals use project membership APIs,
- *   while connector / expert / skill / scheduled-task rows stay unavailable;
- *   the column stays inline at every desktop width (narrow viewports are
- *   handled by the global nav collapsing to its rail, not by a disclosure)
+ * - loaded project: the oversized PageShell title/card is replaced by a
+ *   compact breadcrumb/action header plus a keyboard-accessible project-info
+ *   disclosure (role, description, member count, updated time); tabs get an
+ *   elastic center work area
+ * - fixed 项目配置 column: bounded cards for instructions, connectors,
+ *   experts, skills and scheduled tasks. Real instructions render as a
+ *   compact preview with a keyboard disclosure for the verbatim text and a
+ *   real owner/admin edit entry into the project modal; connector / skill /
+ *   scheduled-task cards stay honestly unavailable, and expert/member
+ *   operations keep using their own ACL-gated APIs. The column stays inline
+ *   at every desktop width (narrow viewports are handled by the global nav
+ *   collapsing to its rail, not by a disclosure)
  * - non-members get 404 from the server; the UI shows a fixed not-found
  *   state and never renders the project name
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Breadcrumb, Button, Input, Spin, Tabs, Tag, Typography } from "antd";
-import { Link2, Pencil, Sparkles, Timer } from "lucide-react";
+import { Info, Link2, Pencil, ScrollText, Sparkles, Timer } from "lucide-react";
 import PageShell from "../../layouts/PageShell";
 import styles from "./ProjectDetail.module.less";
 import { EmptyState } from "../../components/EmptyState";
-import { useIsMobile } from "../../hooks/useIsMobile";
 import { useServerTimezone } from "../../hooks/useServerTimezone";
 import { formatServerDateTime } from "../../utils/formatMessageTime";
 import { apiErrorMessage, isNotFoundApiError } from "../../utils/apiError";
+import {
+  DESKTOP_DRAG_REGION_CLASS,
+  DESKTOP_NO_DRAG_CLASS,
+  titleRowEndPadding,
+} from "../../utils/desktopChrome";
 import {
   projectsApi,
   type ProjectMember,
@@ -49,6 +66,26 @@ import { projectRoleTag } from "./index";
 const { Text } = Typography;
 
 type DetailTab = "activity" | "plan" | "tasks" | "assets";
+
+/** Id shared by the project-info disclosure trigger and its panel. */
+const INFO_PANEL_ID = "project-detail-info";
+
+/** Id shared by the instruction disclosure trigger and its body. */
+const INSTRUCTION_BODY_ID = "project-detail-instructions";
+
+/** Id shared by the disabled composer and its visible explanatory hint. */
+const COMPOSER_HINT_ID = "project-detail-composer-hint";
+
+/** Preview budget; longer instructions collapse to this many characters. */
+const INSTRUCTION_PREVIEW_CHARS = 80;
+
+/** Compact preview of a long instruction; the full text stays available. */
+function instructionPreview(text: string): string {
+  const chars = Array.from(text);
+  return chars.length > INSTRUCTION_PREVIEW_CHARS
+    ? `${chars.slice(0, INSTRUCTION_PREVIEW_CHARS).join("")}…`
+    : text;
+}
 
 function useProjectLoader(projectId: string) {
   const [project, setProject] = useState<ProjectRecord | null>(null);
@@ -102,7 +139,6 @@ function useProjectLoader(projectId: string) {
 export default function ProjectDetail() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const isMobile = useIsMobile();
   const timezone = useServerTimezone();
   const { projectId } = useParams<{ projectId: string }>();
   const id = projectId ?? "";
@@ -111,8 +147,19 @@ export default function ProjectDetail() {
     useProjectLoader(id);
   const [activeTab, setActiveTab] = useState<DetailTab>("activity");
   const [editOpen, setEditOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [instructionsExpanded, setInstructionsExpanded] = useState(false);
 
   const canEdit = project?.my_role === "owner" || project?.my_role === "admin";
+
+  /** A different project or instruction revision starts collapsed again. */
+  useEffect(() => {
+    setInstructionsExpanded(false);
+  }, [
+    project?.project_id,
+    project?.instructions_sha256,
+    project?.instructions,
+  ]);
 
   const notFound = error != null && isNotFoundApiError(error);
 
@@ -157,10 +204,6 @@ export default function ProjectDetail() {
   }
 
   const role = projectRoleTag(project.my_role);
-  const secondaryStyle: React.CSSProperties = {
-    color: "var(--fn-text-tertiary, rgba(0,0,0,0.45))",
-    fontSize: 12,
-  };
 
   const unavailableBadge = (
     <Tag style={{ marginInlineEnd: 0 }}>
@@ -182,6 +225,7 @@ export default function ProjectDetail() {
       <Input.TextArea
         rows={2}
         disabled
+        aria-describedby={COMPOSER_HINT_ID}
         placeholder={t(
           "projects.taskComposer.placeholder",
           "项目内直接发送消息尚未开放：请在“任务”页新建项目任务并前往对话",
@@ -196,15 +240,57 @@ export default function ProjectDetail() {
           marginTop: 8,
         }}
       >
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {t(
-            "projects.taskComposer.hint",
-            "在本页直接发送消息、协同写入、本地/云端与移交需后续后端权限；任务卡片摘要可在“任务”页显式分享给指定成员。",
-          )}
-        </Text>
+        <span id={COMPOSER_HINT_ID}>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {t(
+              "projects.taskComposer.hint",
+              "在本页直接发送消息、协同写入、本地/云端与移交需后续后端权限；任务卡片摘要可在“任务”页显式分享给指定成员。",
+            )}
+          </Text>
+        </span>
         <Button type="primary" disabled>
           {t("projects.taskComposer.send", "发送")}
         </Button>
+      </div>
+    </div>
+  );
+
+  /**
+   * Compact project metadata: role, description, member count and updated
+   * time stay reachable behind a plain keyboard-operable disclosure instead
+   * of occupying the work area.
+   */
+  const projectInfo = (
+    <div className={styles.projectInfo}>
+      <button
+        type="button"
+        className={styles.infoTrigger}
+        aria-expanded={infoOpen}
+        aria-controls={INFO_PANEL_ID}
+        onClick={() => setInfoOpen((open) => !open)}
+      >
+        <Info size={14} aria-hidden />
+        {t("common.viewDetail", "查看详情")}
+      </button>
+      <div id={INFO_PANEL_ID} className={styles.infoPanel} hidden={!infoOpen}>
+        {project.description?.trim() ? (
+          <p className={styles.infoDescription}>{project.description}</p>
+        ) : null}
+        <div className={styles.infoMeta}>
+          <Tag color={role.color} style={{ marginInlineEnd: 0 }}>
+            {t(role.labelKey, role.fallback)}
+          </Tag>
+          <span>
+            {t("projects.memberCount", "{{total}} 名成员", {
+              total: project.member_count,
+            })}
+          </span>
+          <span>
+            {t("projects.updatedAt", "更新于 {{time}}", {
+              time: formatServerDateTime(project.updated_at, timezone),
+            })}
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -246,33 +332,23 @@ export default function ProjectDetail() {
     },
   ];
 
-  const configRowStyle: React.CSSProperties = {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-    padding: "8px 0",
-    borderBottom: "1px solid var(--fn-border-color-split, rgba(0,0,0,0.06))",
-    fontSize: 13,
-  };
+  const instructionsText = project.instructions ?? "";
+  const hasInstructions = instructionsText.trim().length > 0;
+  const instructionsLong =
+    Array.from(instructionsText.trim()).length > INSTRUCTION_PREVIEW_CHARS;
 
-  const configRows = [
-    {
-      key: "connectors",
-      icon: <Link2 size={14} />,
-      label: t("projects.config.connectors", "连接器"),
-    },
-    {
-      key: "skills",
-      icon: <Sparkles size={14} />,
-      label: t("projects.config.skills", "技能"),
-    },
-    {
-      key: "scheduledTasks",
-      icon: <Timer size={14} />,
-      label: t("projects.config.scheduledTasks", "定时任务"),
-    },
-  ];
+  /** Honest placeholder card: label + unavailable badge, never a fake action. */
+  const unavailableCard = (key: string, icon: ReactNode, label: string) => (
+    <section key={key} className={styles.card} aria-label={label}>
+      <div className={styles.cardHeader}>
+        <span className={styles.cardTitle}>
+          {icon}
+          {label}
+        </span>
+        {unavailableBadge}
+      </div>
+    </section>
+  );
 
   /**
    * Desktop: fixed-width column beside the work area with independent
@@ -280,162 +356,151 @@ export default function ProjectDetail() {
    * inline — the configuration is never hidden behind a drawer or toggle.
    */
   const configPanel = (
-    <aside
-      style={{
-        width: isMobile ? "100%" : 300,
-        flexShrink: 0,
-        borderLeft: isMobile
-          ? "none"
-          : "1px solid var(--fn-border-color-split, rgba(0,0,0,0.06))",
-        borderTop: isMobile
-          ? "1px solid var(--fn-border-color-split, rgba(0,0,0,0.06))"
-          : "none",
-        paddingLeft: isMobile ? 0 : 16,
-        paddingTop: isMobile ? 16 : 0,
-        minHeight: 0,
-        overflowY: isMobile ? undefined : "auto",
-      }}
-    >
-      <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>
+    <aside className={styles.configPanel}>
+      <div className={styles.configTitle}>
         {t("projects.config.title", "项目配置")}
       </div>
 
-      <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
-        {t("projects.config.instructions", "指令")}
-      </div>
-      {project.instructions?.trim() ? (
-        <div
-          style={{
-            fontSize: 13,
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-word",
-            color: "var(--fn-text-secondary, rgba(0,0,0,0.65))",
-            marginBottom: 12,
-          }}
-        >
-          {project.instructions}
-        </div>
-      ) : (
-        <div style={{ ...secondaryStyle, marginBottom: 12 }}>
-          {t("projects.config.instructionsEmpty", "还没有项目指令。")}
-        </div>
-      )}
-      <div style={{ ...secondaryStyle, marginBottom: 12 }}>
-        {t(
-          "projects.config.instructionsNewTasksOnly",
-          "仅新任务采用当前指令；修改指令不会改变已创建任务。",
-        )}
-      </div>
-
-      <ProjectExperts projectId={project.project_id} role={project.my_role} />
-
-      {configRows.map((row) => (
-        <div key={row.key} style={configRowStyle}>
-          <span
-            style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
-          >
-            {row.icon}
-            {row.label}
+      <section
+        className={styles.card}
+        aria-label={t("projects.config.instructions", "指令")}
+      >
+        <div className={styles.cardHeader}>
+          <span className={styles.cardTitle}>
+            <ScrollText size={14} aria-hidden />
+            {t("projects.config.instructions", "指令")}
           </span>
-          {unavailableBadge}
+          {canEdit && (
+            <Button
+              size="small"
+              type="text"
+              icon={<Pencil size={14} />}
+              onClick={() => setEditOpen(true)}
+            >
+              {t("projects.config.editInstructions", "编辑指令")}
+            </Button>
+          )}
         </div>
-      ))}
-      <div style={{ ...secondaryStyle, marginTop: 6 }}>
+        {hasInstructions ? (
+          <>
+            <div id={INSTRUCTION_BODY_ID} className={styles.instructionBody}>
+              {instructionsExpanded
+                ? instructionsText
+                : instructionPreview(instructionsText.trim())}
+            </div>
+            {instructionsLong && (
+              <button
+                type="button"
+                className={styles.instructionToggle}
+                aria-expanded={instructionsExpanded}
+                aria-controls={INSTRUCTION_BODY_ID}
+                onClick={() => setInstructionsExpanded((open) => !open)}
+              >
+                {instructionsExpanded
+                  ? t("projects.config.collapseInstructions", "收起")
+                  : t("projects.config.expandInstructions", "展开全部")}
+              </button>
+            )}
+          </>
+        ) : (
+          <div className={styles.cardMuted}>
+            {t("projects.config.instructionsEmpty", "还没有项目指令。")}
+          </div>
+        )}
+        <div className={styles.cardNote}>
+          {t(
+            "projects.config.instructionsNewTasksOnly",
+            "仅新任务采用当前指令；修改指令不会改变已创建任务。",
+          )}
+        </div>
+      </section>
+
+      {unavailableCard(
+        "connectors",
+        <Link2 size={14} aria-hidden />,
+        t("projects.config.connectors", "连接器"),
+      )}
+
+      <div className={styles.card}>
+        <ProjectExperts projectId={project.project_id} role={project.my_role} />
+      </div>
+
+      {unavailableCard(
+        "skills",
+        <Sparkles size={14} aria-hidden />,
+        t("projects.config.skills", "技能"),
+      )}
+      {unavailableCard(
+        "scheduledTasks",
+        <Timer size={14} aria-hidden />,
+        t("projects.config.scheduledTasks", "定时任务"),
+      )}
+      <div className={styles.cardNote}>
         {t(
           "projects.unavailable.config",
           "暂未开放：连接器、技能与定时任务仍需后续后端支持。",
         )}
       </div>
 
-      <ProjectMembersPanel
-        projectId={project.project_id}
-        role={project.my_role}
-        members={members}
-        onChanged={reload}
-      />
+      <div className={styles.card}>
+        <ProjectMembersPanel
+          projectId={project.project_id}
+          role={project.my_role}
+          members={members}
+          onChanged={reload}
+        />
+      </div>
     </aside>
   );
 
   return (
-    <PageShell
-      title={project.name}
-      subtitle={project.description || undefined}
-      actions={
-        canEdit ? (
-          <Button icon={<Pencil size={14} />} onClick={() => setEditOpen(true)}>
-            {t("projects.detail.edit", "编辑项目资料")}
-          </Button>
-        ) : undefined
-      }
-      fill={!isMobile}
-    >
-      <Breadcrumb
-        style={{ marginBottom: 12, flexShrink: 0 }}
-        items={[
-          {
-            title: (
-              <Link to="/projects">
-                {t("projects.detail.breadcrumb", "项目")}
-              </Link>
-            ),
-          },
-          { title: project.name },
-        ]}
-      />
-
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          flexWrap: "wrap",
-          marginBottom: 12,
-          flexShrink: 0,
-        }}
-      >
-        <Tag color={role.color}>{t(role.labelKey, role.fallback)}</Tag>
-        <span style={secondaryStyle}>
-          {t("projects.memberCount", "{{total}} 名成员", {
-            total: project.member_count,
-          })}
-        </span>
-        <span style={secondaryStyle}>
-          {t("projects.updatedAt", "更新于 {{time}}", {
-            time: formatServerDateTime(project.updated_at, timezone),
-          })}
-        </span>
-      </div>
-
-      <div
-        style={{
-          display: "flex",
-          flexDirection: isMobile ? "column" : "row",
-          gap: isMobile ? 16 : 24,
-          alignItems: "stretch",
-          flex: isMobile ? "none" : 1,
-          minHeight: 0,
-          minWidth: 0,
-        }}
-      >
-        <div
-          style={{
-            flex: isMobile ? "none" : 1,
-            minWidth: 0,
-            minHeight: 0,
-            display: "flex",
-            flexDirection: "column",
-          }}
+    <>
+      <div className={`${DESKTOP_DRAG_REGION_CLASS} ${styles.shell}`}>
+        <header
+          className={styles.header}
+          style={{ paddingRight: titleRowEndPadding(16) }}
         >
-          <div className={styles.workTabs}>
-            <Tabs
-              activeKey={activeTab}
-              onChange={(key) => setActiveTab(key as DetailTab)}
-              items={tabItems}
+          <div className={styles.path}>
+            <Breadcrumb
+              items={[
+                {
+                  title: (
+                    <Link to="/projects">
+                      {t("projects.detail.breadcrumb", "项目")}
+                    </Link>
+                  ),
+                },
+                { title: project.name },
+              ]}
             />
           </div>
-          {taskComposer}
+          <div className={styles.headerActions}>
+            {projectInfo}
+            {canEdit && (
+              <Button
+                size="small"
+                icon={<Pencil size={14} />}
+                onClick={() => setEditOpen(true)}
+              >
+                {t("projects.detail.edit", "编辑项目资料")}
+              </Button>
+            )}
+          </div>
+        </header>
+
+        <div className={`${DESKTOP_NO_DRAG_CLASS} ${styles.body}`}>
+          <div className={styles.center}>
+            <div className={styles.workTabs}>
+              <Tabs
+                activeKey={activeTab}
+                onChange={(key) => setActiveTab(key as DetailTab)}
+                items={tabItems}
+              />
+            </div>
+            {taskComposer}
+          </div>
+          {configPanel}
         </div>
-        {configPanel}
       </div>
 
       <CreateProjectModal
@@ -447,6 +512,6 @@ export default function ProjectDetail() {
           setProject(saved);
         }}
       />
-    </PageShell>
+    </>
   );
 }

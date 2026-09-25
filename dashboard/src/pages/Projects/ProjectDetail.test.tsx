@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -26,6 +26,17 @@ const { tasksProps } = vi.hoisted(() => ({
 const { expertsProps } = vi.hoisted(() => ({
   expertsProps: {
     current: null as null | { projectId: string; role: string },
+  },
+}));
+
+const { modalProps } = vi.hoisted(() => ({
+  modalProps: {
+    current: null as null | {
+      open?: boolean;
+      editTarget?: { project_id?: string } | null;
+      onClose?: () => void;
+      onSaved?: (saved: unknown) => void;
+    },
   },
 }));
 
@@ -126,11 +137,23 @@ vi.mock("./ProjectMembersPanel", () => ({
 vi.mock("./ProjectExperts", () => ({
   default: (props: { projectId: string; role: string }) => {
     expertsProps.current = props;
-    return <div>experts-stub</div>;
+    return (
+      <section aria-label="专家">
+        <div>experts-stub</div>
+      </section>
+    );
   },
 }));
 vi.mock("./CreateProjectModal", () => ({
-  default: () => null,
+  default: (props: {
+    open?: boolean;
+    editTarget?: { project_id?: string } | null;
+    onClose?: () => void;
+    onSaved?: (saved: unknown) => void;
+  }) => {
+    modalProps.current = props;
+    return null;
+  },
 }));
 
 import ProjectDetail from "./ProjectDetail";
@@ -190,6 +213,7 @@ function renderDetail(projectId: string, key = projectId) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  modalProps.current = null;
   get.mockResolvedValue({
     ...summary,
     instructions: "",
@@ -418,5 +442,267 @@ describe("ProjectDetail assets tab mount", () => {
     expect(screen.queryByPlaceholderText(composerPlaceholder)).toBeNull();
     expect(screen.queryByText("项目配置")).toBeNull();
     expect(list).not.toHaveBeenCalled();
+  });
+});
+
+describe("ProjectDetail compact project shell", () => {
+  it("replaces the PageShell title and card with a compact path/action header plus a project-info disclosure", async () => {
+    const user = userEvent.setup();
+    const { container } = renderDetail("project-1");
+
+    await screen.findByText("activity-stub");
+
+    expect(container.querySelector("header")).not.toBeNull();
+    expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
+    expect(screen.getByRole("link", { name: "项目" })).toHaveAttribute(
+      "href",
+      "/projects",
+    );
+    expect(screen.getByText("熊宝项目")).toBeInTheDocument();
+
+    const info = screen.getByRole("button", { name: "查看详情" });
+    expect(info).toHaveAttribute("aria-expanded", "false");
+    expect(info).toHaveAttribute("aria-controls", "project-detail-info");
+
+    const panel = container.querySelector("#project-detail-info");
+    expect(panel).toHaveAttribute("hidden");
+    expect(panel).toHaveTextContent("真实项目描述");
+    expect(panel).toHaveTextContent("所有者");
+    expect(panel).toHaveTextContent("1 名成员");
+    expect(panel).toHaveTextContent(/更新于/);
+
+    info.focus();
+    await user.keyboard("{Enter}");
+    expect(info).toHaveAttribute("aria-expanded", "true");
+    expect(panel).not.toHaveAttribute("hidden");
+  });
+
+  it("keeps member role, description, member count and updated time reachable without an edit action", async () => {
+    get.mockResolvedValue({
+      ...summary,
+      my_role: "member",
+      instructions: "",
+      instructions_sha256: "sha-empty",
+    });
+    const user = userEvent.setup();
+    renderDetail("project-1");
+
+    await screen.findByText("activity-stub");
+
+    expect(screen.queryByRole("button", { name: "编辑项目资料" })).toBeNull();
+
+    const info = screen.getByRole("button", { name: "查看详情" });
+    await user.click(info);
+
+    expect(screen.getByText("成员", { exact: true })).toBeVisible();
+    expect(screen.getByText("真实项目描述")).toBeVisible();
+    expect(screen.getByText("1 名成员")).toBeVisible();
+    expect(screen.getByText(/更新于/)).toBeVisible();
+
+    await user.click(info);
+    expect(info).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("wires the owner edit action to the same project modal", async () => {
+    const user = userEvent.setup();
+    renderDetail("project-1");
+
+    await screen.findByText("activity-stub");
+
+    await user.click(screen.getByRole("button", { name: "编辑项目资料" }));
+
+    expect(modalProps.current?.open).toBe(true);
+    expect(modalProps.current?.editTarget).toMatchObject({
+      project_id: "project-1",
+    });
+  });
+});
+
+const INSTRUCTION_BODY_ID = "project-detail-instructions";
+const COMPOSER_HINT_ID = "project-detail-composer-hint";
+const shortInstructions = "回答必须标注来源。";
+/** > preview budget, with a tail that must stay hidden until expanded. */
+const longInstructions = `${"先阅读项目资料并标注来源，".repeat(
+  9,
+)}尾部标记-完成度检查。`;
+
+describe("ProjectDetail configuration cards", () => {
+  it("renders distinct labeled sections for instructions, connectors, experts, skills and scheduled tasks", async () => {
+    renderDetail("project-1");
+
+    await screen.findByText("activity-stub");
+
+    for (const name of ["指令", "连接器", "专家", "技能", "定时任务"]) {
+      expect(screen.getByRole("region", { name })).toBeInTheDocument();
+    }
+
+    // Unavailable cards never fake an action or a count.
+    for (const name of ["连接器", "技能", "定时任务"]) {
+      const region = screen.getByRole("region", { name });
+      expect(within(region).getByText("暂未开放")).toBeInTheDocument();
+      expect(within(region).queryByRole("button")).toBeNull();
+    }
+    expect(screen.getByText("experts-stub")).toBeInTheDocument();
+  });
+
+  it("shows long instructions as a compact preview and reveals the verbatim text from the keyboard", async () => {
+    get.mockResolvedValue({
+      ...summary,
+      instructions: longInstructions,
+      instructions_sha256: "sha-long",
+    });
+    const user = userEvent.setup();
+    renderDetail("project-1");
+
+    await screen.findByText("activity-stub");
+
+    const body = document.getElementById(INSTRUCTION_BODY_ID);
+    expect(body).not.toBeNull();
+    expect(body).not.toHaveTextContent(longInstructions);
+    expect(body).not.toHaveTextContent("尾部标记");
+    expect(body).toHaveTextContent("…");
+
+    const toggle = screen.getByRole("button", { name: "展开全部" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveAttribute("aria-controls", INSTRUCTION_BODY_ID);
+
+    toggle.focus();
+    await user.keyboard("{Enter}");
+    expect(screen.getByRole("button", { name: "收起" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(body).toHaveTextContent(longInstructions);
+    expect(body).toHaveTextContent("尾部标记");
+
+    await user.keyboard("{Enter}");
+    expect(screen.getByRole("button", { name: "展开全部" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    expect(body).not.toHaveTextContent("尾部标记");
+  });
+
+  it("offers no disclosure for short or empty instructions", async () => {
+    get.mockResolvedValue({
+      ...summary,
+      instructions: shortInstructions,
+      instructions_sha256: "sha-short",
+    });
+    const short = renderDetail("project-1");
+
+    await screen.findByText("activity-stub");
+    expect(screen.getByText(shortInstructions)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "展开全部" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "收起" })).toBeNull();
+    short.unmount();
+
+    get.mockResolvedValue({
+      ...summary,
+      instructions: "",
+      instructions_sha256: "sha-empty",
+    });
+    renderDetail("project-empty");
+
+    await screen.findByText("activity-stub");
+    expect(screen.getByText("还没有项目指令。")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "展开全部" })).toBeNull();
+  });
+
+  it("keeps a short instruction readable when saved with surrounding whitespace", async () => {
+    get.mockResolvedValue({
+      ...summary,
+      instructions: `${" ".repeat(82)}有效短指令`,
+      instructions_sha256: "sha-padded-short",
+    });
+    renderDetail("project-1");
+
+    await screen.findByText("activity-stub");
+
+    expect(document.getElementById(INSTRUCTION_BODY_ID)).toHaveTextContent(
+      "有效短指令",
+    );
+    expect(screen.queryByRole("button", { name: "展开全部" })).toBeNull();
+  });
+
+  it("resets the instruction disclosure when the instruction digest changes", async () => {
+    get.mockResolvedValue({
+      ...summary,
+      instructions: longInstructions,
+      instructions_sha256: "sha-long",
+    });
+    const user = userEvent.setup();
+    renderDetail("project-1");
+
+    await screen.findByText("activity-stub");
+    await user.click(screen.getByRole("button", { name: "展开全部" }));
+    expect(screen.getByRole("button", { name: "收起" })).toBeInTheDocument();
+
+    act(() => {
+      modalProps.current?.onSaved?.({
+        ...summary,
+        instructions: `${longInstructions} 已更新`,
+        instructions_sha256: "sha-next",
+      });
+    });
+
+    expect(screen.getByRole("button", { name: "展开全部" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    expect(document.getElementById(INSTRUCTION_BODY_ID)).not.toHaveTextContent(
+      "尾部标记",
+    );
+  });
+
+  it("gives owner/admin a genuine instruction edit entry into the existing modal", async () => {
+    const user = userEvent.setup();
+    renderDetail("project-1");
+
+    await screen.findByText("activity-stub");
+
+    await user.click(screen.getByRole("button", { name: "编辑指令" }));
+
+    expect(modalProps.current?.open).toBe(true);
+    expect(modalProps.current?.editTarget).toMatchObject({
+      project_id: "project-1",
+    });
+  });
+
+  it("hides the instruction edit entry from members while keeping the disclosure", async () => {
+    get.mockResolvedValue({
+      ...summary,
+      my_role: "member",
+      instructions: longInstructions,
+      instructions_sha256: "sha-long",
+    });
+    renderDetail("project-1");
+
+    await screen.findByText("activity-stub");
+
+    expect(screen.queryByRole("button", { name: "编辑指令" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "编辑项目资料" })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "展开全部" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("仅新任务采用当前指令；修改指令不会改变已创建任务。"),
+    ).toBeInTheDocument();
+  });
+
+  it("ties the disabled composer to its visible hint with aria-describedby", async () => {
+    renderDetail("project-1");
+
+    await screen.findByText("activity-stub");
+
+    const composer = screen.getByPlaceholderText(composerPlaceholder);
+    expect(composer).toBeDisabled();
+    expect(composer).toHaveAttribute("aria-describedby", COMPOSER_HINT_ID);
+
+    const hint = document.getElementById(COMPOSER_HINT_ID);
+    expect(hint).not.toBeNull();
+    expect(hint).toHaveTextContent(
+      "在本页直接发送消息、协同写入、本地/云端与移交需后续后端权限；任务卡片摘要可在“任务”页显式分享给指定成员。",
+    );
   });
 });

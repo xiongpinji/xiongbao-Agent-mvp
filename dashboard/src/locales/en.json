@@ -344,6 +344,9 @@
     "config": {
       "title": "Project configuration",
       "instructions": "Instructions",
+      "editInstructions": "Edit instructions",
+      "expandInstructions": "Show all",
+      "collapseInstructions": "Show less",
       "instructionsEmpty": "No project instructions yet.",
       "instructionsNewTasksOnly": "Only new tasks use the current instructions; editing them does not change existing tasks.",
       "connectors": "Connectors",

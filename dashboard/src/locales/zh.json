@@ -344,6 +344,9 @@
     "config": {
       "title": "项目配置",
       "instructions": "指令",
+      "editInstructions": "编辑指令",
+      "expandInstructions": "展开全部",
+      "collapseInstructions": "收起",
       "instructionsEmpty": "还没有项目指令。",
       "instructionsNewTasksOnly": "仅新任务采用当前指令；修改指令不会改变已创建任务。",
       "connectors": "连接器",
