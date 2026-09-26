@@ -6,6 +6,16 @@
  * The tab body keeps PageShell's `fillTabs` contract
  * (dashboard/src/layouts/PageShell.module.less) so only the active pane
  * scrolls and the shared composer stays below the scrollport.
+ *
+ * Focus-visible outlines use --fn-border-focus, the mode-aware focus token,
+ * not --fn-color-brand: the raw brand hue falls below the 3:1 non-text
+ * contrast floor on dark elevated cards in several palettes (#1e1e1e:
+ * slate #475569 = 2.20:1, indigo #4f46e5 = 2.65:1, violet #7c3aed =
+ * 2.93:1), while --fn-border-focus stays ≥3:1 on --fn-bg-layout and
+ * --fn-bg-elevated across all eight palettes × modes (minimum 3.11:1, rose
+ * light on #f5f6f8). The same token is the repo's focus convention, e.g.
+ * ProjectsPage.module.less. ProjectDetail.test.tsx recomputes these ratios
+ * from the shipped theme definitions.
  */
 .shell {
   display: flex;
@@ -118,7 +128,7 @@
   }
 
   &:focus-visible {
-    outline: 2px solid var(--fn-color-brand, #e85d75);
+    outline: 2px solid var(--fn-border-focus, #e85d75);
     outline-offset: 1px;
   }
 }
@@ -170,7 +180,7 @@
 
   /* The panel is tabbable so keyboard users can scroll it. */
   &:focus-visible {
-    outline: 2px solid var(--fn-color-brand, #e85d75);
+    outline: 2px solid var(--fn-border-focus, #e85d75);
     outline-offset: 1px;
   }
 }
@@ -342,7 +352,7 @@
   }
 
   &:focus-visible {
-    outline: 2px solid var(--fn-color-brand, #e85d75);
+    outline: 2px solid var(--fn-border-focus, #e85d75);
     outline-offset: 1px;
   }
 }

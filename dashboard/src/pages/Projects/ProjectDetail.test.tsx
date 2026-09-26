@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type { ReactNode } from "react";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -152,6 +154,11 @@ vi.mock("./ProjectExperts", () => ({
   },
 }));
 vi.mock("./CreateProjectModal", () => ({
+  // Minimal stand-in for the real Ant Design modal: while open it renders a
+  // focusable dialog that takes focus on mount and closes on Escape without
+  // stopping propagation, so a stale document-level disclosure handler —
+  // which still listens whenever the info panel is open — would receive the
+  // same Escape and expose a double-dismiss regression.
   default: (props: {
     open?: boolean;
     editTarget?: { project_id?: string } | null;
@@ -159,13 +166,27 @@ vi.mock("./CreateProjectModal", () => ({
     onSaved?: (saved: unknown) => void;
   }) => {
     modalProps.current = props;
-    return null;
+    if (!props.open) return null;
+    return (
+      <div
+        role="dialog"
+        aria-label="编辑项目"
+        tabIndex={-1}
+        ref={(node) => node?.focus()}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") props.onClose?.();
+        }}
+      >
+        编辑项目弹窗
+      </div>
+    );
   },
 }));
 
 import ProjectDetail from "./ProjectDetail";
 import en from "../../locales/en.json";
 import zh from "../../locales/zh.json";
+import { contrastRatio, VALID_PALETTES } from "../../styles/themePalettes";
 import type {
   ProjectAssetNode,
   ProjectAssetListResponse,
@@ -935,4 +956,146 @@ describe("ProjectDetail info panel localization", () => {
     expect(zh.projects.detail.infoPanel).toBe(INFO_PANEL_LABEL);
     expect(en.projects.detail.infoPanel).toBe("Project information");
   });
+});
+
+/**
+ * 041 review P2: activating either edit entry by keyboard while the info
+ * disclosure stayed open left two dismissible layers, so one Escape could
+ * dismiss both — the disclosure's document-level handler and the modal's
+ * own Escape handling both fired on the same keydown. Opening edit now
+ * dismisses the disclosure first; the stub dialog reproduces the real
+ * modal's focus-on-open and Escape-close behavior without stopping
+ * propagation, so the test proves only the modal closes.
+ */
+describe("ProjectDetail edit activation with the info disclosure open", () => {
+  it.each([
+    { entry: "编辑项目资料", activation: "{Enter}", keyLabel: "Enter" },
+    { entry: "编辑项目资料", activation: " ", keyLabel: "Space" },
+    { entry: "编辑指令", activation: "{Enter}", keyLabel: "Enter" },
+  ])(
+    "closes the disclosure before opening $entry via $keyLabel",
+    async ({ entry, activation }) => {
+      const user = userEvent.setup();
+      renderDetail("project-1");
+
+      await screen.findByText("activity-stub");
+
+      const trigger = screen.getByRole("button", { name: "查看详情" });
+      await user.click(trigger);
+      const panel = document.getElementById(INFO_PANEL_ID);
+      expect(trigger).toHaveAttribute("aria-expanded", "true");
+      expect(panel).not.toHaveAttribute("hidden");
+
+      // Keyboard-activate an edit control outside the disclosure root
+      // (focus alone must not dismiss it — see the 038 focus test).
+      const edit = screen.getByRole("button", { name: entry });
+      edit.focus();
+      expect(edit).toHaveFocus();
+      await user.keyboard(activation);
+
+      // The disclosure is already dismissed before the modal opens, so one
+      // Escape can never close two layers.
+      expect(modalProps.current?.open).toBe(true);
+      expect(trigger).toHaveAttribute("aria-expanded", "false");
+      expect(panel).toHaveAttribute("hidden");
+
+      const dialog = screen.getByRole("dialog", { name: "编辑项目" });
+      expect(dialog).toHaveFocus();
+      await user.keyboard("{Escape}");
+
+      // Escape closes only the edit modal; the disclosure stays closed.
+      expect(modalProps.current?.open).toBe(false);
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(trigger).toHaveAttribute("aria-expanded", "false");
+      expect(panel).toHaveAttribute("hidden");
+    },
+  );
+});
+
+/**
+ * 041 review P2: the brand-colored focus rings fell below the WCAG 3:1
+ * non-text contrast floor on dark elevated surfaces (e.g. slate
+ * --fn-color-brand #475569 is 2.20:1 on #1e1e1e). These tests recompute
+ * the ratios from the shipped LESS/theme sources instead of pinning the
+ * declaration text: every focus-visible outline must use the mode-aware
+ * --fn-border-focus token, and that token must stay ≥3:1 on the page
+ * layout and elevated card backgrounds in all eight curated palettes ×
+ * modes.
+ */
+describe("ProjectDetail focus outline contrast", () => {
+  const moduleCss = readFileSync(
+    resolve(__dirname, "./ProjectDetail.module.less"),
+    "utf8",
+  );
+  const themeCss = readFileSync(
+    resolve(__dirname, "../../styles/theme-vars.css"),
+    "utf8",
+  );
+
+  function cssBlock(selector: string): string {
+    const start = themeCss.indexOf(`${selector} {`);
+    if (start < 0) throw new Error(`theme block missing: ${selector}`);
+    const open = themeCss.indexOf("{", start);
+    const close = themeCss.indexOf("}", open);
+    return themeCss.slice(open + 1, close);
+  }
+
+  function cssToken(block: string, token: string): string {
+    const match = block.match(new RegExp(`--${token}:\\s*([^;]+);`));
+    if (!match) throw new Error(`token missing: --${token}`);
+    return match[1].trim();
+  }
+
+  const lightSurfaces = [
+    cssToken(cssBlock('html[data-theme="light"]'), "fn-bg-elevated"),
+    cssToken(cssBlock('html[data-theme="light"]'), "fn-bg-layout"),
+  ];
+  const darkSurfaces = [
+    cssToken(cssBlock('html[data-theme="dark"]'), "fn-bg-elevated"),
+    cssToken(cssBlock('html[data-theme="dark"]'), "fn-bg-layout"),
+  ];
+  const outlineTokens = [
+    ...moduleCss.matchAll(/outline:\s*2px solid var\((--[a-z-]+)/g),
+  ].map((match) => match[1]);
+
+  it("uses the mode-aware focus token for every focus-visible outline", () => {
+    expect(outlineTokens.length).toBeGreaterThanOrEqual(3);
+    expect([...new Set(outlineTokens)]).toEqual(["--fn-border-focus"]);
+  });
+
+  it.each(VALID_PALETTES)(
+    "keeps the %s focus outlines at or above 3:1 on page and elevated surfaces",
+    (palette) => {
+      const lightSelector =
+        palette === "rose"
+          ? 'html[data-theme="light"]'
+          : `html[data-palette="${palette}"]:not([data-theme="dark"])`;
+      const darkSelector =
+        palette === "rose"
+          ? 'html[data-theme="dark"]'
+          : `html[data-palette="${palette}"][data-theme="dark"]`;
+
+      // Resolve whichever focus token the module actually uses, so the
+      // contrast calculation fails if the outline regresses to the raw
+      // brand hue instead of only checking the token name above.
+      for (const token of new Set(outlineTokens)) {
+        const name = token.replace(/^--/, "");
+        const lightFocus = cssToken(cssBlock(lightSelector), name);
+        for (const surface of lightSurfaces) {
+          expect(
+            contrastRatio(lightFocus, surface),
+            `${palette} light ${token} on ${surface}`,
+          ).toBeGreaterThanOrEqual(3);
+        }
+
+        const darkFocus = cssToken(cssBlock(darkSelector), name);
+        for (const surface of darkSurfaces) {
+          expect(
+            contrastRatio(darkFocus, surface),
+            `${palette} dark ${token} on ${surface}`,
+          ).toBeGreaterThanOrEqual(3);
+        }
+      }
+    },
+  );
 });

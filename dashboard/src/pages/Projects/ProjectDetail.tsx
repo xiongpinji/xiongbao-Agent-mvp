@@ -17,7 +17,9 @@
  *   plus a keyboard-accessible project-info disclosure (role, description,
  *   member count, updated time). The disclosure dismisses on Escape, on a
  *   click/tap outside and on any route project-ID change, never traps
- *   focus, and its panel is viewport-bounded with an internal scrollport
+ *   focus, is dismissed first when either edit entry opens (so one Escape
+ *   never closes two layers), and its panel is viewport-bounded with an
+ *   internal scrollport
  *   so long descriptions stay fully readable on short desktop windows;
  *   tabs get an elastic center work area
  * - fixed 项目配置 column: bounded cards for instructions, connectors,
@@ -223,6 +225,18 @@ export default function ProjectDetail() {
       document.removeEventListener("mousedown", onPointerDown);
     };
   }, [infoOpen]);
+
+  /**
+   * Shared entry for both edit controls (header project details and the
+   * right-card instructions): dismiss the info disclosure first so the two
+   * dismissible layers never coexist. Otherwise one Escape closes the
+   * disclosure and the modal together — the document-level disclosure
+   * handler and the modal's own Escape handling both see the same keydown.
+   */
+  const openEdit = useCallback(() => {
+    setInfoOpen(false);
+    setEditOpen(true);
+  }, []);
 
   const notFound = error != null && isNotFoundApiError(error);
 
@@ -449,7 +463,7 @@ export default function ProjectDetail() {
               size="small"
               type="text"
               icon={<Pencil size={14} />}
-              onClick={() => setEditOpen(true)}
+              onClick={openEdit}
             >
               {t("projects.config.editInstructions", "编辑指令")}
             </Button>
@@ -572,7 +586,7 @@ export default function ProjectDetail() {
               <Button
                 size="small"
                 icon={<Pencil size={14} />}
-                onClick={() => setEditOpen(true)}
+                onClick={openEdit}
               >
                 {t("projects.detail.edit", "编辑项目资料")}
               </Button>
