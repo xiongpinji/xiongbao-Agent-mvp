@@ -164,6 +164,8 @@ vi.mock("./CreateProjectModal", () => ({
 }));
 
 import ProjectDetail from "./ProjectDetail";
+import en from "../../locales/en.json";
+import zh from "../../locales/zh.json";
 import type {
   ProjectAssetNode,
   ProjectAssetListResponse,
@@ -752,9 +754,12 @@ function renderDetailWithSwitchLink(fromId: string, toId: string) {
  * the dismissal contract: Escape (from the trigger or from inside the
  * panel), click/tap outside, and route project-ID changes close it, while
  * clicks inside the readable content keep it open and focus stays
- * predictable instead of trapped. Pixel bounding of the long description
- * (viewport-relative max-height + internal scroll) is CSS; it belongs to
- * the browser acceptance matrix, not JSDOM.
+ * predictable instead of trapped. 038 review P2 extends the contract:
+ * Escape only restores the trigger focus while focus is still inside the
+ * disclosure — with keyboard focus already on a control outside the panel,
+ * Escape closes the panel without stealing that focus. Pixel bounding of
+ * the long description (viewport-relative max-height + internal scroll) is
+ * CSS; it belongs to the browser acceptance matrix, not JSDOM.
  */
 describe("ProjectDetail info disclosure dismissal", () => {
   it("keeps a long description inside a native keyboard-operable disclosure", async () => {
@@ -820,6 +825,33 @@ describe("ProjectDetail info disclosure dismissal", () => {
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(panel).toHaveAttribute("hidden");
     expect(trigger).toHaveFocus();
+  });
+
+  it("closes on Escape without stealing focus from a control outside the panel", async () => {
+    const user = userEvent.setup();
+    renderDetail("project-1");
+
+    await screen.findByText("activity-stub");
+
+    const trigger = screen.getByRole("button", { name: "查看详情" });
+    await user.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+
+    // Move keyboard focus to an interactive control outside the disclosure
+    // root without a pointer press (a click outside would dismiss first).
+    const external = screen.getByRole("button", { name: "编辑项目资料" });
+    external.focus();
+    expect(external).toHaveFocus();
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+
+    await user.keyboard("{Escape}");
+
+    // The panel closes, but the external control keeps keyboard focus —
+    // Escape must not yank the user back to the info trigger.
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(document.getElementById(INFO_PANEL_ID)).toHaveAttribute("hidden");
+    expect(external).toHaveFocus();
+    expect(trigger).not.toHaveFocus();
   });
 
   it("lets keyboard focus move on past the open panel instead of trapping it", async () => {
@@ -888,5 +920,19 @@ describe("ProjectDetail info disclosure dismissal", () => {
       "false",
     );
     expect(document.getElementById(INFO_PANEL_ID)).toHaveAttribute("hidden");
+  });
+});
+
+/**
+ * 038 review P2: the info panel's accessible name resolves through
+ * projects.detail.infoPanel, but the English bundle shipped without the
+ * key, so English users heard the Chinese fallback. The unit setup mocks
+ * t() to its fallback string, so a rendered assertion would pass even with
+ * the key missing — verify the shipped locale JSON directly instead.
+ */
+describe("ProjectDetail info panel localization", () => {
+  it("resolves the infoPanel accessible name in both locale bundles", () => {
+    expect(zh.projects.detail.infoPanel).toBe(INFO_PANEL_LABEL);
+    expect(en.projects.detail.infoPanel).toBe("Project information");
   });
 });

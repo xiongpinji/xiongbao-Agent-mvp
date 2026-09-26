@@ -331,7 +331,8 @@
       "notFound": "项目不存在或你无权访问",
       "loadFailed": "加载项目详情失败",
       "back": "返回项目列表",
-      "edit": "编辑项目资料"
+      "edit": "编辑项目资料",
+      "infoPanel": "项目信息"
     },
     "tabs": {
       "activity": "动态",

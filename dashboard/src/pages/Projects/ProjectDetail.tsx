@@ -181,9 +181,12 @@ export default function ProjectDetail() {
   /**
    * While the info disclosure is open it dismisses on Escape and on any
    * pointer press outside its root (mouse click or touch tap). Escape
-   * refocuses the trigger, so dismissal is predictable and reopening stays
-   * one keystroke away; clicks inside keep the panel open because the
-   * description and metadata are meant to be read and selected.
+   * refocuses the trigger only while focus is still inside the disclosure
+   * (trigger or panel), so dismissal is predictable and reopening stays one
+   * keystroke away; once keyboard focus has moved to a control outside the
+   * root, Escape still closes the panel but leaves that focus untouched.
+   * Clicks inside keep the panel open because the description and metadata
+   * are meant to be read and selected.
    */
   useEffect(() => {
     if (!infoOpen) return;
@@ -191,7 +194,13 @@ export default function ProjectDetail() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       setInfoOpen(false);
-      infoTriggerRef.current?.focus();
+      // Restore the trigger focus only when focus is still inside the
+      // disclosure root — never steal it from an unrelated external control.
+      const root = infoRootRef.current;
+      const active = document.activeElement;
+      if (root && active instanceof Node && root.contains(active)) {
+        infoTriggerRef.current?.focus();
+      }
     };
     const onPointerDown = (event: PointerEvent | MouseEvent) => {
       const root = infoRootRef.current;
@@ -314,7 +323,8 @@ export default function ProjectDetail() {
    * time stay reachable behind a plain keyboard-operable disclosure instead
    * of occupying the work area. The panel is tabbable so keyboard users can
    * scroll its viewport-bounded content, and it is a labelled group rather
-   * than a dialog — focus is never trapped and Escape refocuses the trigger.
+   * than a dialog — focus is never trapped, and Escape refocuses the trigger
+   * only while focus is still inside the disclosure.
    */
   const projectInfo = (
     <div className={styles.projectInfo} ref={infoRootRef}>

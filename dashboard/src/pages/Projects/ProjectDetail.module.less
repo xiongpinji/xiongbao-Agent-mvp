@@ -318,15 +318,18 @@
   border-radius: 2px;
   background: transparent;
   /*
-   * 12px small text must clear WCAG AA (4.5:1) on the card background.
-   * --fn-color-brand-soft is the darkest brand-hue token verified in
-   * every palette and mode (rose light #d14a62 ≈ 4.3:1, rose dark
-   * #e85d75 ≈ 5.0:1) — an improvement over base brand (#e85d75 ≈ 3.4:1
-   * on the light card) without breaking brand. The resting underline
-   * adds a non-colour affordance; full AA in light mode would need a
-   * palette-level token change outside this file.
+   * 12px small text must clear WCAG AA (4.5:1) on the card background
+   * (--fn-bg-elevated) in every palette and mode. Brand palettes only
+   * re-tint brand tokens, so the brand-soft hue previously used here fell
+   * far below AA in dark palettes (on #1e1e1e: tech #2e4fd4 ≈ 2.5:1,
+   * slate #334155 ≈ 1.6:1) and stayed ≈4.3:1 in light rose.
+   * --fn-text-primary is palette-invariant and measures ≈17.7:1 on
+   * the light card (#111827 on #ffffff) and ≈13.6:1 on the dark card
+   * (rgba(255, 255, 255, 0.9) on #1e1e1e). The toggle stays identifiable
+   * without a brand hue: resting underline, thicker underline on hover and
+   * the focus-visible outline below.
    */
-  color: var(--fn-color-brand-soft, #d14a62);
+  color: var(--fn-text-primary, rgba(0, 0, 0, 0.88));
   font-size: 12px;
   line-height: 1.5;
   text-decoration: underline;
@@ -334,7 +337,7 @@
   cursor: pointer;
 
   &:hover {
-    color: var(--fn-color-brand-hover, #d14a62);
+    color: var(--fn-text-primary, rgba(0, 0, 0, 0.88));
     text-decoration-thickness: 2px;
   }
 

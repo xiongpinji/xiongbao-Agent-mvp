@@ -331,7 +331,8 @@
       "notFound": "Project not found or you do not have access",
       "loadFailed": "Failed to load the project",
       "back": "Back to projects",
-      "edit": "Edit project"
+      "edit": "Edit project",
+      "infoPanel": "Project information"
     },
     "tabs": {
       "activity": "Activity",
