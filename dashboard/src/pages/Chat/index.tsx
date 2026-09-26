@@ -1882,6 +1882,7 @@ function ChatPageInner() {
             isResizing={dockIsResizing}
             panelSizes={dockPanelSizes}
             agentId={chatAgentId ?? ""}
+            privateTask={isInternalTask}
             filePaths={sharedExpertViewer ? [] : panelFilePaths}
             artifacts={sharedExpertViewer ? [] : threadArtifacts}
             agentName={activeAgent?.name ?? null}

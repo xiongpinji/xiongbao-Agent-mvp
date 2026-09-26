@@ -11,6 +11,11 @@ interface ChatDockPanelsProps {
   isResizing: boolean;
   panelSizes: { rightWidth: number; bottomHeight: number };
   agentId: string;
+  /**
+   * Owner-private 030 file-task route: file tabs do true-mode
+   * (``from_workspace=true``) workspace I/O with managed-root-relative keys.
+   */
+  privateTask?: boolean;
   filePaths: string[];
   /** Recorded artifacts of the active thread (separate from opened file tabs). */
   artifacts: string[];
@@ -50,6 +55,7 @@ export default function ChatDockPanels({
   isResizing,
   panelSizes,
   agentId,
+  privateTask = false,
   filePaths,
   artifacts,
   agentName = null,
@@ -90,6 +96,7 @@ export default function ChatDockPanels({
           : undefined
       }
       agentId={agentId}
+      privateTask={privateTask}
       filePaths={filePaths}
       artifacts={artifacts}
       agentName={agentName}

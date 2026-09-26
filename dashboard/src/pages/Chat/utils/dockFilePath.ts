@@ -15,6 +15,7 @@ import {
 export {
   isHostAbsolutePath,
   normalizeIoPath,
+  toPrivateWorkspaceRelPath,
 } from "../../../utils/workspaceIoPath";
 
 /** Keep tool path shape: absolute stays absolute, relative stays relative. */

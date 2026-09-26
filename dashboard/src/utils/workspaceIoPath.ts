@@ -85,3 +85,31 @@ export function toDockWorkspaceApiPath(raw: string): string {
   if (!normalized) return "";
   return toWorkspaceApiPath(normalized);
 }
+
+/**
+ * Managed-root-relative key for an owner-private 030 project-task runtime
+ * (true-mode ``from_workspace=true`` file I/O), or ``null`` when the input
+ * cannot be proven safe.
+ *
+ * True-mode contract: a leading POSIX slash is a dashboard workspace-root key
+ * confined under the managed root — never a host path. Refused **without**
+ * collapsing (no substring matching of host paths, no filesystem access):
+ * ``file:`` / URL schemes, Windows drive letters, UNC shares, ``~`` home
+ * prefixes, ``..`` traversal segments and NUL bytes. The server remains the
+ * final authority; this only prevents the UI from silently rewriting a
+ * refused shape into a private path or firing a doomed request.
+ */
+export function toPrivateWorkspaceRelPath(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (trimmed.includes("\0")) return null;
+  // Any URL scheme (``file:``, ``http:``, …) — also covers drive letters.
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(trimmed)) return null;
+  if (trimmed.startsWith("~")) return null;
+  const posix = trimmed.replace(/\\/g, "/");
+  if (posix.startsWith("//")) return null; // UNC (after backslash normalize)
+  if (posix.split("/").includes("..")) return null;
+  const rel = stripVirtualWorkspaceRoot(posix).replace(/^\/+/, "");
+  if (!rel) return null;
+  return rel;
+}

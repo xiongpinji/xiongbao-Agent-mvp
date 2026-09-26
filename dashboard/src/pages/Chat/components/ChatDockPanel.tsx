@@ -72,6 +72,11 @@ interface ChatDockPanelProps {
   onClose: () => void;
   style?: React.CSSProperties;
   agentId: string;
+  /**
+   * Owner-private 030 file-task route: file tabs do true-mode
+   * (``from_workspace=true``) workspace I/O with managed-root-relative keys.
+   */
+  privateTask?: boolean;
   filePaths: string[];
   /** Recorded artifacts of the active thread (separate from opened file tabs). */
   artifacts: string[];
@@ -225,6 +230,7 @@ const ChatDockPanel: React.FC<ChatDockPanelProps> = ({
   onClose,
   style,
   agentId,
+  privateTask = false,
   filePaths,
   artifacts,
   agentName = null,
@@ -609,6 +615,7 @@ const ChatDockPanel: React.FC<ChatDockPanelProps> = ({
               <FilePanelContent
                 agentId={agentId}
                 filePath={path}
+                privateTask={privateTask}
                 onActionsChange={getFileActionsHandler(path)}
               />
             </div>

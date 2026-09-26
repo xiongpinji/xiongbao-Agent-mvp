@@ -21,6 +21,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { probeAuthResource, request, requestBlob } from "../../../api/request";
 import { isNotFoundApiError } from "../../../utils/apiError";
+import { withFromWorkspace } from "../../../utils/fromWorkspace";
 import FileViewer from "../../Agent/Workspace/components/FileViewer";
 import { getDocKind } from "../../Agent/Workspace/utils/docKind";
 import { isProbablyText } from "../../Agent/Workspace/utils/fileKind";
@@ -35,6 +36,7 @@ import {
   dockFileBasename,
   isHostAbsolutePath,
   normalizeDockFilePath,
+  toPrivateWorkspaceRelPath,
   toWorkspaceApiPath,
 } from "../utils/dockFilePath";
 import styles from "../index.module.less";
@@ -43,6 +45,14 @@ interface FilePanelContentProps {
   agentId: string;
   /** Single workspace file path for this tab. */
   filePath: string;
+  /**
+   * Owner-private 030 file-task route. File I/O then requires
+   * ``from_workspace=true`` with a proven managed-root-relative path;
+   * unsafe shapes are refused locally without any request. Only a
+   * server-verified route carries a non-empty ``agentId``, so an
+   * unverified/refused route performs zero file I/O.
+   */
+  privateTask?: boolean;
   /** Lift toolbar actions into the shared dock shell (active tab only). */
   onActionsChange?: (actions: ReactNode | null) => void;
 }
@@ -54,6 +64,7 @@ interface FilePanelContentProps {
 export default function FilePanelContent({
   agentId,
   filePath,
+  privateTask = false,
   onActionsChange,
 }: FilePanelContentProps) {
   const { t } = useTranslation();
@@ -66,25 +77,56 @@ export default function FilePanelContent({
   const [saving, setSaving] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
 
+  /**
+   * 030A private runtime key, computed from the **raw** tool path so
+   * ``file://`` / drive / UNC / ``~`` / ``..`` shapes are refused instead of
+   * silently collapsed by normalization. ``null`` = refused.
+   */
+  const privateRelPath = useMemo(
+    () => (privateTask ? toPrivateWorkspaceRelPath(filePath) : null),
+    [privateTask, filePath],
+  );
+  /**
+   * A private tab without a verified runtime (empty ``agentId`` while the
+   * route is checking/refused) or with a refused path performs zero file
+   * I/O — keep-alive tabs lose the prior route's authorization as soon as
+   * the verified id is gone.
+   */
+  const privateBlocked =
+    privateTask && (!agentId || (Boolean(resolvedPath) && !privateRelPath));
+  const fileUnavailable = fileMissing || privateBlocked;
+
   const docKind = resolvedPath ? getDocKind(resolvedPath) : null;
   const mediaKind = resolvedPath ? getMediaKind(resolvedPath) : null;
   const previewKind = resolvedPath ? getPreviewKind(resolvedPath) : null;
   const isText = resolvedPath ? isProbablyText(resolvedPath) : false;
-  const showEditButton = isText && !fileMissing;
+  const showEditButton = isText && !fileUnavailable;
   const showPreviewToggle =
     isText &&
     previewKind !== null &&
     !editMode &&
     content !== "" &&
-    !fileMissing;
+    !fileUnavailable;
 
   const apiFilePath = useMemo(
-    () => toWorkspaceApiPath(resolvedPath),
-    [resolvedPath],
+    () =>
+      privateTask ? privateRelPath ?? "" : toWorkspaceApiPath(resolvedPath),
+    [privateTask, privateRelPath, resolvedPath],
+  );
+
+  /** Agent-workspace I/O URL; a private task always goes through true mode. */
+  const workspaceIoUrl = useCallback(
+    (endpoint: "file" | "download") => {
+      const url = `/agents/${agentId}/workspace/${endpoint}?path=${encodeURIComponent(
+        apiFilePath,
+      )}`;
+      return privateTask ? withFromWorkspace(url) : url;
+    },
+    [agentId, apiFilePath, privateTask],
   );
 
   useEffect(() => {
-    if (!resolvedPath || !agentId) return;
+    if (!resolvedPath || !agentId || privateBlocked) return;
     setEditMode(false);
     setPreviewMode(defaultPreviewMode(resolvedPath));
     setContent("");
@@ -115,11 +157,7 @@ export default function FilePanelContent({
     // Text: load content. Unknown/binary: light existence probe (no body buffer).
     // Media/doc: viewers fetch themselves and surface 404 locally.
     if (isText) {
-      request<{ content: string }>(
-        `/agents/${agentId}/workspace/file?path=${encodeURIComponent(
-          apiFilePath,
-        )}`,
-      )
+      request<{ content: string }>(workspaceIoUrl("file"))
         .then((r) => {
           if (!cancelled) {
             setContent(r.content);
@@ -130,11 +168,7 @@ export default function FilePanelContent({
     } else if (mediaKind || docKind) {
       finishOk();
     } else {
-      probeAuthResource(
-        `/agents/${agentId}/workspace/download?path=${encodeURIComponent(
-          apiFilePath,
-        )}`,
-      )
+      probeAuthResource(workspaceIoUrl("download"))
         .then(() => finishOk())
         .catch(finishError);
     }
@@ -151,6 +185,8 @@ export default function FilePanelContent({
     mediaKind,
     docKind,
     refreshToken,
+    privateBlocked,
+    workspaceIoUrl,
   ]);
 
   const refresh = useCallback(() => {
@@ -159,15 +195,13 @@ export default function FilePanelContent({
   }, []);
 
   const save = useCallback(async () => {
-    if (!resolvedPath) return;
+    if (!resolvedPath || privateBlocked) return;
     setSaving(true);
     try {
-      await request(
-        `/agents/${agentId}/workspace/file?path=${encodeURIComponent(
-          apiFilePath,
-        )}`,
-        { method: "PUT", body: JSON.stringify({ content }) },
-      );
+      await request(workspaceIoUrl("file"), {
+        method: "PUT",
+        body: JSON.stringify({ content }),
+      });
       message.success(t("workspace.saved", "已保存"));
       setEditMode(false);
     } catch (err: unknown) {
@@ -178,16 +212,12 @@ export default function FilePanelContent({
     } finally {
       setSaving(false);
     }
-  }, [agentId, apiFilePath, content, resolvedPath, t]);
+  }, [content, privateBlocked, resolvedPath, t, workspaceIoUrl]);
 
   const download = useCallback(async () => {
-    if (!resolvedPath) return;
+    if (!resolvedPath || privateBlocked) return;
     try {
-      const blob = await requestBlob(
-        `/agents/${agentId}/workspace/download?path=${encodeURIComponent(
-          apiFilePath,
-        )}`,
-      );
+      const blob = await requestBlob(workspaceIoUrl("download"));
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
       a.download = dockFileBasename(resolvedPath) || "download";
@@ -209,10 +239,10 @@ export default function FilePanelContent({
           t("workspace.downloadFailed", "下载失败"),
       );
     }
-  }, [agentId, apiFilePath, resolvedPath, t]);
+  }, [privateBlocked, resolvedPath, t, workspaceIoUrl]);
 
   const bodyFill =
-    !fileMissing &&
+    !fileUnavailable &&
     (editMode ||
       docKind !== null ||
       (previewMode && previewNeedsFillLayout(previewKind)));
@@ -253,7 +283,7 @@ export default function FilePanelContent({
             type="button"
             className={styles.fileModalIconBtn}
             onClick={refresh}
-            disabled={!resolvedPath || fileLoading}
+            disabled={!resolvedPath || fileLoading || privateBlocked}
             aria-label={t("common.refresh")}
           >
             <RefreshCw size={16} strokeWidth={2} />
@@ -264,7 +294,7 @@ export default function FilePanelContent({
             type="button"
             className={styles.fileModalIconBtn}
             onClick={() => void download()}
-            disabled={fileMissing}
+            disabled={fileUnavailable}
             aria-label={t("common.download")}
           >
             <ArrowDownToLine size={16} strokeWidth={2} />
@@ -311,7 +341,8 @@ export default function FilePanelContent({
     download,
     save,
     fileLoading,
-    fileMissing,
+    fileUnavailable,
+    privateBlocked,
     showEditButton,
     editMode,
     saving,
@@ -326,11 +357,14 @@ export default function FilePanelContent({
 
   // Keep host-absolute tool paths for API I/O (virtual root_dir failback).
   // Only collapse relative / already-canonical keys for the viewer.
+  // A private task instead hands the viewer the proven managed-root-relative
+  // key so media/doc previews build true-mode URLs.
   const viewerPath = useMemo(() => {
+    if (privateTask) return privateRelPath ?? "";
     const n = normalizeDockFilePath(resolvedPath);
     if (isHostAbsolutePath(n)) return n;
     return canonicalizeDockFilePath(resolvedPath, agentId) || resolvedPath;
-  }, [resolvedPath, agentId]);
+  }, [privateTask, privateRelPath, resolvedPath, agentId]);
 
   return (
     <div className={styles.filePanelBody}>
@@ -339,7 +373,7 @@ export default function FilePanelContent({
           bodyFill ? styles.fileModalBodyFill : ""
         }`}
       >
-        {fileMissing ? (
+        {fileUnavailable ? (
           <div className={styles.fileMissingState} role="status">
             <FileX
               size={40}
@@ -359,7 +393,7 @@ export default function FilePanelContent({
             <FileViewer
               agentId={agentId}
               path={viewerPath}
-              fromWorkspace={false}
+              fromWorkspace={privateTask}
               editMode={editMode}
               value={content}
               onChange={setContent}
