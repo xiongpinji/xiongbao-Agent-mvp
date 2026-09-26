@@ -7,11 +7,13 @@ import { request } from "../request";
  * Contract (`docs/xiongbao/PROJECT_TASK_ACL_CONTRACT.md`,
  * `docs/xiongbao/PROJECT_TASK_SHARE_CONTRACT.md` and
  * `docs/xiongbao/PROJECT_TASK_CONTENT_READ_CONTRACT.md`):
+ *   GET    /projects/task-capabilities
  *   GET    /projects/{project_id}/tasks?scope=own|shared|all&q=&limit=&offset=
  *   GET    /projects/{project_id}/tasks/{thread_id}
- *   POST   /projects/{project_id}/tasks                  { agent_id, expected_instructions_sha256, expected_experts_revision? }
+ *   POST   /projects/{project_id}/tasks                  { agent_id, mode?, expected_instructions_sha256, expected_experts_revision? }
  *   POST   /projects/{project_id}/tasks/links            { thread_id }
- *   DELETE /projects/{project_id}/tasks/{thread_id}
+ *   DELETE /projects/{project_id}/tasks/{thread_id}       (unlink only)
+ *   DELETE /project-task-files/{thread_id}                (full private file-task delete)
  *   GET    /projects/{project_id}/tasks/{thread_id}/shares
  *   POST   /projects/{project_id}/tasks/{thread_id}/shares   { user_id }
  *   DELETE /projects/{project_id}/tasks/{thread_id}/shares/{user_id}
@@ -35,16 +37,48 @@ import { request } from "../request";
  * never deletes the original conversation.
  *
  * `create` freezes the project instructions the caller previewed: the body
- * carries only the chosen `agent_id` and that preview's
+ * carries only the chosen `agent_id`, the optional `mode` and that preview's
  * `expected_instructions_sha256` (never the instructions body, user id, role
  * or source). A changed digest returns 409 + `PROJECT_INSTRUCTIONS_CHANGED`
  * before any row exists, so the caller must refresh and confirm again. The
  * 201 response is just the existing safe task summary — creating a task is
  * never a sent first turn and the response must not be rendered as one.
+ *
+ * 030A controlled file tasks: `mode` defaults to `chat`, and old callers keep
+ * sending the chat shape unchanged. `GET /projects/task-capabilities` is only
+ * a UI hint (`{files:{available, reason}}`); the server re-checks it on create
+ * and can reject with 422 + `PROJECT_TASK_FILES_UNSUPPORTED`, 409 +
+ * `PROJECT_TASK_FILES_QUOTA` or 503 + `PROJECT_TASK_FILES_UNAVAILABLE`. A
+ * `files` task's public card keeps `agent_id` as the selected source expert,
+ * while `chat_agent_id` (owner-only) is the private runtime used for chat
+ * navigation. Readers never receive the runtime id. The project-scoped DELETE
+ * only unlinks; the private file task itself is deleted through
+ * `DELETE /project-task-files/{thread_id}`, which is owner-only and
+ * irreversible.
  */
 
 /** Server-assigned link source; clients cannot choose it. */
 export type ProjectTaskSource = "manual" | "project";
+
+/**
+ * Task workspace mode. Missing means `chat` for responses from older servers
+ * and for every pre-030A linked row.
+ */
+export type ProjectTaskMode = "chat" | "files";
+
+/**
+ * Server-checked availability of the controlled file task (`mode: "files"`).
+ * This is only a UI hint; creation re-checks it server-side.
+ */
+export interface ProjectTaskFilesCapability {
+  available: boolean;
+  /** Human-readable reason when `available` is false; may be null. */
+  reason: string | null;
+}
+
+export interface ProjectTaskCapabilities {
+  files: ProjectTaskFilesCapability;
+}
 
 /** Server-side list scope. `all` is own + explicitly shared cards only. */
 export type ProjectTaskScope = "own" | "shared" | "all";
@@ -57,7 +91,17 @@ export interface ProjectTask {
   project_id: string;
   thread_id: string;
   owner_user_id: number;
+  /** Public selected source expert id; always safe to display. */
   agent_id: string;
+  /** Task workspace mode; absent on old responses and means `chat`. */
+  mode?: ProjectTaskMode;
+  /** Source expert for a `files` task; owner-only detail. */
+  source_expert_id?: string | null;
+  /**
+   * Owner-only private runtime agent id used for `/chat/{id}/{thread}` on a
+   * `files` task. Never present for readers and never rendered as text.
+   */
+  chat_agent_id?: string | null;
   title: string | null;
   source: ProjectTaskSource;
   /** Unix epoch seconds, matching the backend's now_ts() convention. */
@@ -176,6 +220,12 @@ const messagesPath = (projectId: string, threadId: string) =>
   `${taskPath(projectId, threadId)}/messages`;
 
 export const projectTasksApi = {
+  /**
+   * Server-wide controlled file task capability. Tolerate an absent route
+   * (404) as "unavailable" instead of inventing a create action.
+   */
+  taskCapabilities: () =>
+    request<ProjectTaskCapabilities>("/projects/task-capabilities"),
   list: (projectId: string, params: ProjectTaskListParams = {}) => {
     const query = new URLSearchParams();
     query.set("scope", params.scope ?? "own");
@@ -194,12 +244,16 @@ export const projectTasksApi = {
    * digest of the instructions the member previewed. New clients also send
    * `expectedExpertsRevision` from the current project expert selection.
    * The server rejects either stale preview before creating a task.
+   *
+   * `mode` is only sent when the caller explicitly picked `files`; existing
+   * chat callers keep the exact old body so the server default stays `chat`.
    */
   create: (
     projectId: string,
     agentId: string,
     expectedInstructionsSha256: string,
     expectedExpertsRevision?: number,
+    mode?: ProjectTaskMode,
   ) =>
     request<ProjectTask>(tasksBase(projectId), {
       method: "POST",
@@ -209,6 +263,7 @@ export const projectTasksApi = {
         ...(expectedExpertsRevision == null
           ? {}
           : { expected_experts_revision: expectedExpertsRevision }),
+        ...(mode == null ? {} : { mode }),
       }),
     }),
   link: (projectId: string, threadId: string) =>
@@ -216,8 +271,18 @@ export const projectTasksApi = {
       method: "POST",
       body: JSON.stringify({ thread_id: threadId }),
     }),
+  /** Detaches the project link only; the conversation and files are kept. */
   unlink: (projectId: string, threadId: string) =>
     request<void>(taskPath(projectId, threadId), { method: "DELETE" }),
+  /**
+   * Irreversible full delete of the caller's private file task (runtime,
+   * thread metadata and managed workspace). Owner-only and independent of the
+   * project link. Repeated deletes return 404 after the first success.
+   */
+  deleteFileTask: (threadId: string) =>
+    request<void>(`/project-task-files/${encodeURIComponent(threadId)}`, {
+      method: "DELETE",
+    }),
   shares: (projectId: string, threadId: string) =>
     request<ProjectTaskSharesResponse>(sharesPath(projectId, threadId)),
   share: (projectId: string, threadId: string, userId: number) =>

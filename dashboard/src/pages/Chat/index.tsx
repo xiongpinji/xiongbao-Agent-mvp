@@ -13,10 +13,11 @@ import {
   Activity,
   LayoutDashboard,
 } from "lucide-react";
-import { Alert, Button, Tooltip } from "antd";
+import { Alert, Button, Spin, Tooltip } from "antd";
 import { message as antMessage } from "@/utils/antdMessage";
 import { showConfirmModal } from "../../utils/confirmModal";
 import PlanReadyCard from "./components/PlanReadyCard";
+import { EmptyState } from "../../components/EmptyState";
 import { useIsMobile } from "../../hooks/useIsMobile";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { userCan } from "../../utils/permissions";
@@ -65,6 +66,7 @@ import {
   useAgent,
   selectEnabledExperts,
   projectChatAgentOption,
+  type OctopAgent,
 } from "../../context/AgentContext";
 import { useLayoutMode } from "../../context/LayoutModeContext";
 import { useBrowserSessionState } from "../../hooks/useBrowserSessionState";
@@ -111,6 +113,98 @@ export default function ChatPage() {
   return <ChatPageInner />;
 }
 
+export type InternalTaskRouteStatus =
+  | "idle"
+  | "checking"
+  | "verified"
+  | "refused";
+
+export interface InternalTaskRoute {
+  /** Treat unknown route ids as restricted until the owner card is resolved. */
+  isInternal: boolean;
+  status: InternalTaskRouteStatus;
+  /** Raw card resolved for the route id (ordinary or internal). */
+  agent: OctopAgent | null;
+  error: unknown;
+}
+
+/**
+ * Resolve an ``/chat/{agentId}/{threadId}`` route that may point at an
+ * owner-private project-task runtime. An internal card is never trusted from
+ * the URL alone: it is only usable with an explicit thread id that the server
+ * confirms as the owner's (history probe). Everything else is a refusal, so
+ * the page never creates a new thread nor persists the runtime as active.
+ */
+export function useInternalTaskRoute(
+  routeAgentId: string | undefined,
+  threadId: string | undefined,
+): InternalTaskRoute {
+  const { getChatAgentById, loading } = useAgent();
+  const agent = useMemo(
+    () => (routeAgentId ? getChatAgentById(routeAgentId) : null),
+    [routeAgentId, getChatAgentById],
+  );
+  // Before the owner list arrives, a route id could be a private runtime.
+  // Fail closed so effects cannot persist it as the global agent or contact
+  // management/resource endpoints before its identity is known.
+  const isInternal =
+    agent?.internal === true || Boolean(routeAgentId && !agent);
+  const routeKey = JSON.stringify([routeAgentId ?? null, threadId ?? null]);
+  const [verification, setVerification] = useState<{
+    key: string;
+    status: InternalTaskRouteStatus;
+    error: unknown;
+  }>({ key: "", status: "idle", error: null });
+
+  useEffect(() => {
+    if (!isInternal || !routeAgentId) {
+      setVerification({ key: routeKey, status: "idle", error: null });
+      return;
+    }
+    if (!agent) {
+      setVerification({
+        key: routeKey,
+        status: loading ? "checking" : "refused",
+        error: null,
+      });
+      return;
+    }
+    if (!threadId) {
+      setVerification({ key: routeKey, status: "refused", error: null });
+      return;
+    }
+    let cancelled = false;
+    setVerification({ key: routeKey, status: "checking", error: null });
+    octopThreadsApi
+      .history(routeAgentId, threadId, { limit: 1, offset: 0 })
+      .then(() => {
+        if (cancelled) return;
+        setVerification({ key: routeKey, status: "verified", error: null });
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setVerification({ key: routeKey, status: "refused", error: err });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [agent, isInternal, loading, routeAgentId, routeKey, threadId]);
+
+  // A previous thread's successful probe can never authorize a new route for
+  // even one render while the new effect has not run yet.
+  const isCurrent = verification.key === routeKey;
+  return {
+    isInternal,
+    status: isInternal
+      ? isCurrent
+        ? verification.status
+        : "checking"
+      : "idle",
+    agent,
+    error: isCurrent ? verification.error : null,
+  };
+}
+
 function ChatPageInner() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -120,10 +214,6 @@ function ChatPageInner() {
     agentId?: string;
     threadId?: string;
   }>();
-  usePluginToolUis({
-    agentId: routeAgentId ?? null,
-    threadId: threadId ?? null,
-  });
   const isMobile = useIsMobile();
   const user = useCurrentUser();
   const { layoutMode } = useLayoutMode();
@@ -184,6 +274,7 @@ function ChatPageInner() {
   }, [location.state, location.pathname, navigate]);
 
   const activeThreadId = threadId || null;
+  const internalTaskRoute = useInternalTaskRoute(routeAgentId, threadId);
 
   const {
     activeAgentId,
@@ -193,15 +284,39 @@ function ChatPageInner() {
     loading: agentsLoading,
   } = useAgent();
   const resolvedAgentId = routeAgentId || activeAgentId;
-  const activeAgent = useMemo(
-    () => agents.find((a) => a.agent_id === resolvedAgentId) ?? null,
-    [agents, resolvedAgentId],
-  );
+  const isInternalTask = internalTaskRoute.isInternal;
+  const internalTaskReady = internalTaskRoute.status === "verified";
+  /**
+   * Id passed to chat/session/workspace hooks. For an internal runtime it only
+   * becomes available after the explicit thread is server-verified, so no hook
+   * can create or bind a new thread before that.
+   */
+  const chatAgentId = isInternalTask
+    ? internalTaskReady
+      ? routeAgentId ?? null
+      : null
+    : resolvedAgentId;
+  usePluginToolUis({
+    agentId: isInternalTask ? null : chatAgentId,
+    threadId: isInternalTask ? null : threadId ?? null,
+    enabled: !isInternalTask,
+  });
+  const activeAgent = useMemo(() => {
+    if (isInternalTask) return internalTaskRoute.agent;
+    return agents.find((a) => a.agent_id === resolvedAgentId) ?? null;
+  }, [agents, resolvedAgentId, isInternalTask, internalTaskRoute.agent]);
   const agentChatReady = isAgentChatReady(activeAgent?.state);
   const trajectoryEnabled =
-    activeAgent !== null && activeAgent.config?.enable_trajectory !== false;
+    !isInternalTask &&
+    activeAgent !== null &&
+    activeAgent.config?.enable_trajectory !== false;
   const sharedExpertViewer = isSharedExpertViewer(activeAgent ?? {});
   const isTeamChat = isTeamAgent(activeAgent);
+  /**
+   * A private file task must not load personal skills, connectors or
+   * knowledge bases, so those composer pickers are hidden just like a team.
+   */
+  const hidePersonalResources = isTeamChat || isInternalTask;
   const [agentProfileOpen, setAgentProfileOpen] = useState(false);
   const [profileAgentId, setProfileAgentId] = useState<string | null>(null);
   const profileAgent = useMemo(() => {
@@ -224,7 +339,13 @@ function ChatPageInner() {
     ? t("chat.agentProfile.openTeam")
     : t("chat.agentProfile.open");
   const ProfileIcon = isTeamChat ? Users : GraduationCap;
-  const noAgents = !agentsLoading && agents.length === 0;
+  const noAgents = !agentsLoading && agents.length === 0 && !isInternalTask;
+
+  /**
+   * Management surfaces (maintenance, migration, skill/subagent catalogs) must
+   * never touch an internal runtime's endpoints.
+   */
+  const ordinaryAgentId = isInternalTask ? null : resolvedAgentId;
 
   // Sidebar only lists "enabled" experts (harness running). Stopped / failed
   // experts are hidden so the nav stays focused on agents that can actually
@@ -241,9 +362,9 @@ function ChatPageInner() {
     visible: memoryMaintVisible,
     blocking: memoryMaintBlocking,
     connectionLost: memoryMaintConnectionLost,
-  } = useMemoryMaintenance(resolvedAgentId, agentChatReady && !noAgents);
+  } = useMemoryMaintenance(ordinaryAgentId, agentChatReady && !noAgents);
   const historyMigration = useHistoryMigration(
-    resolvedAgentId,
+    ordinaryAgentId,
     agentChatReady && !noAgents && !sharedExpertViewer,
   );
 
@@ -254,10 +375,14 @@ function ChatPageInner() {
   const { quickCards: expertQuickCards, welcomeSuffix } =
     useExpertChatWelcome(activeAgent);
   const { skills: chatSkills } = useSkills(
-    chatSkillCatalogAgentId(resolvedAgentId, agentChatReady, agentsLoading),
+    isInternalTask
+      ? null
+      : chatSkillCatalogAgentId(resolvedAgentId, agentChatReady, agentsLoading),
   );
   const chatSubagents = useChatSubagents(
-    chatSkillCatalogAgentId(resolvedAgentId, agentChatReady, agentsLoading),
+    isInternalTask
+      ? null
+      : chatSkillCatalogAgentId(resolvedAgentId, agentChatReady, agentsLoading),
   );
   const [trajectoryDrawerOpen, setTrajectoryDrawerOpen] = useState(false);
   const [turnRailVisible, setTurnRailVisible] = useState(false);
@@ -274,7 +399,7 @@ function ChatPageInner() {
     loadMoreSessions,
     fetchAllSessions,
     ensureThreadInList,
-  } = useSessions(resolvedAgentId ?? null);
+  } = useSessions(chatAgentId ?? null, { internal: isInternalTask });
 
   const handleLoadMoreSessions = useCallback(() => {
     void loadMoreSessions(activeThreadId ?? undefined);
@@ -286,9 +411,12 @@ function ChatPageInner() {
 
   useEffect(() => {
     if (routeAgentId && routeAgentId !== activeAgentId) {
+      // A private task runtime is never persisted as the global active agent;
+      // its explicit existing thread resolves it locally instead.
+      if (isInternalTask) return;
       setActiveAgent(routeAgentId);
     }
-  }, [routeAgentId, activeAgentId, setActiveAgent]);
+  }, [routeAgentId, activeAgentId, setActiveAgent, isInternalTask]);
 
   // Agent profile is agent-scoped — close when switching between two agents.
   const prevProfileAgentRef = useRef(resolvedAgentId);
@@ -314,25 +442,25 @@ function ChatPageInner() {
       }
       if (event.kind !== "streamEnd") return;
       const key = activeThreadId || "__empty__";
-      if (event.sessionId !== key || !resolvedAgentId || key === "__empty__") {
+      if (event.sessionId !== key || !chatAgentId || key === "__empty__") {
         return;
       }
-      void fetchAndSyncSessionArtifacts(resolvedAgentId, key);
+      void fetchAndSyncSessionArtifacts(chatAgentId, key);
     });
-  }, [activeThreadId, resolvedAgentId, t]);
+  }, [activeThreadId, chatAgentId, t]);
 
   // Refresh thread artifacts after file-producing tools finish (mid-turn updates).
   useEffect(() => {
     return chatStore.onToolEvent((event) => {
       if (event.kind !== "toolDone") return;
       const key = activeThreadId || "__empty__";
-      if (event.sessionId !== key || !resolvedAgentId || key === "__empty__") {
+      if (event.sessionId !== key || !chatAgentId || key === "__empty__") {
         return;
       }
       if (!isFileToolName(event.toolName)) return;
-      void fetchAndSyncSessionArtifacts(resolvedAgentId, key);
+      void fetchAndSyncSessionArtifacts(chatAgentId, key);
     });
-  }, [activeThreadId, resolvedAgentId]);
+  }, [activeThreadId, chatAgentId]);
 
   const {
     messages,
@@ -355,7 +483,7 @@ function ChatPageInner() {
     retryHistory,
     clearMessages,
     resumeHitl,
-  } = useChat(activeThreadId, resolvedAgentId, isTeamChat);
+  } = useChat(activeThreadId, chatAgentId, isTeamChat);
 
   const hasPendingHitlPause = useMemo(
     () => hasPendingHitl(messages),
@@ -377,7 +505,7 @@ function ChatPageInner() {
     controlOwner: browserControlOwner,
     environment: browserEnvironment,
     refresh: refreshBrowserSession,
-  } = useBrowserSessionState(threadId, hasBrowserTool);
+  } = useBrowserSessionState(threadId, hasBrowserTool && !isInternalTask);
 
   refreshBrowserRef.current = refreshBrowserSession;
 
@@ -406,7 +534,7 @@ function ChatPageInner() {
     focusToolUiTab,
     closeTab: closeDockTab,
     setActiveTab: setDockActiveTab,
-  } = useChatDockPanel(isMobile, resolvedAgentId);
+  } = useChatDockPanel(isMobile, chatAgentId);
 
   const chromeCheckInFlightRef = useRef(false);
   const ensureChromeThen = useCallback(
@@ -453,9 +581,12 @@ function ChatPageInner() {
 
   const dockAddTab = useMemo((): ChatDockAddTabHandlers => {
     const handlers: ChatDockAddTabHandlers = {
-      onOpenBrowser: handleOpenBrowserTab,
       onOpenOverview: openOverviewTab,
     };
+    // Browser and host terminal surfaces do not exist for a private file task.
+    if (!isInternalTask) {
+      handlers.onOpenBrowser = handleOpenBrowserTab;
+    }
     if (!sharedExpertViewer) {
       handlers.onOpenArtifacts = openArtifactsTab;
       handlers.onOpenWorkspace = openWorkspaceTab;
@@ -463,7 +594,7 @@ function ChatPageInner() {
       handlers.workspaceDisabledHint = t("workspace.requiresRunning");
       handlers.onOpenFiles = openFileList;
     }
-    if (canTerminal) {
+    if (canTerminal && !isInternalTask) {
       handlers.onOpenTerminal = openTerminalTab;
     }
     return handlers;
@@ -471,6 +602,7 @@ function ChatPageInner() {
     agentChatReady,
     canTerminal,
     handleOpenBrowserTab,
+    isInternalTask,
     openArtifactsTab,
     openFileList,
     openOverviewTab,
@@ -512,11 +644,8 @@ function ChatPageInner() {
       .filter((tab) => tab.kind === "file")
       .map((tab) => tab.path);
     const fromThread = composerSession?.artifacts ?? [];
-    return listDockFilePathsForTree(
-      [...fromThread, ...fromTabs],
-      resolvedAgentId,
-    );
-  }, [openTabs, resolvedAgentId, composerSession?.artifacts]);
+    return listDockFilePathsForTree([...fromThread, ...fromTabs], chatAgentId);
+  }, [openTabs, chatAgentId, composerSession?.artifacts]);
 
   const {
     selectedModel,
@@ -537,13 +666,14 @@ function ChatPageInner() {
     handleConnectorsChange,
     handleKnowledgeBaseIdsChange,
   } = useChatComposerResources(
-    resolvedAgentId,
+    chatAgentId,
     activeThreadId,
     composerSession?.modelRef,
     composerSession?.reasoningMode,
     composerSession?.reasoningEffort,
     composerSession?.conversationMode,
     composerSession?.hitlPolicy,
+    isInternalTask,
   );
 
   const { contextMaxTokens, contextUsedTokens } = useChatContextWindow(
@@ -590,7 +720,8 @@ function ChatPageInner() {
   const { resetNavForAgentSwitch, markInitialNavDone } = useChatNavigation({
     routeAgentId,
     threadId,
-    resolvedAgentId,
+    resolvedAgentId: chatAgentId,
+    internalTask: isInternalTask,
     activeThreadId,
     sessions,
     sessionsLoading,
@@ -642,7 +773,7 @@ function ChatPageInner() {
   );
 
   const { handleSend } = useChatSend({
-    resolvedAgentId,
+    resolvedAgentId: chatAgentId,
     activeThreadId,
     sessions,
     messagesLength: messages.length,
@@ -667,7 +798,7 @@ function ChatPageInner() {
 
   // --- Skill recording workflow ---
   const { interceptUserMessage } = useSkillRecordingWorkflow({
-    agentId: resolvedAgentId,
+    agentId: chatAgentId,
     threadId: activeThreadId,
     browserRecording,
     browserRecordingId,
@@ -770,7 +901,7 @@ function ChatPageInner() {
     reclaim: reclaimQueued,
     clear: clearQueued,
   } = useChatMessageQueue({
-    agentId: resolvedAgentId,
+    agentId: chatAgentId,
     threadId: activeThreadId,
     isStreaming,
     onFlush: flushQueuedItem,
@@ -784,7 +915,7 @@ function ChatPageInner() {
     navigateToAgent,
     handleDeleteSession,
   } = useChatSessionActions({
-    resolvedAgentId,
+    resolvedAgentId: chatAgentId,
     activeThreadId,
     sessions,
     isMobile,
@@ -800,8 +931,26 @@ function ChatPageInner() {
 
   const handleNewChat = useCallback(() => {
     clearQueued();
+    // A private task runtime has exactly its existing thread(s): never open a
+    // new blank conversation that the server would have to reject.
+    if (isInternalTask) {
+      antMessage.warning(t("chat.internalTask.noNewChat"));
+      return;
+    }
     startNewChat();
-  }, [clearQueued, startNewChat]);
+  }, [clearQueued, isInternalTask, startNewChat, t]);
+
+  const handleNewChatWithAgentRequest = useCallback(
+    (agentId: string) => {
+      if (isInternalTask && agentId === resolvedAgentId) {
+        antMessage.warning(t("chat.internalTask.noNewChat"));
+        return;
+      }
+      clearQueued();
+      handleNewChatWithAgent(agentId);
+    },
+    [clearQueued, handleNewChatWithAgent, isInternalTask, resolvedAgentId, t],
+  );
 
   useEffect(() => {
     return chatStore.onSlashAction((ev) => {
@@ -945,11 +1094,13 @@ function ChatPageInner() {
   );
 
   const [forking, setForking] = useState(false);
-  const forkDisabled = forking || isStreaming || hasPendingHitlPause;
-  const forkDisabledHint =
-    !forking && (isStreaming || hasPendingHitlPause)
-      ? t("chat.forkDisabledWhileBusy")
-      : undefined;
+  const forkDisabled =
+    forking || isStreaming || hasPendingHitlPause || isInternalTask;
+  const forkDisabledHint = isInternalTask
+    ? t("chat.internalTask.forkDisabled")
+    : !forking && (isStreaming || hasPendingHitlPause)
+    ? t("chat.forkDisabledWhileBusy")
+    : undefined;
   const hasAssistantReply = useMemo(
     () =>
       messages.some(
@@ -987,7 +1138,7 @@ function ChatPageInner() {
   const handleForkAssistantMessage = useCallback(
     async (messageId: string) => {
       const agent = resolvedAgentId;
-      if (!agent || !activeThreadId || forkDisabled) return;
+      if (isInternalTask || !agent || !activeThreadId || forkDisabled) return;
       const idx = messages.findIndex((message) => message.id === messageId);
       if (idx < 0) return;
       const assistantMsg = messages[idx];
@@ -1011,6 +1162,7 @@ function ChatPageInner() {
     [
       activeThreadId,
       forkDisabled,
+      isInternalTask,
       messages,
       navigateToForkedThread,
       resolvedAgentId,
@@ -1021,7 +1173,7 @@ function ChatPageInner() {
   const handleForkSession = useCallback(
     async (threadId: string, agentId?: string | null) => {
       const agent = agentId || resolvedAgentId;
-      if (!agent || !threadId || forking) return;
+      if (isInternalTask || !agent || !threadId || forking) return;
       if (threadId === activeThreadId && (isStreaming || hasPendingHitlPause)) {
         antMessage.warning(t("chat.forkDisabledWhileBusy"));
         return;
@@ -1047,6 +1199,7 @@ function ChatPageInner() {
       forking,
       hasAssistantReply,
       hasPendingHitlPause,
+      isInternalTask,
       isStreaming,
       navigateToForkedThread,
       resolvedAgentId,
@@ -1095,6 +1248,15 @@ function ChatPageInner() {
     return name;
   }, [activeSession, t]);
 
+  const refuseInternalTaskManagement = () => {
+    antMessage.warning(
+      t(
+        "chat.internalTask.manageRestricted",
+        "此任务只允许继续既有对话；如需永久删除，请前往项目任务列表使用“删除整任务”。",
+      ),
+    );
+  };
+
   const chatSidebarPanel = (
     <ChatSidebarPanel
       isMobile={isMobile}
@@ -1121,13 +1283,14 @@ function ChatPageInner() {
         handleSelectSession(sessionId);
       }}
       onAgentSelect={navigateToAgent}
-      onNewChatWithAgent={(agentId) => {
-        clearQueued();
-        handleNewChatWithAgent(agentId);
-      }}
-      onDeleteSession={handleDeleteSession}
-      onRenameSession={renameSession}
-      onPinSession={pinSession}
+      onNewChatWithAgent={handleNewChatWithAgentRequest}
+      onDeleteSession={
+        isInternalTask ? refuseInternalTaskManagement : handleDeleteSession
+      }
+      onRenameSession={
+        isInternalTask ? refuseInternalTaskManagement : renameSession
+      }
+      onPinSession={isInternalTask ? refuseInternalTaskManagement : pinSession}
       onForkSession={handleForkSession}
       forkDisabled={sessionForkDisabled}
       forkDisabledHint={sessionForkDisabledHint}
@@ -1137,6 +1300,20 @@ function ChatPageInner() {
       navEmbedded={isMinimalLayout}
     />
   );
+
+  const internalRouteChecking =
+    isInternalTask &&
+    (internalTaskRoute.status === "idle" ||
+      internalTaskRoute.status === "checking");
+  const internalRefusalDescription = !threadId
+    ? t("chat.internalTask.refusalNoThread")
+    : internalTaskRoute.error != null
+    ? apiErrorMessage(
+        internalTaskRoute.error,
+        t("chat.internalTask.refusalUnknownThread"),
+        t,
+      )
+    : t("chat.internalTask.refusalUnknownThread");
 
   return (
     <ChatFilePreviewProvider
@@ -1201,14 +1378,16 @@ function ChatPageInner() {
                 )}
                 {resolvedAgentId && !sharedExpertViewer && (
                   <div className={styles.mobileToolbarRight}>
-                    <button
-                      className={styles.menuBtn}
-                      onClick={() => setAgentProfileOpen(true)}
-                      title={profileOpenLabel}
-                      aria-label={profileOpenLabel}
-                    >
-                      <ProfileIcon size={18} strokeWidth={1.8} />
-                    </button>
+                    {!isInternalTask && (
+                      <button
+                        className={styles.menuBtn}
+                        onClick={() => setAgentProfileOpen(true)}
+                        title={profileOpenLabel}
+                        aria-label={profileOpenLabel}
+                      >
+                        <ProfileIcon size={18} strokeWidth={1.8} />
+                      </button>
+                    )}
                     <button
                       className={styles.menuBtn}
                       onClick={toggleWorkspacePanel}
@@ -1222,14 +1401,16 @@ function ChatPageInner() {
                     >
                       <FolderOpen size={18} strokeWidth={1.8} />
                     </button>
-                    <button
-                      className={styles.menuBtn}
-                      onClick={() => void handleToggleBrowserPanel()}
-                      title={t("chat.openBrowser")}
-                      aria-label={t("chat.openBrowser")}
-                    >
-                      <Globe size={18} strokeWidth={1.8} />
-                    </button>
+                    {!isInternalTask && (
+                      <button
+                        className={styles.menuBtn}
+                        onClick={() => void handleToggleBrowserPanel()}
+                        title={t("chat.openBrowser")}
+                        aria-label={t("chat.openBrowser")}
+                      >
+                        <Globe size={18} strokeWidth={1.8} />
+                      </button>
+                    )}
                     {!sharedExpertViewer && panelFilePaths.length > 0 && (
                       <button
                         className={styles.menuBtn}
@@ -1301,7 +1482,28 @@ function ChatPageInner() {
               />
             )}
             <div className={styles.chatContent}>
-              {!agentChatReady || noAgents ? (
+              {isInternalTask && !internalTaskReady ? (
+                internalRouteChecking ? (
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "center",
+                      padding: 48,
+                    }}
+                  >
+                    <Spin />
+                  </div>
+                ) : (
+                  <EmptyState
+                    variant="error"
+                    title={t(
+                      "chat.internalTask.refusalTitle",
+                      "无法确认该私有任务线程",
+                    )}
+                    description={internalRefusalDescription}
+                  />
+                )
+              ) : !agentChatReady || noAgents ? (
                 <AgentNotReadyScreen
                   agent={activeAgent}
                   noAgents={noAgents}
@@ -1318,7 +1520,11 @@ function ChatPageInner() {
                 />
               ) : (
                 <ChatAgentProfileProvider
-                  canOpen={Boolean(resolvedAgentId) && !sharedExpertViewer}
+                  canOpen={
+                    Boolean(resolvedAgentId) &&
+                    !sharedExpertViewer &&
+                    !isInternalTask
+                  }
                   onOpen={(agentId) => {
                     setProfileAgentId(
                       agentId && agentId !== resolvedAgentId ? agentId : null,
@@ -1329,7 +1535,7 @@ function ChatPageInner() {
                 >
                   <MessageList
                     messages={messages}
-                    agentId={resolvedAgentId}
+                    agentId={chatAgentId}
                     composerLookups={composerLookups}
                     loading={awaitingThreadHistory}
                     historyHasMore={historyHasMore}
@@ -1349,7 +1555,11 @@ function ChatPageInner() {
                     onAcpPermissionSelect={handleAcpPermissionSelect}
                     onHitlDecision={handleHitlDecision}
                     onTurnRailVisibilityChange={setTurnRailVisible}
-                    onOpenBrowser={hasBrowserTool ? openBrowserTab : undefined}
+                    onOpenBrowser={
+                      !isInternalTask && hasBrowserTool
+                        ? openBrowserTab
+                        : undefined
+                    }
                     onEditFile={
                       !sharedExpertViewer && panelFilePaths.length > 0
                         ? openFileList
@@ -1385,22 +1595,24 @@ function ChatPageInner() {
                   </Tooltip>
                   {resolvedAgentId && !sharedExpertViewer && (
                     <>
-                      <Tooltip
-                        title={profileOpenLabel}
-                        mouseEnterDelay={0.35}
-                        placement="left"
-                      >
-                        <span className={styles.chatFloatBtnWrap}>
-                          <button
-                            type="button"
-                            className={styles.agentProfileBtn}
-                            onClick={() => setAgentProfileOpen(true)}
-                            aria-label={profileOpenLabel}
-                          >
-                            <ProfileIcon size={20} strokeWidth={2.1} />
-                          </button>
-                        </span>
-                      </Tooltip>
+                      {!isInternalTask && (
+                        <Tooltip
+                          title={profileOpenLabel}
+                          mouseEnterDelay={0.35}
+                          placement="left"
+                        >
+                          <span className={styles.chatFloatBtnWrap}>
+                            <button
+                              type="button"
+                              className={styles.agentProfileBtn}
+                              onClick={() => setAgentProfileOpen(true)}
+                              aria-label={profileOpenLabel}
+                            >
+                              <ProfileIcon size={20} strokeWidth={2.1} />
+                            </button>
+                          </span>
+                        </Tooltip>
+                      )}
                       <Tooltip
                         title={
                           agentChatReady
@@ -1455,7 +1667,7 @@ function ChatPageInner() {
                       </span>
                     </Tooltip>
                   )}
-                  {canTerminal && (
+                  {canTerminal && !isInternalTask && (
                     <Tooltip
                       title={t("chat.openTerminal", "打开终端")}
                       mouseEnterDelay={0.35}
@@ -1501,51 +1713,53 @@ function ChatPageInner() {
                       </span>
                     </Tooltip>
                   )}
-                  <Tooltip
-                    title={
-                      browserSessionId
-                        ? t("browserWorkspace.browserStatusActive", {
-                            owner:
-                              browserControlOwner === "agent"
-                                ? t("browserWorkspace.agentControl")
-                                : t("browserWorkspace.userTakeover"),
-                          })
-                        : t("browserWorkspace.browserStatusIdle")
-                    }
-                    mouseEnterDelay={0.35}
-                    placement="left"
-                  >
-                    <span className={styles.chatFloatBtnWrap}>
-                      <button
-                        type="button"
-                        className={[
-                          styles.browserStatusBtn,
-                          browserSessionId ? styles.browserStatusActive : "",
-                          browserSessionId &&
-                          (browserSessionState === "awaiting_user_auth" ||
-                            browserSessionState === "authenticating")
-                            ? styles.browserStatusAuth
-                            : "",
-                          browserSessionId && browserControlOwner === "user"
-                            ? styles.browserStatusTakeover
-                            : "",
-                        ]
-                          .filter(Boolean)
-                          .join(" ")}
-                        onClick={() => void handleToggleBrowserPanel()}
-                        aria-label={t("chat.openBrowser")}
-                      >
-                        <Globe size={20} strokeWidth={2.1} />
-                        {browserSessionId && (
-                          <span
-                            className={`${styles.browserStatusDot} ${
-                              styles[`browserStatus_${browserControlOwner}`]
-                            }`}
-                          />
-                        )}
-                      </button>
-                    </span>
-                  </Tooltip>
+                  {!isInternalTask && (
+                    <Tooltip
+                      title={
+                        browserSessionId
+                          ? t("browserWorkspace.browserStatusActive", {
+                              owner:
+                                browserControlOwner === "agent"
+                                  ? t("browserWorkspace.agentControl")
+                                  : t("browserWorkspace.userTakeover"),
+                            })
+                          : t("browserWorkspace.browserStatusIdle")
+                      }
+                      mouseEnterDelay={0.35}
+                      placement="left"
+                    >
+                      <span className={styles.chatFloatBtnWrap}>
+                        <button
+                          type="button"
+                          className={[
+                            styles.browserStatusBtn,
+                            browserSessionId ? styles.browserStatusActive : "",
+                            browserSessionId &&
+                            (browserSessionState === "awaiting_user_auth" ||
+                              browserSessionState === "authenticating")
+                              ? styles.browserStatusAuth
+                              : "",
+                            browserSessionId && browserControlOwner === "user"
+                              ? styles.browserStatusTakeover
+                              : "",
+                          ]
+                            .filter(Boolean)
+                            .join(" ")}
+                          onClick={() => void handleToggleBrowserPanel()}
+                          aria-label={t("chat.openBrowser")}
+                        >
+                          <Globe size={20} strokeWidth={2.1} />
+                          {browserSessionId && (
+                            <span
+                              className={`${styles.browserStatusDot} ${
+                                styles[`browserStatus_${browserControlOwner}`]
+                              }`}
+                            />
+                          )}
+                        </button>
+                      </span>
+                    </Tooltip>
+                  )}
                 </div>
               )}
 
@@ -1603,7 +1817,12 @@ function ChatPageInner() {
               onNewChat={handleNewChat}
               isStreaming={isStreaming}
               isTeam={isTeamChat}
-              disabled={!agentChatReady || noAgents || memoryMaintBlocking}
+              disabled={
+                !agentChatReady ||
+                noAgents ||
+                memoryMaintBlocking ||
+                (isInternalTask && !internalTaskReady)
+              }
               initialText={prefillInputRef.current}
               onComposerCleared={() => {
                 prefillInputRef.current = "";
@@ -1618,27 +1837,33 @@ function ChatPageInner() {
               onConversationModeChange={handleConversationModeChange}
               hitlPolicy={hitlPolicy}
               onHitlPolicyChange={handleComposerHitlPolicyChange}
-              availableConnectors={isTeamChat ? undefined : chatConnectors}
-              selectedConnectors={isTeamChat ? [] : selectedConnectors}
+              availableConnectors={
+                hidePersonalResources ? undefined : chatConnectors
+              }
+              selectedConnectors={
+                hidePersonalResources ? [] : selectedConnectors
+              }
               onConnectorsChange={
-                isTeamChat ? undefined : handleConnectorsChange
+                hidePersonalResources ? undefined : handleConnectorsChange
               }
               availableKnowledgeBases={
-                isTeamChat ? undefined : chatKnowledgeBases
+                hidePersonalResources ? undefined : chatKnowledgeBases
               }
               selectedKnowledgeBaseIds={
-                isTeamChat ? [] : selectedKnowledgeBaseIds
+                hidePersonalResources ? [] : selectedKnowledgeBaseIds
               }
               onKnowledgeBaseIdsChange={
-                isTeamChat ? undefined : handleKnowledgeBaseIdsChange
+                hidePersonalResources ? undefined : handleKnowledgeBaseIdsChange
               }
-              availableSkills={isTeamChat ? undefined : chatSkills}
+              availableSkills={hidePersonalResources ? undefined : chatSkills}
               availableAgents={chatAgentOptions}
               availableExperts={
                 isTeamChat ? teamExpertOptions : chatAgentOptionsPickable
               }
-              availableSubagents={isTeamChat ? undefined : chatSubagents}
-              agentId={resolvedAgentId}
+              availableSubagents={
+                hidePersonalResources ? undefined : chatSubagents
+              }
+              agentId={chatAgentId}
               threadId={activeThreadId}
               defaultModel={activeAgent?.default_model ?? null}
               contextUsedTokens={contextUsedTokens}
@@ -1652,7 +1877,7 @@ function ChatPageInner() {
             dockMode={dockMode}
             isResizing={dockIsResizing}
             panelSizes={dockPanelSizes}
-            agentId={resolvedAgentId ?? ""}
+            agentId={chatAgentId ?? ""}
             filePaths={sharedExpertViewer ? [] : panelFilePaths}
             artifacts={sharedExpertViewer ? [] : threadArtifacts}
             agentName={activeAgent?.name ?? null}
@@ -1671,7 +1896,7 @@ function ChatPageInner() {
             addTab={dockAddTab}
           />
 
-          {!sharedExpertViewer && (
+          {!sharedExpertViewer && !isInternalTask && (
             <AgentProfileDrawer
               open={agentProfileOpen}
               agent={profileAgent}

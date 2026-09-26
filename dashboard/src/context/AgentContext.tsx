@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import type { ReactNode } from "react";
@@ -18,6 +19,12 @@ import { agentApi as legacyAgentApi } from "../api/modules/agent";
  * in ``localStorage`` (``octop:active-agent``), and pipes the selected id
  * into ``api/request.ts`` so every agent-scoped HTTP call gets an
  * ``X-Octop-Agent-Id`` header.
+ *
+ * 030A: the owner-scoped raw list may also carry minimal ``internal`` cards
+ * for private project-task runtimes. They stay private to this provider and
+ * are only reachable through ``getChatAgentById`` for an explicit existing
+ * owner thread; every ordinary list, default and picker uses the filtered
+ * projection, so an internal runtime can never be selected implicitly.
  */
 
 export interface OctopAgent {
@@ -50,7 +57,14 @@ export interface OctopAgent {
   temperature?: number | null;
   top_p?: number | null;
   max_tokens?: number | null;
-  config: Record<string, unknown>;
+  /** Absent on the minimal card of an internal project-task runtime. */
+  config?: Record<string, unknown>;
+  /**
+   * True for the owner's private project-task runtime (`runtime_kind=
+   * project_task_files`). Internal cards are kept out of every ordinary
+   * expert list/picker/default; only existing owner threads may resolve them.
+   */
+  internal?: boolean;
   /** Knowledge bases opened by default in new chats with this expert. */
   knowledge_base_ids?: string[];
   /** Connectors opened by default in new chats with this expert. */
@@ -67,7 +81,11 @@ export interface OctopAgent {
 }
 
 interface AgentContextValue {
-  /** Latest agents fetched from ``GET /api/agents``. */
+  /**
+   * Latest *ordinary* agents fetched from ``GET /api/agents``. Owner-private
+   * internal project-task runtimes are filtered out centrally so every
+   * picker, default and localStorage reconciliation only ever sees experts.
+   */
   agents: OctopAgent[];
   /** Active agent id, or ``null`` when no agent is selected. */
   activeAgentId: string | null;
@@ -81,6 +99,13 @@ interface AgentContextValue {
   setActiveAgent: (id: string | null) => void;
   /** Force a re-fetch of ``/api/agents`` (e.g. after creating one). */
   refresh: (options?: { silent?: boolean; force?: boolean }) => Promise<void>;
+  /**
+   * Raw owner-scoped lookup used only to resolve an already known existing
+   * thread's internal project-task runtime. Returns ordinary cards too, so
+   * callers must still gate on ``internal`` before using it as a private
+   * runtime. Never use this to populate an ordinary expert picker.
+   */
+  getChatAgentById: (id: string | null | undefined) => OctopAgent | null;
 }
 
 export interface EnabledExpertsOptions {
@@ -115,10 +140,13 @@ export function selectEnabledExperts(
   options: EnabledExpertsOptions = {},
 ): OctopAgent[] {
   const { pinActive = false } = options;
-  const enabled = agents.filter((a) => a.state === "running");
+  // Defense in depth: the context already filters internal runtimes out of
+  // ``agents``, but a raw list passed directly here must never leak one.
+  const visible = agents.filter((a) => !a.internal);
+  const enabled = visible.filter((a) => a.state === "running");
   if (!pinActive || !resolvedAgentId) return enabled;
   if (enabled.some((a) => a.agent_id === resolvedAgentId)) return enabled;
-  const pinnedActive = agents.find((a) => a.agent_id === resolvedAgentId);
+  const pinnedActive = visible.find((a) => a.agent_id === resolvedAgentId);
   if (!pinnedActive) return enabled;
   return [pinnedActive, ...enabled];
 }
@@ -165,6 +193,7 @@ const defaultValue: AgentContextValue = {
   error: null,
   setActiveAgent: () => undefined,
   refresh: async () => undefined,
+  getChatAgentById: () => null,
 };
 
 const AgentContext = createContext<AgentContextValue>(defaultValue);
@@ -193,12 +222,31 @@ async function fetchAgents(): Promise<OctopAgent[]> {
 }
 
 export function AgentProvider({ children }: { children: ReactNode }) {
-  const [agents, setAgents] = useState<OctopAgent[]>([]);
+  // Raw owner-scoped list (may include internal project-task runtimes). It stays
+  // private to this provider: ``agents`` below is the filtered ordinary
+  // projection every consumer sees, and ``getChatAgentById`` is the only raw
+  // lookup, used to resolve an already known owner thread.
+  const [rawAgents, setRawAgents] = useState<OctopAgent[]>([]);
+  const rawAgentsRef = useRef<OctopAgent[]>([]);
   const [activeAgentId, setActiveAgentIdState] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  /** Central ordinary-Agent filter: internal runtimes never leak out. */
+  const agents = useMemo(
+    () => rawAgents.filter((a) => a.internal !== true),
+    [rawAgents],
+  );
+
   const persistAndApply = useCallback((id: string | null) => {
+    // An internal project-task runtime must never become the globally
+    // persisted/default agent; only its explicit existing thread may use it.
+    if (
+      id != null &&
+      rawAgentsRef.current.some((a) => a.agent_id === id && a.internal === true)
+    ) {
+      return;
+    }
     setActiveAgentIdState((prev) => {
       // Skip the re-render when the id hasn't changed.
       if (prev === id) return prev;
@@ -212,6 +260,14 @@ export function AgentProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const getChatAgentById = useCallback(
+    (id: string | null | undefined): OctopAgent | null => {
+      if (!id) return null;
+      return rawAgents.find((a) => a.agent_id === id) ?? null;
+    },
+    [rawAgents],
+  );
+
   const refresh = useCallback(
     async (options?: { silent?: boolean; force?: boolean }): Promise<void> => {
       if (!options?.silent) {
@@ -220,10 +276,11 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       setError(null);
       try {
         const list = await fetchAgents();
+        rawAgentsRef.current = list;
         // Only update state when content actually changed, to prevent
         // unnecessary re-renders of every component subscribed to this context
         // (the chat page polls every 10 s to refresh unread badges).
-        setAgents((prev) => {
+        setRawAgents((prev) => {
           if (
             !options?.force &&
             prev.length === list.length &&
@@ -249,13 +306,16 @@ export function AgentProvider({ children }: { children: ReactNode }) {
           return list;
         });
 
-        // Reconcile selection with what the server reports.
+        // Reconcile selection against the *ordinary* list only: a stored or
+        // first-position internal runtime is ignored instead of activated.
+        const ordinary = list.filter((a) => a.internal !== true);
         const stored = localStorage.getItem(STORAGE_KEY);
-        const haveStored = stored && list.some((a) => a.agent_id === stored);
+        const haveStored =
+          stored != null && ordinary.some((a) => a.agent_id === stored);
         if (haveStored) {
           persistAndApply(stored);
-        } else if (list.length > 0) {
-          persistAndApply(list[0].agent_id);
+        } else if (ordinary.length > 0) {
+          persistAndApply(ordinary[0].agent_id);
         } else {
           persistAndApply(null);
         }
@@ -301,6 +361,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       error,
       setActiveAgent: persistAndApply,
       refresh,
+      getChatAgentById,
     }),
     [
       agents,
@@ -310,6 +371,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       error,
       persistAndApply,
       refresh,
+      getChatAgentById,
     ],
   );
 

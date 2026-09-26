@@ -44,6 +44,7 @@ import {
   Plus,
   RefreshCw,
   Share2,
+  Trash2,
 } from "lucide-react";
 import { EmptyState } from "../../components/EmptyState";
 import { selectEnabledExperts, useAgent } from "../../context/AgentContext";
@@ -61,8 +62,10 @@ import {
   PROJECT_TASKS_PAGE_SIZE,
   projectTasksApi,
   type ProjectTask,
+  type ProjectTaskCapabilities,
   type ProjectTaskMessage,
   type ProjectTaskMessagesStatus,
+  type ProjectTaskMode,
   type ProjectTaskScope,
   type ProjectTaskShare,
 } from "../../api/modules/projectTasks";
@@ -198,6 +201,15 @@ export default function ProjectTasks({
   const [createConfirmed, setCreateConfirmed] = useState(false);
   const [createBusy, setCreateBusy] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  /** Explicit create mode; old call sites and defaults stay `chat`. */
+  const [createMode, setCreateMode] = useState<ProjectTaskMode>("chat");
+  const [capabilities, setCapabilities] = useState<{
+    projectId: string;
+    data: ProjectTaskCapabilities;
+  } | null>(null);
+  const [capabilitiesLoading, setCapabilitiesLoading] = useState(true);
+  const [capabilitiesError, setCapabilitiesError] = useState<unknown>(null);
+  const [capabilityReloadKey, setCapabilityReloadKey] = useState(0);
   const [expertSelection, setExpertSelection] = useState<{
     projectId: string;
     data: ProjectExpertsResponse;
@@ -224,6 +236,7 @@ export default function ProjectTasks({
   const sharesSeq = useRef(0);
   const createSeq = useRef(0);
   const expertSelectionSeq = useRef(0);
+  const capabilitiesSeq = useRef(0);
   const createBusyRef = useRef(false);
   const currentProjectId = useRef(projectId);
   currentProjectId.current = projectId;
@@ -282,6 +295,18 @@ export default function ProjectTasks({
   /** Still showing the digest the server rejected: retry stays blocked. */
   const digestRejected =
     createRejectedDigest != null && createRejectedDigest === instructionsSha256;
+
+  /** Capability is a UI hint only; the server re-checks it on create. */
+  const filesCapability =
+    capabilities?.projectId === projectId ? capabilities.data.files : null;
+  const filesAvailable = filesCapability?.available === true;
+  /**
+   * Fail-closed guard: the member picked `files` but the capability is no
+   * longer true (flip or reload still in flight). Submission of either mode
+   * is blocked at render — before the reset effect below can silently turn
+   * the file intent into a chat create.
+   */
+  const filesSelectionBlocked = createMode === "files" && !filesAvailable;
   const createDisabled =
     createBusy ||
     selection == null ||
@@ -290,7 +315,23 @@ export default function ProjectTasks({
     !createConfirmed ||
     createReadyAgentId == null ||
     !digestAvailable ||
-    digestRejected;
+    digestRejected ||
+    filesSelectionBlocked;
+  const filesCapabilityAbsent = t(
+    "projects.tasks.filesCapabilityAbsent",
+    "服务端尚未提供受控文件任务（无终端）能力。",
+  );
+  const filesUnavailableReason = filesAvailable
+    ? ""
+    : filesCapability?.reason?.trim() ||
+      (capabilitiesError != null
+        ? isNotFoundApiError(capabilitiesError)
+          ? filesCapabilityAbsent
+          : apiErrorMessage(capabilitiesError, filesCapabilityAbsent, t)
+        : filesCapabilityAbsent);
+  // The private-file choice is only real while the server reports it usable.
+  const effectiveCreateMode: ProjectTaskMode =
+    createMode === "files" && filesAvailable ? "files" : "chat";
 
   const agentNames = useMemo(
     () =>
@@ -311,6 +352,10 @@ export default function ProjectTasks({
   );
 
   const reload = useCallback(() => setReloadKey((key) => key + 1), []);
+  const reloadCapabilities = useCallback(
+    () => setCapabilityReloadKey((key) => key + 1),
+    [],
+  );
   const reloadCandidates = useCallback(
     () => setCandidateReloadKey((key) => key + 1),
     [],
@@ -379,6 +424,7 @@ export default function ProjectTasks({
     setCreateConfirmed(false);
     setCreateError(null);
     setCreateBusy(false);
+    setCreateMode("chat");
   }, []);
   const closeCreate = useCallback(() => {
     if (!createBusyRef.current) forceCloseCreate();
@@ -404,6 +450,39 @@ export default function ProjectTasks({
     closeShare,
     forceCloseCreate,
   ]);
+
+  const loadCapabilities = useCallback(async () => {
+    const seq = ++capabilitiesSeq.current;
+    setCapabilities(null);
+    setCapabilitiesError(null);
+    setCapabilitiesLoading(true);
+    try {
+      const data = await projectTasksApi.taskCapabilities();
+      if (seq !== capabilitiesSeq.current) return;
+      if (projectId !== currentProjectId.current) return;
+      setCapabilities({ projectId, data });
+    } catch (err: unknown) {
+      if (seq !== capabilitiesSeq.current) return;
+      if (projectId !== currentProjectId.current) return;
+      setCapabilitiesError(err);
+    } finally {
+      if (seq === capabilitiesSeq.current) setCapabilitiesLoading(false);
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    void loadCapabilities();
+  }, [loadCapabilities, capabilityReloadKey]);
+
+  // A capability flip while the dialog is open cannot leave a stale `files`
+  // selection that would create an unsupported task, and the chat fallback
+  // must never inherit the files-mode confirmation: the member has to
+  // knowingly re-confirm the different mode.
+  useEffect(() => {
+    if (filesAvailable) return;
+    if (createMode === "files") setCreateConfirmed(false);
+    setCreateMode("chat");
+  }, [filesAvailable, createMode]);
 
   // A refreshed digest (after any project reload) is never silently
   // re-confirmed: the member must read and check the new instructions again.
@@ -678,6 +757,65 @@ export default function ProjectTasks({
           apiErrorMessage(
             err,
             t("projects.tasks.detachFailed", "取消关联失败"),
+            t,
+          ),
+        );
+      }
+    } finally {
+      setBusyThreadIds((previous) =>
+        previous.filter((id) => id !== task.thread_id),
+      );
+    }
+  };
+
+  /**
+   * Irreversible full delete of the caller's private file task. It is a
+   * different route and wording from unlink: the dedicated route removes the
+   * runtime, thread metadata and managed files. A stale 404 drops the card
+   * with a neutral refresh message; any other failure keeps the card visible
+   * and reports the real error instead of a false success.
+   */
+  const deleteWholeFileTask = async (task: ProjectTask) => {
+    setBusyThreadIds((previous) => [...previous, task.thread_id]);
+    setActionError(null);
+    try {
+      await projectTasksApi.deleteFileTask(task.thread_id);
+      if (projectId !== currentProjectId.current) return;
+      setTasks((previous) =>
+        previous.filter((item) => item.thread_id !== task.thread_id),
+      );
+      void message.success(
+        t(
+          "projects.tasks.deleteTaskSuccess",
+          "已永久删除该文件任务及其私有文件。",
+        ),
+      );
+      reload();
+    } catch (err: unknown) {
+      if (projectId !== currentProjectId.current) return;
+      if (isNotFoundApiError(err)) {
+        setTasks((previous) =>
+          previous.filter((item) => item.thread_id !== task.thread_id),
+        );
+        setActionError(
+          t(
+            "projects.tasks.deleteTaskGone",
+            "该文件任务已不存在；列表已刷新。",
+          ),
+        );
+        reload();
+      } else {
+        const code = parseApiError(err)?.code;
+        if (
+          code === "PROJECT_TASK_FILES_UNSUPPORTED" ||
+          code === "PROJECT_TASK_FILES_UNAVAILABLE"
+        ) {
+          reloadCapabilities();
+        }
+        setActionError(
+          apiErrorMessage(
+            err,
+            t("projects.tasks.deleteTaskFailed", "删除文件任务失败"),
             t,
           ),
         );
@@ -979,6 +1117,7 @@ export default function ProjectTasks({
     setCreateConfirmed(false);
     setCreateError(null);
     setCreateBusy(false);
+    setCreateMode("chat");
     setCreateOpen(true);
     void loadExpertSelection();
   };
@@ -992,6 +1131,21 @@ export default function ProjectTasks({
    */
   const submitCreate = async () => {
     if (createBusy || !createConfirmed) return;
+    if (createMode === "files" && !filesAvailable) {
+      // Fail closed: a selected file task whose capability is no longer true
+      // must never submit as either mode. Drop the stale files-mode
+      // confirmation, explain the block and re-check the capability; the
+      // chat fallback (if any) then requires a fresh explicit confirmation.
+      setCreateConfirmed(false);
+      setCreateError(
+        t(
+          "projects.tasks.createFilesCapabilityLost",
+          "受控文件任务（无终端）能力已失效，本次提交已阻止，未创建任何任务；正在重新检查能力，如改用普通对话任务请重新确认。",
+        ),
+      );
+      reloadCapabilities();
+      return;
+    }
     const agentId = createReadyAgentId;
     const digest = instructionsSha256;
     const expertsRevision = selection?.revision;
@@ -1002,18 +1156,59 @@ export default function ProjectTasks({
     setCreateBusy(true);
     setCreateError(null);
     try {
-      const created = await projectTasksApi.create(
-        projectId,
-        agentId,
-        digest,
-        expertsRevision,
-      );
+      // The fail-closed guard above already proved a `files` selection still
+      // has its capability, so the explicit choice is submitted verbatim;
+      // `effectiveCreateMode` never silently downgrades the request.
+      const mode: ProjectTaskMode = createMode;
+      // Keep the pre-030A four-argument chat call and body unchanged; `mode`
+      // is only sent when the member explicitly picked the file workspace.
+      const created =
+        mode === "files"
+          ? await projectTasksApi.create(
+              projectId,
+              agentId,
+              digest,
+              expertsRevision,
+              "files",
+            )
+          : await projectTasksApi.create(
+              projectId,
+              agentId,
+              digest,
+              expertsRevision,
+            );
       if (seq !== createSeq.current) {
         if (projectId === currentProjectId.current) reload();
         return;
       }
       if (projectId !== currentProjectId.current) return;
       forceCloseCreate();
+      if (mode === "files") {
+        const runtimeAgentId = created.chat_agent_id?.trim();
+        if (!runtimeAgentId) {
+          // Never fall back to the public source expert for a private task.
+          setActionError(
+            t(
+              "projects.tasks.createFilesMissingRuntime",
+              "服务端未返回私有任务运行标识，已取消跳转；请刷新列表后重试或联系管理员。",
+            ),
+          );
+          reload();
+          return;
+        }
+        void message.success(
+          t(
+            "projects.tasks.createFilesSuccess",
+            "已创建受控文件任务（无终端），正在前往任务。",
+          ),
+        );
+        navigate(
+          `/chat/${encodeURIComponent(runtimeAgentId)}/${encodeURIComponent(
+            created.thread_id,
+          )}`,
+        );
+        return;
+      }
       void message.success(
         t("projects.tasks.createSuccess", "已创建项目任务，正在前往对话。"),
       );
@@ -1037,6 +1232,19 @@ export default function ProjectTasks({
         setCreateAgentId(null);
         void loadExpertSelection();
         onProjectReload?.();
+      } else if (code === "PROJECT_TASK_FILES_UNSUPPORTED") {
+        // The capability flipped after our hint: drop the fake choice and
+        // re-check before any retry; nothing was created server-side. The
+        // chat fallback must not inherit the files-mode confirmation.
+        setCreateMode("chat");
+        setCreateConfirmed(false);
+        reloadCapabilities();
+      } else if (code === "PROJECT_TASK_FILES_UNAVAILABLE") {
+        // Transient failure: the re-check may flip the capability away, so
+        // the files-mode confirmation is stale for any retry in either mode
+        // until the member gives it again.
+        setCreateConfirmed(false);
+        reloadCapabilities();
       } else if (isNotFoundApiError(err)) {
         setCreateConfirmed(false);
         onProjectReload?.();
@@ -1124,6 +1332,15 @@ export default function ProjectTasks({
     const agentName = agentNames.get(task.agent_id) ?? task.agent_id;
     const busy = busyThreadIds.includes(task.thread_id);
     const isReader = task.access === "reader";
+    const isFileTask = task.mode === "files";
+    /**
+     * Owner navigation target. A `files` task navigates through the private
+     * runtime id (`chat_agent_id`); the public `agent_id` is only the source
+     * expert and must never become a fallback route for a private task.
+     */
+    const chatTargetAgentId = isFileTask
+      ? task.chat_agent_id?.trim() ?? ""
+      : task.agent_id;
     if (isReader) {
       const ownerName =
         memberNames.get(task.owner_user_id) ??
@@ -1216,20 +1433,34 @@ export default function ProjectTasks({
             gap: 8,
           }}
         >
-          <Link
-            to={`/chat/${encodeURIComponent(
-              task.agent_id,
-            )}/${encodeURIComponent(task.thread_id)}`}
-            style={{
-              flex: 1,
-              minWidth: 0,
-              fontWeight: 600,
-              fontSize: 14,
-              wordBreak: "break-word",
-            }}
-          >
-            {title}
-          </Link>
+          {chatTargetAgentId ? (
+            <Link
+              to={`/chat/${encodeURIComponent(
+                chatTargetAgentId,
+              )}/${encodeURIComponent(task.thread_id)}`}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                fontWeight: 600,
+                fontSize: 14,
+                wordBreak: "break-word",
+              }}
+            >
+              {title}
+            </Link>
+          ) : (
+            <span
+              style={{
+                flex: 1,
+                minWidth: 0,
+                fontWeight: 600,
+                fontSize: 14,
+                wordBreak: "break-word",
+              }}
+            >
+              {title}
+            </span>
+          )}
           <div
             style={{
               display: "inline-flex",
@@ -1278,6 +1509,33 @@ export default function ProjectTasks({
                 {t("projects.tasks.detach", "取消关联")}
               </Button>
             </Popconfirm>
+            {isFileTask && (
+              <Popconfirm
+                title={t(
+                  "projects.tasks.deleteTaskConfirm",
+                  "永久删除这条文件任务及其私有文件与运行记录？此操作不可恢复，也不会保留对话。",
+                )}
+                okText={t("projects.tasks.deleteTaskOk", "永久删除")}
+                cancelText={t("common.cancel", "取消")}
+                okButtonProps={{ danger: true, disabled: busy }}
+                onConfirm={() => void deleteWholeFileTask(task)}
+              >
+                <Button
+                  size="small"
+                  type="text"
+                  danger
+                  icon={<Trash2 size={14} />}
+                  disabled={busy}
+                  aria-label={t(
+                    "projects.tasks.deleteTaskNamed",
+                    "删除整任务：{{title}}",
+                    { title },
+                  )}
+                >
+                  {t("projects.tasks.deleteTask", "删除整任务")}
+                </Button>
+              </Popconfirm>
+            )}
           </div>
         </div>
         <div
@@ -1289,11 +1547,24 @@ export default function ProjectTasks({
             marginTop: 6,
           }}
         >
+          {isFileTask && (
+            <Tag color="geekblue" style={{ marginInlineEnd: 0 }}>
+              {t("projects.tasks.filesTag", "受控文件任务（无终端）")}
+            </Tag>
+          )}
           <Tag style={{ marginInlineEnd: 0 }}>{agentName}</Tag>
           <span style={secondaryStyle}>
             {t("projects.tasks.sourceLabel", "来源")}：
             {sourceLabel(task.source)}
           </span>
+          {isFileTask && (
+            <span style={secondaryStyle}>
+              {t(
+                "projects.tasks.filesTaskHint",
+                "仅本任务私有文件；无终端、浏览器、连接器或云端执行。",
+              )}
+            </span>
+          )}
           <span style={secondaryStyle}>
             {t("projects.tasks.activeAt", "最近活动于 {{time}}", {
               time: formatServerDateTime(
@@ -2089,7 +2360,7 @@ export default function ProjectTasks({
           t("projects.tasks.local", "本地"),
           t(
             "projects.tasks.localReason",
-            "项目内本地任务需先支持受控工作目录，暂未开放。",
+            "用户自选本地文件夹的任务仍未开放；受控文件任务请在上方新建时选择文件模式。",
           ),
           <HardDrive size={14} />,
           "task-capability-local",
@@ -2111,6 +2382,37 @@ export default function ProjectTasks({
           ),
           <ArrowRightLeft size={14} />,
           "task-capability-transfer",
+        )}
+        {capabilitiesLoading && capabilities == null ? (
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {t(
+              "projects.tasks.filesCapabilityChecking",
+              "正在检查受控文件任务能力…",
+            )}
+          </Text>
+        ) : filesAvailable ? (
+          <Tag
+            color="geekblue"
+            style={{ marginInlineEnd: 0 }}
+            data-testid="task-files-available"
+          >
+            {t(
+              "projects.tasks.filesCapabilityAvailable",
+              "受控文件任务（无终端）可用",
+            )}
+          </Tag>
+        ) : (
+          <Text
+            type="warning"
+            style={{ fontSize: 12 }}
+            data-testid="task-files-unavailable"
+          >
+            {t(
+              "projects.tasks.filesCapabilityUnavailable",
+              "受控文件任务（无终端）暂不可用：{{reason}}",
+              { reason: filesUnavailableReason },
+            )}
+          </Text>
         )}
         <Text type="secondary" style={{ fontSize: 12 }}>
           {t(
@@ -2439,6 +2741,53 @@ export default function ProjectTasks({
             )}
           </div>
           <div style={{ ...secondaryStyle, marginBottom: 4 }}>
+            {t("projects.tasks.createModeLabel", "任务模式")}
+          </div>
+          {filesAvailable ? (
+            <>
+              <Segmented<ProjectTaskMode>
+                value={createMode}
+                onChange={(value) => setCreateMode(value)}
+                aria-label={t("projects.tasks.createModeLabel", "任务模式")}
+                options={[
+                  {
+                    label: t("projects.tasks.createModeChat", "普通对话任务"),
+                    value: "chat",
+                  },
+                  {
+                    label: t(
+                      "projects.tasks.createModeFiles",
+                      "受控文件任务（无终端）",
+                    ),
+                    value: "files",
+                  },
+                ]}
+              />
+              <div style={{ ...secondaryStyle, margin: "4px 0 12px" }}>
+                {createMode === "files"
+                  ? t(
+                      "projects.tasks.createModeFilesHint",
+                      "任务使用系统托管的私有文件目录，可读写文件；无终端、浏览器、连接器、子 Agent 或云端执行。",
+                    )
+                  : t(
+                      "projects.tasks.createModeChatHint",
+                      "沿用所选专家当前工作空间；没有独立任务目录。",
+                    )}
+              </div>
+            </>
+          ) : (
+            <div
+              data-testid="project-task-create-files-unavailable"
+              style={{ ...secondaryStyle, marginBottom: 12 }}
+            >
+              {t(
+                "projects.tasks.createModeFilesUnavailable",
+                "受控文件任务（无终端）暂不可用：{{reason}}",
+                { reason: filesUnavailableReason },
+              )}
+            </div>
+          )}
+          <div style={{ ...secondaryStyle, marginBottom: 4 }}>
             {t("projects.tasks.createAgentLabel", "执行专家")}
           </div>
           {expertSelectionLoading && (
@@ -2568,10 +2917,17 @@ export default function ProjectTasks({
             type="warning"
             showIcon
             style={{ margin: "12px 0" }}
-            message={t(
-              "projects.tasks.createInstructionNotice",
-              "项目所有者或管理员编写的指令可能调用你已启用的个人工具。任务沿用所选专家当前工作空间；没有独立的项目目录或云端执行。",
-            )}
+            message={
+              effectiveCreateMode === "files"
+                ? t(
+                    "projects.tasks.createInstructionNoticeFiles",
+                    "项目所有者或管理员编写的指令可能要求执行操作；受控文件任务只能使用 ls/read_file/write_file/edit_file/glob/grep，无终端、浏览器、连接器、子 Agent 或其他个人工具。",
+                  )
+                : t(
+                    "projects.tasks.createInstructionNotice",
+                    "项目所有者或管理员编写的指令可能调用你已启用的个人工具。任务沿用所选专家当前工作空间；没有独立的项目目录或云端执行。",
+                  )
+            }
           />
           {!digestAvailable && (
             <Alert

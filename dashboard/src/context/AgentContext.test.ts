@@ -95,6 +95,22 @@ describe("selectEnabledExperts", () => {
     );
     expect(result).toEqual(["S1", "G1"]);
   });
+
+  it("never leaks an internal project-task runtime, even when running and pinned", () => {
+    const agents = [
+      agent("internal-1", "running", { internal: true }),
+      agent("A", "running"),
+      agent("B", "stopped", { internal: true }),
+    ];
+    expect(selectEnabledExperts(agents, null).map((a) => a.agent_id)).toEqual([
+      "A",
+    ]);
+    expect(
+      selectEnabledExperts(agents, "internal-1", { pinActive: true }).map(
+        (a) => a.agent_id,
+      ),
+    ).toEqual(["A"]);
+  });
 });
 
 describe("projectChatAgentOption", () => {

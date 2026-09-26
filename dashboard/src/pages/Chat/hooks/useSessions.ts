@@ -27,6 +27,16 @@ export interface Session {
 /** Result of probing whether a thread exists for the current agent. */
 export type ThreadProbeResult = "found" | "missing" | "unknown";
 
+export interface UseSessionsOptions {
+  /**
+   * Owner-private project-task runtime (`runtime_kind=project_task_files`).
+   * Its existing threads are readable, but the dashboard must never create a
+   * new thread for it and a list gap must never rewrite the owner's explicit
+   * deep link into a blank chat.
+   */
+  internal?: boolean;
+}
+
 export function toSession(row: {
   thread_id: string;
   title: string | null;
@@ -370,7 +380,11 @@ export function resetSessionStoreForTests() {
   };
 }
 
-export function useSessions(agentId: string | null) {
+export function useSessions(
+  agentId: string | null,
+  options: UseSessionsOptions = {},
+) {
+  const internal = options.internal === true;
   syncStoreToAgent(agentId);
   const { sessions, loading, hasMore, loadingMore } = useSyncExternalStore(
     subscribeSessionStore,
@@ -456,7 +470,9 @@ export function useSessions(agentId: string | null) {
         // Agent switched while the probe was in flight — do not rewrite URL.
         if (_storeAgentId !== agentId) return "unknown";
         const found = valid.some((s) => s.id === threadId);
-        if (!found) return "missing";
+        // An internal runtime has no "create a new thread" fallback, so a list
+        // gap must never be treated as a deleted thread.
+        if (!found) return internal ? "unknown" : "missing";
         applySessionPage(
           valid,
           more || valid.length > limit,
@@ -470,7 +486,7 @@ export function useSessions(agentId: string | null) {
         return "unknown";
       }
     },
-    [agentId],
+    [agentId, internal],
   );
 
   // Fetch only: agent switches are synced in-render via syncStoreToAgent.
@@ -509,7 +525,9 @@ export function useSessions(agentId: string | null) {
     session: Session;
     resolvedId: Promise<string>;
   } => {
-    if (!agentId) {
+    // A private file task must never open a brand-new thread: return an inert
+    // placeholder instead of POSTing to the internal runtime.
+    if (!agentId || internal) {
       const empty: Session = {
         id: "",
         name: "New Chat",
@@ -553,7 +571,7 @@ export function useSessions(agentId: string | null) {
         return "";
       });
     return { session: placeholder, resolvedId };
-  }, [agentId]);
+  }, [agentId, internal]);
 
   const deleteSession = useCallback(
     async (id: string) => {

@@ -25,6 +25,7 @@ interface UseChatNavigationParams {
   ensureThreadInList: (threadId: string) => Promise<ThreadProbeResult>;
   fetchSessions: (activeId?: string) => Promise<Session[]>;
   refreshAgents: (opts?: { silent?: boolean }) => Promise<void>;
+  internalTask?: boolean;
 }
 
 export function useChatNavigation({
@@ -40,6 +41,7 @@ export function useChatNavigation({
   ensureThreadInList,
   fetchSessions,
   refreshAgents,
+  internalTask = false,
 }: UseChatNavigationParams) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -67,14 +69,14 @@ export function useChatNavigation({
 
   const markedAgentReadRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!resolvedAgentId) return;
+    if (!resolvedAgentId || internalTask) return;
     if (markedAgentReadRef.current === resolvedAgentId) return;
     markedAgentReadRef.current = resolvedAgentId;
     void octopAgentsApi
       .markRead(resolvedAgentId)
       .then(() => refreshAgents({ silent: true }))
       .catch(() => {});
-  }, [resolvedAgentId, refreshAgents]);
+  }, [resolvedAgentId, refreshAgents, internalTask]);
 
   useEffect(() => {
     const refreshBadges = () => void refreshAgents({ silent: true });

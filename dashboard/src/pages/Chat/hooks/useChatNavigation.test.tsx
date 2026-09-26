@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { useChatNavigation } from "./useChatNavigation";
 import type { Session } from "./useSessions";
+import { octopAgentsApi } from "../../../api/modules/octopAgents";
 
 const navigateMock = vi.fn();
 const rebindMock = vi.fn().mockResolvedValue({});
@@ -71,6 +72,35 @@ describe("useChatNavigation stale thread", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("loads an existing private thread without marking its runtime as an ordinary agent", async () => {
+    const loadHistory = vi.fn().mockResolvedValue(undefined);
+    const refreshAgents = vi.fn().mockResolvedValue(undefined);
+    renderHook(
+      () =>
+        useChatNavigation({
+          routeAgentId: "runtime-private",
+          threadId: "thread-existing",
+          resolvedAgentId: "runtime-private",
+          activeThreadId: "thread-existing",
+          sessions: [session("thread-existing")],
+          sessionsLoading: false,
+          prefillInputRef: { current: "" },
+          loadHistory,
+          clearMessages: vi.fn(),
+          ensureThreadInList: vi.fn().mockResolvedValue("found"),
+          fetchSessions: vi.fn().mockResolvedValue([]),
+          refreshAgents,
+          internalTask: true,
+        }),
+      { wrapper },
+    );
+
+    await waitFor(() =>
+      expect(loadHistory).toHaveBeenCalledWith("thread-existing"),
+    );
+    expect(octopAgentsApi.markRead).not.toHaveBeenCalled();
   });
 
   it("rewrites URL only after ensureThreadInList confirms missing", async () => {

@@ -71,12 +71,128 @@ vi.mock("../../../context/AgentContext", () => ({
 }));
 
 import { useChatComposerResources } from "./useChatComposerResources";
+import { connectorsApi } from "../../../api/modules/connectors";
+import { knowledgeBasesApi } from "../../../api/modules/knowledgeBases";
 
 beforeEach(() => {
   localStorage.clear();
 });
 
 describe("useChatComposerResources — per-expert KB selection", () => {
+  it("never fetches personal connectors or knowledge for a private file task", () => {
+    vi.mocked(connectorsApi.listInstances).mockClear();
+    vi.mocked(knowledgeBasesApi.getCapability).mockClear();
+    vi.mocked(knowledgeBasesApi.list).mockClear();
+
+    const { result } = renderHook(() =>
+      useChatComposerResources(
+        "runtime-private",
+        "thread-existing",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        true,
+      ),
+    );
+
+    expect(result.current.selectedConnectors).toEqual([]);
+    expect(result.current.selectedKnowledgeBaseIds).toEqual([]);
+    expect(connectorsApi.listInstances).not.toHaveBeenCalled();
+    expect(knowledgeBasesApi.getCapability).not.toHaveBeenCalled();
+    expect(knowledgeBasesApi.list).not.toHaveBeenCalled();
+  });
+
+  it("projects empty selections on the first private-task render", async () => {
+    const threadId = "thread-existing";
+    interface RenderSnapshot {
+      agentId: string | null;
+      privateTask: boolean;
+      selectedConnectors: string[];
+      selectedKnowledgeBaseIds: string[];
+      chatConnectors: unknown[];
+      chatKnowledgeBases: unknown;
+    }
+    const renderLog: RenderSnapshot[] = [];
+    const { result, rerender } = renderHook(
+      ({
+        agentId,
+        privateTask,
+      }: {
+        agentId: string | null;
+        privateTask: boolean;
+      }) => {
+        const value = useChatComposerResources(
+          agentId,
+          threadId,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          privateTask,
+        );
+        // Record every render-phase projection: the regression window is the
+        // first render after the switch, before any clearing effect runs.
+        renderLog.push({
+          agentId,
+          privateTask,
+          selectedConnectors: value.selectedConnectors,
+          selectedKnowledgeBaseIds: value.selectedKnowledgeBaseIds,
+          chatConnectors: value.chatConnectors,
+          chatKnowledgeBases: value.chatKnowledgeBases,
+        });
+        return value;
+      },
+      { initialProps: { agentId: "expertA", privateTask: false } },
+    );
+
+    // Ordinary expert A loads personal connectors and knowledge bases.
+    await waitFor(() => expect(result.current.chatConnectors.length).toBe(2));
+    await waitFor(() =>
+      expect(result.current.selectedKnowledgeBaseIds).toEqual(["k1"]),
+    );
+    expect(result.current.chatKnowledgeBases).toHaveLength(4);
+
+    // The user picks a connector and an extra knowledge base in expert A.
+    act(() => result.current.handleConnectorsChange(["c1"]));
+    act(() => result.current.handleKnowledgeBaseIdsChange(["k1", "k2"]));
+    expect(result.current.selectedConnectors).toEqual(["c1"]);
+    expect(result.current.selectedKnowledgeBaseIds).toEqual(["k1", "k2"]);
+
+    // Switch to a private project file task. Mirrors Chat/index.tsx: the
+    // route flips to private before verification, so the resolved agent id
+    // goes null first and only becomes the runtime id once verified.
+    renderLog.length = 0;
+    rerender({ agentId: null, privateTask: true });
+
+    const firstPrivateRender = renderLog.find((entry) => entry.privateTask);
+    expect(firstPrivateRender).toBeDefined();
+    // Synchronous projection: an immediate send consumes exactly this first
+    // render's values, so it must never inherit expert A's selections.
+    expect(firstPrivateRender?.selectedConnectors).toEqual([]);
+    expect(firstPrivateRender?.selectedKnowledgeBaseIds).toEqual([]);
+    expect(firstPrivateRender?.chatConnectors).toEqual([]);
+    expect(firstPrivateRender?.chatKnowledgeBases).toBeUndefined();
+
+    // After verification the runtime id becomes the resolved agent; this
+    // send-capable first render must stay empty too.
+    renderLog.length = 0;
+    rerender({ agentId: "runtime-private", privateTask: true });
+    expect(renderLog[0].privateTask).toBe(true);
+    expect(renderLog[0].selectedConnectors).toEqual([]);
+    expect(renderLog[0].selectedKnowledgeBaseIds).toEqual([]);
+    expect(renderLog[0].chatConnectors).toEqual([]);
+    expect(renderLog[0].chatKnowledgeBases).toBeUndefined();
+
+    // Settled state stays empty as well.
+    expect(result.current.selectedConnectors).toEqual([]);
+    expect(result.current.selectedKnowledgeBaseIds).toEqual([]);
+    expect(result.current.chatConnectors).toEqual([]);
+    expect(result.current.chatKnowledgeBases).toBeUndefined();
+  });
+
   it("restores expert A's manual selection after switching A -> B -> A", async () => {
     const threadId = "thread-existing"; // existing session → saved prefs apply
     const { result, rerender } = renderHook(

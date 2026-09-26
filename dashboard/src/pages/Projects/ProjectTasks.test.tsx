@@ -24,6 +24,8 @@ const {
   grantText,
   revokeText,
   messages,
+  taskCapabilities,
+  deleteFileTask,
 } = vi.hoisted(() => ({
   list: vi.fn(),
   getOne: vi.fn(),
@@ -36,6 +38,8 @@ const {
   grantText: vi.fn(),
   revokeText: vi.fn(),
   messages: vi.fn(),
+  taskCapabilities: vi.fn(),
+  deleteFileTask: vi.fn(),
 }));
 
 const { threadsList, threadsDelete } = vi.hoisted(() => ({
@@ -80,6 +84,8 @@ vi.mock("../../api/modules/projectTasks", async (importOriginal) => {
       grantText,
       revokeText,
       messages,
+      taskCapabilities,
+      deleteFileTask,
     },
   };
 });
@@ -137,7 +143,10 @@ vi.mock("../../components/EmptyState", () => ({
 
 import ProjectTasks, { isDashboardDmCandidate } from "./ProjectTasks";
 import type { OctopThread } from "../../api/modules/octopThreads";
-import type { ProjectTask } from "../../api/modules/projectTasks";
+import type {
+  ProjectTask,
+  ProjectTaskCapabilities,
+} from "../../api/modules/projectTasks";
 import type { ProjectMember } from "../../api/modules/projects";
 import { message } from "../../utils/antdMessage";
 
@@ -189,6 +198,32 @@ const taskShared: ProjectTask = {
   source: "manual",
   last_active: 1_700_000_400,
   created_at: 1_700_000_000,
+  access: "reader",
+  can_read_text: false,
+};
+
+const taskFile: ProjectTask = {
+  project_id: "p1",
+  thread_id: "tf1",
+  owner_user_id: 2,
+  agent_id: "agent-1",
+  mode: "files",
+  source_expert_id: "agent-1",
+  chat_agent_id: "runtime-1",
+  title: "文件周报",
+  source: "project",
+  last_active: 1_700_000_500,
+  created_at: 1_700_000_000,
+  access: "owner",
+  can_read_text: true,
+};
+
+const taskFileShared: ProjectTask = {
+  ...taskFile,
+  thread_id: "tf2",
+  owner_user_id: 3,
+  chat_agent_id: null,
+  source_expert_id: null,
   access: "reader",
   can_read_text: false,
 };
@@ -337,6 +372,10 @@ beforeEach(() => {
     has_more: false,
     next_before_seq: null,
   });
+  taskCapabilities.mockResolvedValue({
+    files: { available: false, reason: null },
+  });
+  deleteFileTask.mockResolvedValue(undefined);
 });
 
 describe("ProjectTasks owner behavior", () => {
@@ -1888,6 +1927,376 @@ describe("ProjectTasks owner sharing", () => {
   });
 });
 
+describe("ProjectTasks controlled file tasks", () => {
+  async function openCreateModal(options: RenderTasksOptions = {}) {
+    const user = userEvent.setup();
+    renderTasks("p1", defaultMembers, options);
+    await screen.findByText("写周报");
+    await user.click(screen.getByRole("button", { name: "新建项目任务" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "新建项目任务",
+    });
+    return { user, dialog };
+  }
+
+  function confirmBox(dialog: HTMLElement) {
+    return within(dialog).getByRole("checkbox", { name: /我已阅读并确认/ });
+  }
+
+  function submitButton(dialog: HTMLElement) {
+    return within(dialog).getByRole("button", {
+      name: "创建任务并前往对话",
+    });
+  }
+
+  it("offers file mode only when available and navigates through the private runtime", async () => {
+    taskCapabilities.mockResolvedValueOnce({
+      files: { available: true, reason: null },
+    });
+    create.mockResolvedValueOnce({
+      ...taskFile,
+      thread_id: "tf-new",
+      chat_agent_id: "runtime-new",
+    });
+    const { user, dialog } = await openCreateModal();
+    expect(
+      await within(dialog).findByText("受控文件任务（无终端）"),
+    ).toBeInTheDocument();
+
+    await user.click(within(dialog).getByText("受控文件任务（无终端）"));
+    expect(
+      within(dialog).getByText(/系统托管的私有文件目录/),
+    ).toBeInTheDocument();
+    await user.click(confirmBox(dialog));
+    await user.click(submitButton(dialog));
+
+    await waitFor(() =>
+      expect(create).toHaveBeenCalledWith(
+        "p1",
+        "agent-1",
+        projectInstructionsSha,
+        0,
+        "files",
+      ),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        "/chat/runtime-new/tf-new",
+      ),
+    );
+    expect(message.success).toHaveBeenCalledWith(
+      "已创建受控文件任务（无终端），正在前往任务。",
+    );
+  });
+
+  it("shows the unavailable reason and no file choice when the capability is false", async () => {
+    taskCapabilities.mockResolvedValue({
+      files: { available: false, reason: "managed root not writable" },
+    });
+    const { dialog } = await openCreateModal();
+    expect(
+      await within(dialog).findByTestId(
+        "project-task-create-files-unavailable",
+      ),
+    ).toHaveTextContent("managed root not writable");
+    expect(within(dialog).queryByText("受控文件任务（无终端）")).toBeNull();
+    expect(submitButton(dialog)).toBeDisabled();
+  });
+
+  it("treats an absent capability endpoint as an honest unavailable state", async () => {
+    taskCapabilities.mockRejectedValueOnce(
+      new Error('404 - {"error":{"code":"NOT_FOUND","message":"not found"}}'),
+    );
+    renderTasks("p1");
+    await screen.findByText("写周报");
+
+    expect(
+      await screen.findByTestId("task-files-unavailable"),
+    ).toHaveTextContent("服务端尚未提供受控文件任务（无终端）能力。");
+  });
+
+  it("routes a file owner card through chat_agent_id and separates unlink from full delete", async () => {
+    taskCapabilities.mockResolvedValue({
+      files: { available: true, reason: null },
+    });
+    list.mockResolvedValueOnce(page([taskFile]));
+    const user = userEvent.setup();
+    renderTasks("p1");
+    await screen.findByText("文件周报");
+
+    expect(screen.getByRole("link", { name: "文件周报" })).toHaveAttribute(
+      "href",
+      "/chat/runtime-1/tf1",
+    );
+    expect(screen.getByText("受控文件任务（无终端）")).toBeInTheDocument();
+    expect(screen.queryByText("runtime-1")).toBeNull();
+
+    await user.click(
+      screen.getByRole("button", { name: "删除整任务：文件周报" }),
+    );
+    await user.click(await screen.findByRole("button", { name: "永久删除" }));
+
+    await waitFor(() => expect(deleteFileTask).toHaveBeenCalledWith("tf1"));
+    expect(unlink).not.toHaveBeenCalled();
+    expect(message.success).toHaveBeenCalledWith(
+      "已永久删除该文件任务及其私有文件。",
+    );
+  });
+
+  it("never gives a reader a file link or full delete", async () => {
+    list.mockResolvedValueOnce(page([]));
+    getOne.mockResolvedValue({
+      ...taskFileShared,
+      access: "reader",
+      can_read_text: false,
+    });
+    const user = userEvent.setup();
+    renderTasks("p1");
+    await screen.findByText("还没有关联任务");
+    list.mockResolvedValueOnce(page([taskFileShared]));
+    await user.click(screen.getByText("分享给我的"));
+    await screen.findByText("文件周报");
+
+    expect(screen.queryByRole("link", { name: "文件周报" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "删除整任务：文件周报" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "取消关联：文件周报" }),
+    ).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "文件周报" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "任务摘要（只读）",
+    });
+    expect(within(dialog).queryByText(/runtime-1/)).toBeNull();
+  });
+
+  it("blocks a 422 unsupported file create, explains it and re-checks the capability", async () => {
+    taskCapabilities
+      .mockResolvedValueOnce({ files: { available: true, reason: null } })
+      .mockResolvedValueOnce({
+        files: { available: false, reason: "closed by admin" },
+      });
+    create.mockRejectedValueOnce(
+      new Error(
+        '422 - {"error":{"code":"PROJECT_TASK_FILES_UNSUPPORTED","message":"files disabled"}}',
+      ),
+    );
+    const { user, dialog } = await openCreateModal();
+    await within(dialog).findByText("受控文件任务（无终端）");
+    await user.click(within(dialog).getByText("受控文件任务（无终端）"));
+    await user.click(confirmBox(dialog));
+    await user.click(submitButton(dialog));
+
+    expect(
+      await within(dialog).findByText("files disabled"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/projects/p1");
+    await waitFor(() =>
+      expect(
+        within(dialog).getByTestId("project-task-create-files-unavailable"),
+      ).toHaveTextContent("closed by admin"),
+    );
+    expect(create).toHaveBeenCalledTimes(1);
+    // The chat fallback must never inherit the files-mode confirmation.
+    expect(confirmBox(dialog)).not.toBeChecked();
+    expect(submitButton(dialog)).toBeDisabled();
+    await user.click(submitButton(dialog));
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("never converts a confirmed file task into a chat create when the capability flips away", async () => {
+    // The flip arrives through the only in-dialog capability re-check path:
+    // a files submit rejected with 503 triggers reloadCapabilities, and the
+    // fresh answer says the capability is gone while the dialog stays open.
+    let resolveCaps: ((value: ProjectTaskCapabilities) => void) | null = null;
+    taskCapabilities
+      .mockResolvedValueOnce({ files: { available: true, reason: null } })
+      .mockImplementationOnce(
+        () =>
+          new Promise<ProjectTaskCapabilities>((resolve) => {
+            resolveCaps = resolve;
+          }),
+      );
+    create.mockRejectedValueOnce(
+      new Error(
+        '503 - {"error":{"code":"PROJECT_TASK_FILES_UNAVAILABLE","message":"storage down"}}',
+      ),
+    );
+    const { user, dialog } = await openCreateModal();
+    await within(dialog).findByText("受控文件任务（无终端）");
+    await user.click(within(dialog).getByText("受控文件任务（无终端）"));
+    await user.click(confirmBox(dialog));
+    await user.click(submitButton(dialog));
+    expect(await within(dialog).findByText("storage down")).toBeInTheDocument();
+
+    // The re-check is still in flight: capability is unknown, so the selected
+    // files mode is already blocked and cannot submit as chat either.
+    await waitFor(() =>
+      expect(
+        within(dialog).getByTestId("project-task-create-files-unavailable"),
+      ).toBeInTheDocument(),
+    );
+    expect(confirmBox(dialog)).not.toBeChecked();
+    expect(submitButton(dialog)).toBeDisabled();
+    await user.click(submitButton(dialog));
+    expect(create).toHaveBeenCalledTimes(1);
+
+    // The flip resolves to unavailable: the dialog falls back to chat, but
+    // the prior files-mode confirmation must not carry over — no create of
+    // either mode may happen until the member re-confirms knowingly.
+    await act(async () => {
+      resolveCaps?.({ files: { available: false, reason: "closed by admin" } });
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(
+        within(dialog).getByTestId("project-task-create-files-unavailable"),
+      ).toHaveTextContent("closed by admin"),
+    );
+    expect(confirmBox(dialog)).not.toBeChecked();
+    expect(submitButton(dialog)).toBeDisabled();
+    await user.click(submitButton(dialog));
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("location")).toHaveTextContent("/projects/p1");
+
+    // Only an explicit fresh confirmation unlocks the different (chat) mode,
+    // which then keeps the unchanged pre-030A four-argument create call.
+    create.mockResolvedValueOnce({
+      ...taskOpen,
+      thread_id: "t-new",
+      source: "project",
+    });
+    await user.click(confirmBox(dialog));
+    expect(submitButton(dialog)).toBeEnabled();
+    await user.click(submitButton(dialog));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+    expect(create).toHaveBeenLastCalledWith(
+      "p1",
+      "agent-1",
+      projectInstructionsSha,
+      0,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        "/chat/agent-1/t-new",
+      ),
+    );
+  });
+
+  it("explains a file quota 409 without redirecting", async () => {
+    taskCapabilities.mockResolvedValue({
+      files: { available: true, reason: null },
+    });
+    create.mockRejectedValueOnce(
+      new Error(
+        '409 - {"error":{"code":"PROJECT_TASK_FILES_QUOTA","message":"quota reached"}}',
+      ),
+    );
+    const { user, dialog } = await openCreateModal();
+    await within(dialog).findByText("受控文件任务（无终端）");
+    await user.click(within(dialog).getByText("受控文件任务（无终端）"));
+    await user.click(confirmBox(dialog));
+    await user.click(submitButton(dialog));
+
+    expect(
+      await within(dialog).findByText("quota reached"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/projects/p1");
+    expect(onProjectReload).not.toHaveBeenCalled();
+  });
+
+  it("explains a 503 capability failure without a fake task", async () => {
+    taskCapabilities.mockResolvedValue({
+      files: { available: true, reason: null },
+    });
+    create.mockRejectedValueOnce(
+      new Error(
+        '503 - {"error":{"code":"PROJECT_TASK_FILES_UNAVAILABLE","message":"storage down"}}',
+      ),
+    );
+    const { user, dialog } = await openCreateModal();
+    await within(dialog).findByText("受控文件任务（无终端）");
+    await user.click(within(dialog).getByText("受控文件任务（无终端）"));
+    await user.click(confirmBox(dialog));
+    await user.click(submitButton(dialog));
+
+    expect(await within(dialog).findByText("storage down")).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/projects/p1");
+  });
+
+  it("reports a missing private runtime id instead of navigating to the source expert", async () => {
+    taskCapabilities.mockResolvedValue({
+      files: { available: true, reason: null },
+    });
+    create.mockResolvedValueOnce({
+      ...taskFile,
+      thread_id: "tf-new",
+      chat_agent_id: null,
+    });
+    const { user, dialog } = await openCreateModal();
+    await within(dialog).findByText("受控文件任务（无终端）");
+    await user.click(within(dialog).getByText("受控文件任务（无终端）"));
+    await user.click(confirmBox(dialog));
+    await user.click(submitButton(dialog));
+
+    expect(
+      await screen.findByText(
+        "服务端未返回私有任务运行标识，已取消跳转；请刷新列表后重试或联系管理员。",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/projects/p1");
+    expect(screen.queryByRole("dialog", { name: "新建项目任务" })).toBeNull();
+  });
+
+  it("keeps the file card and explains when a full delete fails", async () => {
+    taskCapabilities.mockResolvedValue({
+      files: { available: true, reason: null },
+    });
+    list.mockResolvedValueOnce(page([taskFile]));
+    deleteFileTask.mockRejectedValueOnce(
+      new Error(
+        '503 - {"error":{"code":"PROJECT_TASK_FILES_UNAVAILABLE","message":"storage down"}}',
+      ),
+    );
+    const user = userEvent.setup();
+    renderTasks("p1");
+    await screen.findByText("文件周报");
+    await user.click(
+      screen.getByRole("button", { name: "删除整任务：文件周报" }),
+    );
+    await user.click(await screen.findByRole("button", { name: "永久删除" }));
+
+    expect(await screen.findByText("storage down")).toBeInTheDocument();
+    expect(screen.getByText("文件周报")).toBeInTheDocument();
+    expect(message.success).not.toHaveBeenCalled();
+  });
+
+  it("drops a stale file card when full delete reports 404", async () => {
+    taskCapabilities.mockResolvedValue({
+      files: { available: true, reason: null },
+    });
+    list
+      .mockResolvedValueOnce(page([taskFile]))
+      .mockResolvedValueOnce(page([]));
+    deleteFileTask.mockRejectedValueOnce(
+      new Error('404 - {"error":{"code":"NOT_FOUND","message":"gone"}}'),
+    );
+    const user = userEvent.setup();
+    renderTasks("p1");
+    await screen.findByText("文件周报");
+    await user.click(
+      screen.getByRole("button", { name: "删除整任务：文件周报" }),
+    );
+    await user.click(await screen.findByRole("button", { name: "永久删除" }));
+
+    expect(await screen.findByText("还没有关联任务")).toBeInTheDocument();
+    expect(deleteFileTask).toHaveBeenCalledWith("tf1");
+    expect(message.success).not.toHaveBeenCalled();
+  });
+});
+
 describe("project task candidate filtering", () => {
   it("accepts only the caller's Dashboard DM session keys", () => {
     expect(isDashboardDmCandidate(threadDm)).toBe(true);
@@ -1923,6 +2332,16 @@ describe("project task locale parity", () => {
     }
     expect(zh.apiErrors.PROJECT_TASK_LINK_CONFLICT).toBeTruthy();
     expect(en.apiErrors.PROJECT_TASK_LINK_CONFLICT).toBeTruthy();
+    for (const code of [
+      "PROJECT_TASK_FILES_UNSUPPORTED",
+      "PROJECT_TASK_FILES_QUOTA",
+      "PROJECT_TASK_FILES_UNAVAILABLE",
+    ]) {
+      expect((zh.apiErrors as Record<string, string>)[code]).toBeTruthy();
+      expect((en.apiErrors as Record<string, string>)[code]).toBeTruthy();
+    }
+    expect(zh.projects.tasks.filesTag.trim().length).toBeGreaterThan(0);
+    expect(en.projects.tasks.createModeFiles.trim().length).toBeGreaterThan(0);
     expect(Object.keys(zh.projects.taskComposer).sort()).toEqual(
       Object.keys(en.projects.taskComposer).sort(),
     );

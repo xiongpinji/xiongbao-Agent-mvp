@@ -9,11 +9,12 @@ import {
 } from "./useSessions";
 
 const listMock = vi.fn();
+const { createMock } = vi.hoisted(() => ({ createMock: vi.fn() }));
 
 vi.mock("../../../api/modules/octopThreads", () => ({
   octopThreadsApi: {
     list: (...args: unknown[]) => listMock(...args),
-    create: vi.fn(),
+    create: (...args: unknown[]) => createMock(...args),
     delete: vi.fn(),
     patch: vi.fn(),
     rename: vi.fn(),
@@ -80,6 +81,7 @@ describe("useSessions agent switch", () => {
   beforeEach(() => {
     resetSessionStoreForTests();
     listMock.mockReset();
+    createMock.mockReset();
   });
 
   afterEach(() => {
@@ -165,5 +167,56 @@ describe("useSessions agent switch", () => {
     });
     expect(probe).toBe("found");
     expect(listMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("never creates a new thread for an internal runtime", async () => {
+    listMock.mockResolvedValue([]);
+    const { result } = renderHook(() =>
+      useSessions("runtime-1", { internal: true }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    const { session, resolvedId } = result.current.createSession();
+    expect(session.id).toBe("");
+    await expect(resolvedId).resolves.toBe("");
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it("still creates a new thread for an ordinary agent", async () => {
+    listMock.mockResolvedValue([]);
+    createMock.mockResolvedValue({
+      thread_id: "thr_new",
+      session_key: "agent-new:dashboard:1:dm",
+    });
+    const { result } = renderHook(() => useSessions("agent-new"));
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    const { resolvedId } = result.current.createSession();
+    await expect(resolvedId).resolves.toBe("thr_new");
+    expect(createMock).toHaveBeenCalledWith("agent-new");
+  });
+
+  it("never rewrites an explicit internal thread from a list gap", async () => {
+    listMock.mockResolvedValue([]);
+    const { result } = renderHook(() =>
+      useSessions("runtime-1", { internal: true }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    let probe: string | undefined;
+    await act(async () => {
+      probe = await result.current.ensureThreadInList("thr_private");
+    });
+    // "unknown" keeps the URL; "missing" would redirect to a blank chat.
+    expect(probe).toBe("unknown");
   });
 });

@@ -45,6 +45,20 @@ import {
   type HitlSessionPolicy,
 } from "../utils/hitlSessionPolicy";
 
+/**
+ * Stable empty projections returned for private project file tasks. The
+ * clearing effects below only run after the first private-task render, but a
+ * send can consume exactly that render's values — so the hook must never hand
+ * out personal resource picks for a private task, synchronously.
+ */
+const EMPTY_RESOURCE_IDS: string[] = [];
+const EMPTY_CONNECTOR_OPTIONS: {
+  mcp_server_name: string;
+  label: string;
+  kind: string;
+  default_open?: boolean;
+}[] = [];
+
 export function useChatComposerResources(
   resolvedAgentId: string | null | undefined,
   activeThreadId?: string | null,
@@ -53,12 +67,15 @@ export function useChatComposerResources(
   stickyReasoningEffort?: string | null,
   stickyConversationMode?: ConversationMode | null,
   stickyHitlPolicy?: HitlSessionPolicy | null,
+  privateTask = false,
 ) {
   const user = useCurrentUser();
   const currentUserId = user?.id ?? null;
   const { agents } = useAgent();
   const expert = agents.find((item) => item.agent_id === resolvedAgentId);
-  const teamHost = isTeamAgent(expert);
+  // Private project file tasks must not fetch or restore personal resource
+  // selections even though their minimal runtime card is not a team host.
+  const teamHost = isTeamAgent(expert) || privateTask;
   const expertMcpServers = teamHost ? [] : expert?.mcp_servers;
   const expertKnowledgeBaseIds = expert?.knowledge_base_ids;
   const expertMcpKey = (expertMcpServers ?? []).join("\0");
@@ -519,10 +536,15 @@ export function useChatComposerResources(
     handleConversationModeChange,
     hitlPolicy,
     handleHitlPolicyChange,
-    selectedConnectors,
-    selectedKnowledgeBaseIds,
-    chatConnectors,
-    chatKnowledgeBases,
+    // Private project file tasks project empty personal-resource selections
+    // synchronously: the clearing effects above only run after this render,
+    // and an immediate send consumes exactly these returned values.
+    selectedConnectors: privateTask ? EMPTY_RESOURCE_IDS : selectedConnectors,
+    selectedKnowledgeBaseIds: privateTask
+      ? EMPTY_RESOURCE_IDS
+      : selectedKnowledgeBaseIds,
+    chatConnectors: privateTask ? EMPTY_CONNECTOR_OPTIONS : chatConnectors,
+    chatKnowledgeBases: privateTask ? undefined : chatKnowledgeBases,
     availableModels,
     activeModelRef,
     handleConnectorsChange,

@@ -180,6 +180,9 @@
     "CAPTCHA_FAILED": "验证码校验失败，请重试。",
     "CONFIG_FILE_CORRUPT": "无法更新 {{path}}：该文件不是合法 JSON（{{detail}}）。请修正语法后重试；现有配置未被改动。",
     "PROJECT_TASK_LINK_CONFLICT": "该任务已关联到其他项目，请先在原项目取消关联后再试。",
+    "PROJECT_TASK_FILES_UNSUPPORTED": "受控文件任务当前不可用（服务端能力已关闭），未创建任何任务；请改用普通对话任务或刷新后重试。",
+    "PROJECT_TASK_FILES_QUOTA": "已达到私有文件任务数量上限（每个用户最多 8 个、全实例最多 64 个）。请先删除不再需要的文件任务后重试。",
+    "PROJECT_TASK_FILES_UNAVAILABLE": "受控文件任务服务暂时不可用，请稍后重试。",
     "PROJECT_INSTRUCTIONS_CHANGED": "项目指令已变更，请查看当前指令并重新确认后再创建任务。",
     "PROJECT_EXPERTS_CHANGED": "项目专家配置已变更，请刷新名单并重新选择、确认后再试。",
     "PROJECT_EXPERT_INVALID": "项目专家名单包含不可用或未共享的专家，请调整后保存。",
@@ -472,7 +475,7 @@
       "privacyHintShared": "只读视图：卡片由任务本人分享；对话文本需单独授权，附件与运行流仍私密。",
       "shareCardHint": "卡片分享仅开放摘要；任务本人可再单独授权指定成员只读对话文本。附件仍私密。",
       "local": "本地",
-      "localReason": "项目内本地任务需先支持受控工作目录，暂未开放。",
+      "localReason": "用户自选本地文件夹的任务仍未开放；受控文件任务请在上方新建时选择文件模式。",
       "cloud": "云端",
       "cloudReason": "项目云端任务需先支持项目资源与协作，暂未开放。",
       "transfer": "移交",
@@ -570,7 +573,29 @@
       "readerTextLoadMore": "加载更早的文本",
       "readerTextTruncated": "内容过长，已截断显示",
       "readerRoleUser": "任务所有者",
-      "readerRoleAssistant": "助手"
+      "readerRoleAssistant": "助手",
+      "createModeLabel": "任务模式",
+      "createModeChat": "普通对话任务",
+      "createModeFiles": "受控文件任务（无终端）",
+      "createModeChatHint": "沿用所选专家当前工作空间；没有独立任务目录。",
+      "createModeFilesHint": "任务使用系统托管的私有文件目录，可读写文件；无终端、浏览器、连接器、子 Agent 或云端执行。",
+      "createModeFilesUnavailable": "受控文件任务（无终端）暂不可用：{{reason}}",
+      "createInstructionNoticeFiles": "项目所有者或管理员编写的指令可能要求执行操作；受控文件任务只能使用 ls/read_file/write_file/edit_file/glob/grep，无终端、浏览器、连接器、子 Agent 或其他个人工具。",
+      "createFilesSuccess": "已创建受控文件任务（无终端），正在前往任务。",
+      "createFilesMissingRuntime": "服务端未返回私有任务运行标识，已取消跳转；请刷新列表后重试或联系管理员。",
+      "filesTag": "受控文件任务（无终端）",
+      "filesTaskHint": "仅本任务私有文件；无终端、浏览器、连接器或云端执行。",
+      "filesCapabilityChecking": "正在检查受控文件任务能力…",
+      "filesCapabilityAvailable": "受控文件任务（无终端）可用",
+      "filesCapabilityUnavailable": "受控文件任务（无终端）暂不可用：{{reason}}",
+      "filesCapabilityAbsent": "服务端尚未提供受控文件任务（无终端）能力。",
+      "deleteTask": "删除整任务",
+      "deleteTaskNamed": "删除整任务：{{title}}",
+      "deleteTaskConfirm": "永久删除这条文件任务及其私有文件与运行记录？此操作不可恢复，也不会保留对话。",
+      "deleteTaskOk": "永久删除",
+      "deleteTaskSuccess": "已永久删除该文件任务及其私有文件。",
+      "deleteTaskGone": "该文件任务已不存在；列表已刷新。",
+      "deleteTaskFailed": "删除文件任务失败"
     },
     "plan": {
       "newTodo": "新建待办",
@@ -1664,6 +1689,14 @@
     "model_call_failed": "模型调用多次重试后仍失败。请稍后重试；若持续失败，请检查模型配置或更换模型。"
   },
   "chat": {
+    "internalTask": {
+      "refusalTitle": "无法确认该私有任务线程",
+      "refusalNoThread": "该私有任务必须通过任务卡片打开；此地址缺少任务线程。",
+      "refusalUnknownThread": "未能确认该任务线程属于你；请从项目任务卡片重新打开。",
+      "noNewChat": "私有文件任务只有既有对话，不能新建空白会话。",
+      "forkDisabled": "私有文件任务不支持分叉",
+      "manageRestricted": "此任务只允许继续既有对话；如需永久删除，请前往项目任务列表使用“删除整任务”。"
+    },
     "sharedExpert": {
       "banner": "共享专家 · 由 {{name}} 提供",
       "flag": "共享"

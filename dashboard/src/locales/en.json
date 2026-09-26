@@ -180,6 +180,9 @@
     "CAPTCHA_FAILED": "Captcha verification failed. Try again.",
     "CONFIG_FILE_CORRUPT": "Cannot update {{path}}: the file is not valid JSON ({{detail}}). Fix the syntax and retry — no settings were changed.",
     "PROJECT_TASK_LINK_CONFLICT": "This task is already linked to another project. Unlink it from that project first.",
+    "PROJECT_TASK_FILES_UNSUPPORTED": "Controlled file tasks are unavailable (the server disabled the capability) and nothing was created. Use a standard chat task, or refresh and retry.",
+    "PROJECT_TASK_FILES_QUOTA": "You reached the private file task limit (8 per user, 64 per instance). Delete file tasks you no longer need, then retry.",
+    "PROJECT_TASK_FILES_UNAVAILABLE": "The controlled file task service is temporarily unavailable. Retry later.",
     "PROJECT_INSTRUCTIONS_CHANGED": "Project instructions changed. Review the current instructions and confirm again before creating a task.",
     "PROJECT_EXPERTS_CHANGED": "Project experts changed. Refresh the list, choose again and confirm before retrying.",
     "PROJECT_EXPERT_INVALID": "The project expert list contains an unavailable or unshared expert. Adjust it before saving.",
@@ -472,7 +475,7 @@
       "privacyHintShared": "Read-only view: the owner shared these cards; text needs a separate grant, while attachments and the run stream stay private.",
       "shareCardHint": "Card sharing opens only the summary; the owner may separately grant a named member read-only conversation text. Attachments stay private.",
       "local": "Local",
-      "localReason": "Local project tasks need a controlled working directory; not available yet.",
+      "localReason": "Tasks over a user-selected local folder are still unavailable; pick file mode when creating a controlled file task.",
       "cloud": "Cloud",
       "cloudReason": "Cloud project tasks need project resources and collaboration; not available yet.",
       "transfer": "Transfer",
@@ -570,7 +573,29 @@
       "readerTextLoadMore": "Load older text",
       "readerTextTruncated": "Truncated due to length",
       "readerRoleUser": "Task owner",
-      "readerRoleAssistant": "Assistant"
+      "readerRoleAssistant": "Assistant",
+      "createModeLabel": "Task mode",
+      "createModeChat": "Standard chat task",
+      "createModeFiles": "Controlled file task (no terminal)",
+      "createModeChatHint": "Uses the selected expert's existing workspace; no isolated task directory.",
+      "createModeFilesHint": "The task reads and writes files in a system-managed private directory; no terminal, browser, connectors, sub-agents or cloud execution.",
+      "createModeFilesUnavailable": "Controlled file tasks (no terminal) are unavailable: {{reason}}",
+      "createInstructionNoticeFiles": "Project owners or admins may write instructions that ask you to execute actions; a controlled file task can only use ls/read_file/write_file/edit_file/glob/grep, with no terminal, browser, connectors, sub-agents or other personal tools.",
+      "createFilesSuccess": "Controlled file task created. Opening the task.",
+      "createFilesMissingRuntime": "The server did not return the private task runtime id, so navigation was cancelled. Refresh the list and retry, or contact an administrator.",
+      "filesTag": "Controlled file task (no terminal)",
+      "filesTaskHint": "Only this task's private files; no terminal, browser, connectors or cloud execution.",
+      "filesCapabilityChecking": "Checking controlled file task availability…",
+      "filesCapabilityAvailable": "Controlled file task (no terminal) available",
+      "filesCapabilityUnavailable": "Controlled file task (no terminal) unavailable: {{reason}}",
+      "filesCapabilityAbsent": "The server does not expose the controlled file task (no terminal) capability yet.",
+      "deleteTask": "Delete task",
+      "deleteTaskNamed": "Delete task: {{title}}",
+      "deleteTaskConfirm": "Permanently delete this file task with its private files and run records? This cannot be undone and the conversation is not kept.",
+      "deleteTaskOk": "Delete permanently",
+      "deleteTaskSuccess": "The file task and its private files were permanently deleted.",
+      "deleteTaskGone": "This file task no longer exists; the list was refreshed.",
+      "deleteTaskFailed": "Failed to delete the file task"
     },
     "plan": {
       "newTodo": "New todo",
@@ -1664,6 +1689,14 @@
     "model_call_failed": "The model call failed after several retries. Wait a moment and retry. If it keeps failing, check the model settings or switch models."
   },
   "chat": {
+    "internalTask": {
+      "refusalTitle": "Cannot confirm this private task thread",
+      "refusalNoThread": "This private task must be opened from its task card; this address has no task thread.",
+      "refusalUnknownThread": "This task thread could not be confirmed as yours. Reopen it from the project task card.",
+      "noNewChat": "A private file task only has its existing conversation; a new blank chat is not available.",
+      "forkDisabled": "Private file tasks cannot be forked",
+      "manageRestricted": "This task only allows its existing conversation. To delete it permanently, use Delete entire task in the project task list."
+    },
     "sharedExpert": {
       "banner": "Shared expert · provided by {{name}}",
       "flag": "Shared"
