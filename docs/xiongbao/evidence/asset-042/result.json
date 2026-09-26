@@ -1,0 +1,18 @@
+{
+  "sha": "605b0033040710772e6901c4764e894a85344d27",
+  "stages": [
+    "owner-created-project-in-browser",
+    "outsider-all-read-entrances-404",
+    "member-accepted-invite-in-browser",
+    "owner-folder-upload-two-versions",
+    "cancel-no-delete-request",
+    "delete-ui-and-all-ordinary-reads-404",
+    "name-conflict-409-and-ui-restore-preserves-version-ids-and-hashes",
+    "member-self-restore-and-other-owner-403",
+    "nested-independent-trash-root-and-parent-first-restore",
+    "revoked-member-ui-and-api-404-no-stale-asset"
+  ],
+  "projectId": "01M3E919Z2FD3RA51GKYMD5GBN",
+  "browserVersion": "153.0.8010.53",
+  "passed": true
+}
