@@ -24,6 +24,7 @@ from octop.infra.agents.middleware.thread_artifacts import artifacts_for_respons
 from octop.infra.agents.security.hitl_session import parse_hitl_session_policy
 from octop.infra.agents.thread_fork import fork_dashboard_thread
 from octop.infra.agents.workspace_dir import agent_facing_workspace_dir_from_config
+from octop.infra.db.repos.agents import RUNTIME_KIND_PROJECT_TASK_FILES
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.gateway.hitl.coordinator import pending_hitl_payload
 from octop.infra.gateway.threads import ThreadRegistry, thread_row_has_messages
@@ -605,8 +606,20 @@ async def delete_thread(
     the row is intentionally left in place so the thread stays visible
     and the caller can retry, instead of orphaning undeleted data with
     no remaining handle to it.
+
+    An internal 030A project-task runtime thread is refused here: its complete
+    delete must remove the private managed root plus the runtime row through
+    the dedicated ``DELETE /api/project-task-files/{thread_id}`` route, never
+    the generic metadata-only delete.
     """
     _require_thread(server, agent_id, thread_id, user, as_user)
+    row = server.app_runtime.agent_registry.get_row(agent_id)
+    if row is not None and row.runtime_kind == RUNTIME_KIND_PROJECT_TASK_FILES:
+        raise OctopError(
+            ErrorCode.FORBIDDEN,
+            "use the dedicated project-task file delete route",
+            details={"route": f"/api/project-task-files/{thread_id}", "internal": True},
+        )
     await server.app_runtime.agent_registry.delete_thread_checkpoint(agent_id, thread_id)
     server.app_runtime.gateway.thread_registry.delete_thread(thread_id)
     runtime = getattr(server, "app_runtime", None)

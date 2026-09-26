@@ -453,7 +453,10 @@
     "PROJECT_ASSET_PARENT_IN_TRASH": "The original folder is still in the trash. Restore that folder first.",
     "PROJECT_EXPERTS_CHANGED": "The project expert list changed after you confirmed it. Refresh the project and confirm again.",
     "PROJECT_EXPERT_INVALID": "The selected experts are not all available in this project. Refresh the expert list and try again.",
-    "PROJECT_EXPERT_UNAVAILABLE": "The selected expert is no longer available in this project. Refresh the expert list and choose again."
+    "PROJECT_EXPERT_UNAVAILABLE": "The selected expert is no longer available in this project. Refresh the expert list and choose again.",
+    "PROJECT_TASK_FILES_UNSUPPORTED": "Controlled file tasks are not supported on this host or backend. Choose a chat task instead.",
+    "PROJECT_TASK_FILES_UNAVAILABLE": "Controlled file tasks are temporarily unavailable. Try again in a moment.",
+    "PROJECT_TASK_FILES_QUOTA": "The controlled file task quota is full ({scope}). Delete unused file tasks and try again."
   },
   "desktop": {
     "install_log_deps": "Installing Python dependencies…",

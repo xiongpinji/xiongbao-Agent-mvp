@@ -25,24 +25,25 @@ from typing import Any
 
 from octop.infra.db.pool import DatabasePool
 from octop.infra.db.repos._base import DbRow, map_rows, now_ts
-from octop.infra.db.repos.project_tasks import ProjectTaskSummary
-
-# Same safe-summary column set as ProjectTaskRepo (the card, nothing more);
-# reader queries append a constant ``access`` discriminator.
-_SUMMARY_COLUMNS = (
-    "l.project_id, l.thread_id, l.owner_user_id, l.source, "
-    "t.agent_id, t.title, t.last_active, t.created_at"
+from octop.infra.db.repos.project_tasks import (
+    _CONTEXT_JOIN,
+    _OWNER_PROJECTION,
+    _READER_PROJECTION,
+    ProjectTaskSummary,
 )
+
 # Reader branch: an ACTIVE grant joined to its task link, thread, and the
 # recipient's current membership — membership is enforced inside the SQL,
-# not only by the service gate.
+# not only by the service gate. The context join feeds the safe projection:
+# shared cards keep the public SOURCE expert as ``agent_id`` and the ``mode``
+# only, with the runtime id / source binding hard-NULL.
 _READER_FROM = (
     "FROM project_task_shares s "
     "JOIN project_task_links l ON l.project_id = s.project_id AND l.thread_id = s.thread_id "
     "JOIN threads t ON t.thread_id = l.thread_id "
     "JOIN project_members pm ON pm.project_id = s.project_id AND pm.user_id = s.grantee_user_id "
     "LEFT JOIN project_task_content_grants c ON c.project_id = s.project_id "
-    "AND c.thread_id = s.thread_id AND c.grantee_user_id = s.grantee_user_id "
+    "AND c.thread_id = s.thread_id AND c.grantee_user_id = s.grantee_user_id " + _CONTEXT_JOIN
 )
 _READER_TEXT_COLUMN = "CASE WHEN c.grantee_user_id IS NULL THEN 0 ELSE 1 END AS can_read_text"
 # Same activity sentinel as ProjectTaskRepo._ORDER_BY: last_active=0 means
@@ -63,6 +64,8 @@ class VisibleTaskSummary(ProjectTaskSummary):
 
     ``access`` is ``owner`` for the task owner and ``reader`` for an active
     grant recipient — the only field this slice adds to the 021 summary.
+    Reader rows come from :data:`_READER_PROJECTION`, which keeps the public
+    source expert in ``agent_id`` and always NULLs the runtime binding.
     """
 
     access: str = "owner"
@@ -80,6 +83,9 @@ class VisibleTaskSummary(ProjectTaskSummary):
             source=base.source,
             last_active=base.last_active,
             created_at=base.created_at,
+            mode=base.mode,
+            chat_agent_id=base.chat_agent_id,
+            source_expert_id=base.source_expert_id,
             access=str(row["access"]),
             can_read_text=bool(row["can_read_text"]),
         )
@@ -390,7 +396,7 @@ class ProjectTaskShareRepo:
         without a COUNT; title search is literal and case-insensitive.
         """
         sql = (
-            f"SELECT {_SUMMARY_COLUMNS}, 'reader' AS access, {_READER_TEXT_COLUMN} {_READER_FROM} "
+            f"SELECT {_READER_PROJECTION}, 'reader' AS access, {_READER_TEXT_COLUMN} {_READER_FROM} "
             "WHERE s.project_id = ? AND s.grantee_user_id = ? AND s.revoked_at IS NULL"
         )
         params: list[object] = [project_id, user_id]
@@ -419,15 +425,16 @@ class ProjectTaskShareRepo:
         pure safety. Returns up to ``limit + 1`` rows.
         """
         own_sql = (
-            f"SELECT {_SUMMARY_COLUMNS}, 'owner' AS access, 1 AS can_read_text "
+            f"SELECT {_OWNER_PROJECTION}, 'owner' AS access, 1 AS can_read_text "
             "FROM project_task_links l "
             "JOIN threads t ON t.thread_id = l.thread_id "
             "JOIN project_members pm ON pm.project_id = l.project_id "
             "AND pm.user_id = l.owner_user_id "
+            f"{_CONTEXT_JOIN} "
             "WHERE l.project_id = ? AND l.owner_user_id = ?"
         )
         reader_sql = (
-            f"SELECT {_SUMMARY_COLUMNS}, 'reader' AS access, {_READER_TEXT_COLUMN} {_READER_FROM} "
+            f"SELECT {_READER_PROJECTION}, 'reader' AS access, {_READER_TEXT_COLUMN} {_READER_FROM} "
             "WHERE s.project_id = ? AND s.grantee_user_id = ? AND s.revoked_at IS NULL"
         )
         own_sql, own_params = self._apply_q(own_sql, [project_id, user_id], q)
@@ -453,7 +460,7 @@ class ProjectTaskShareRepo:
         foreign task, so no title or existence leaks.
         """
         sql = (
-            f"SELECT {_SUMMARY_COLUMNS}, 'reader' AS access, {_READER_TEXT_COLUMN} {_READER_FROM} "
+            f"SELECT {_READER_PROJECTION}, 'reader' AS access, {_READER_TEXT_COLUMN} {_READER_FROM} "
             "WHERE s.project_id = ? AND s.thread_id = ? AND s.grantee_user_id = ? "
             "AND s.revoked_at IS NULL"
         )

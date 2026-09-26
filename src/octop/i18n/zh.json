@@ -453,7 +453,10 @@
     "PROJECT_ASSET_PARENT_IN_TRASH": "原文件夹仍在回收站中，请先恢复该文件夹。",
     "PROJECT_EXPERTS_CHANGED": "项目专家名单在确认后已变更，请刷新项目详情并重新确认。",
     "PROJECT_EXPERT_INVALID": "所选专家并非全部可用，请刷新专家名单后重试。",
-    "PROJECT_EXPERT_UNAVAILABLE": "所选专家在当前项目中已不可用，请刷新专家名单后重新选择。"
+    "PROJECT_EXPERT_UNAVAILABLE": "所选专家在当前项目中已不可用，请刷新专家名单后重新选择。",
+    "PROJECT_TASK_FILES_UNSUPPORTED": "当前主机或后端不支持受控文件任务，请选择对话任务。",
+    "PROJECT_TASK_FILES_UNAVAILABLE": "受控文件任务暂时不可用，请稍后重试。",
+    "PROJECT_TASK_FILES_QUOTA": "受控文件任务数量已达上限（范围：{scope}），请删除不再使用的文件任务后重试。"
   },
   "desktop": {
     "install_log_deps": "正在安装 Python 依赖…",

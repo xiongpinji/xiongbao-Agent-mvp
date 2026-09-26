@@ -15,6 +15,7 @@ never the actor.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Query
@@ -24,16 +25,22 @@ from pydantic import BaseModel, ConfigDict, Field
 from octop.api.common.agent import require_agent_row
 from octop.api.common.workspace import require_running_agent
 from octop.api.deps import current_user, get_server
+from octop.infra.db.repos.agents import ProjectTaskFilesQuotaError
 from octop.infra.errors import ErrorCode, OctopError
+from octop.infra.projects import file_tasks
 from octop.infra.projects.service import DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT
 from octop.infra.projects.tasks import (
     ProjectTaskService,
     TaskShareView,
     TaskSummaryView,
     expert_unavailable_error,
+    files_quota_error,
+    files_unavailable_error,
 )
 from octop.infra.server import OctopServer
 from octop.infra.users.identity import User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/projects/{project_id}/tasks")
 
@@ -63,6 +70,9 @@ def _task_payload(view: TaskSummaryView) -> dict[str, Any]:
         "created_at": view.created_at,
         "access": view.access,
         "can_read_text": view.can_read_text,
+        "mode": view.mode,
+        "chat_agent_id": view.chat_agent_id,
+        "source_expert_id": view.source_expert_id,
     }
 
 
@@ -101,6 +111,14 @@ class CreateTaskBody(BaseModel):
             "frontend whenever the project has a nonempty expert list"
         ),
     )
+    mode: Literal["chat", "files"] = Field(
+        default="chat",
+        description=(
+            "Task mode. 'chat' (default, 028/029 behavior) talks through the "
+            "selected expert Agent; 'files' requests the controlled per-task "
+            "workspace and is refused while the server gate is closed."
+        ),
+    )
 
 
 class GrantShareBody(BaseModel):
@@ -133,6 +151,65 @@ async def attach_task(
     return JSONResponse(status_code=200, content=payload)
 
 
+async def _create_files_task(
+    project_id: str,
+    *,
+    server: OctopServer,
+    service: ProjectTaskService,
+    user: User,
+    body: CreateTaskBody,
+    source_row: Any,
+) -> dict[str, Any]:
+    """030A files-mode create: gate → hint → precheck → B2 runtime → bind.
+
+    The server gate stays closed by default (422). When a narrow test override
+    opens it, the precheck and hint are side-effect-free; only then is the
+    private runtime allocated/started through B2. Any bind failure compensates
+    through the dedicated B2 cleanup (keeping a retryable marker when cleanup
+    itself cannot be proven complete) and re-raises — a partial cleanup is
+    never reported as success.
+    """
+    file_tasks.require_files_mode_enabled()
+    if server.services is None:
+        raise OctopError(ErrorCode.INTERNAL_ERROR, "server services unavailable")
+    if not file_tasks.files_task_capability(server.services.paths)["available"]:
+        raise files_unavailable_error()
+    service.precheck_files_task(
+        project_id,
+        user_id=user.id,
+        expected_instructions_sha256=body.expected_instructions_sha256,
+    )
+    assert server.app_runtime is not None
+    manager = server.app_runtime.agent_registry
+    try:
+        runtime = await manager.create_project_task_file_runtime(
+            owner_user_id=user.id, source_expert=source_row
+        )
+    except ProjectTaskFilesQuotaError as exc:
+        raise files_quota_error(exc.scope) from None
+    except OctopError as exc:
+        raise files_unavailable_error() from exc
+    try:
+        view = service.bind_files_task(
+            project_id,
+            user_id=user.id,
+            source_agent_id=body.agent_id,
+            runtime_agent_id=runtime.agent_id,
+            expected_instructions_sha256=body.expected_instructions_sha256,
+            expected_experts_revision=body.expected_experts_revision,
+            is_admin=user.is_admin,
+        )
+    except Exception:
+        try:
+            await manager.cleanup_unlinked_project_task_runtime(runtime.agent_id)
+        except Exception:
+            logger.exception(
+                "files task create: runtime compensation failed for %s", runtime.agent_id
+            )
+        raise
+    return _task_payload(view)
+
+
 @router.post(
     "", status_code=201, summary="Create a private project task with an instruction snapshot"
 )
@@ -155,7 +232,16 @@ async def create_project_task(
     longer listed/shared/enabled/running answers the uniform recoverable 409
     ``PROJECT_EXPERT_UNAVAILABLE`` — never an ownership/existence leak. The
     response is the same safe private-task summary as manual attach — never
-    the instruction text."""
+    the instruction text.
+
+    ``mode='files'`` (030A) requests the controlled per-task workspace: the
+    server gate is closed by default (422 ``PROJECT_TASK_FILES_UNSUPPORTED``),
+    the capability probe is only a hint, quota answers 409
+    ``PROJECT_TASK_FILES_QUOTA``, and a transient runtime failure answers 503
+    ``PROJECT_TASK_FILES_UNAVAILABLE``. On success the response carries
+    ``mode='files'``, the SOURCE expert in the public ``agent_id``, and the
+    owner-only private ``chat_agent_id``/``source_expert_id``.
+    """
     service = _task_service(server)
     # Membership first so an outsider cannot probe agent existence/ACL.
     experts_gated = service.authorize_create_target(
@@ -165,13 +251,31 @@ async def create_project_task(
         expected_experts_revision=body.expected_experts_revision,
     )
     try:
-        require_agent_row(body.agent_id, user=user, as_user=None, server=server)
-        require_running_agent(server, body.agent_id)
+        source_row = require_agent_row(body.agent_id, user=user, as_user=None, server=server)
     except OctopError as exc:
         # With the expert gate on, the list itself already passed membership;
-        # an Agent that vanished, lost its grant, or stopped between the two
-        # reads must not surface owner/existence/lifecycle details to an
-        # authorized member.
+        # an Agent that vanished or lost its grant between the two reads must
+        # not surface owner/existence details to an authorized member.
+        if experts_gated and exc.code in (
+            ErrorCode.AGENT_NOT_FOUND,
+            ErrorCode.FORBIDDEN,
+            ErrorCode.AGENT_NOT_RUNNING,
+            ErrorCode.AGENT_FAILED,
+        ):
+            raise expert_unavailable_error() from None
+        raise
+    if body.mode == "files":
+        return await _create_files_task(
+            project_id,
+            server=server,
+            service=service,
+            user=user,
+            body=body,
+            source_row=source_row,
+        )
+    try:
+        require_running_agent(server, body.agent_id)
+    except OctopError as exc:
         if experts_gated and exc.code in (
             ErrorCode.AGENT_NOT_FOUND,
             ErrorCode.FORBIDDEN,

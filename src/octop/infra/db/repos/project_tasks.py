@@ -27,13 +27,34 @@ from typing import Any
 from octop.infra.db.pool import DatabasePool
 from octop.infra.db.repos._base import DbRow, map_rows, now_ts
 
-_SUMMARY_COLUMNS = (
+_CONTEXT_JOIN = (
+    "LEFT JOIN project_task_contexts ctx ON ctx.thread_id = l.thread_id "
+    "AND ctx.project_id = l.project_id AND ctx.owner_user_id = l.owner_user_id "
+)
+# Owner projection: for a 030A ``mode='files'`` row the public ``agent_id`` is
+# the SOURCE expert and the private runtime id travels in ``chat_agent_id``
+# (owner-only). Manual/chat rows keep ``agent_id == chat_agent_id`` and a NULL
+# ``source_expert_id``. ``mode`` falls back to ``chat`` for rows without a
+# context (manual links) and for pre-028 rows.
+_OWNER_PROJECTION = (
     "l.project_id, l.thread_id, l.owner_user_id, l.source, "
-    "t.agent_id, t.title, t.last_active, t.created_at"
+    "COALESCE(ctx.source_expert_id, t.agent_id) AS agent_id, t.title, t.last_active, "
+    "t.created_at, COALESCE(ctx.mode, 'chat') AS mode, "
+    "t.agent_id AS chat_agent_id, ctx.source_expert_id AS source_expert_id"
+)
+# Reader projection: shared cards must never see the runtime id, the managed
+# root, or the source/runtime binding — only the public source expert id and
+# the mode. ``chat_agent_id``/``source_expert_id`` are hard-NULL constants.
+_READER_PROJECTION = (
+    "l.project_id, l.thread_id, l.owner_user_id, l.source, "
+    "COALESCE(ctx.source_expert_id, t.agent_id) AS agent_id, t.title, t.last_active, "
+    "t.created_at, COALESCE(ctx.mode, 'chat') AS mode, NULL AS chat_agent_id, "
+    "NULL AS source_expert_id"
 )
 _SUMMARY_SELECT = (
-    f"SELECT {_SUMMARY_COLUMNS} FROM project_task_links l "
+    f"SELECT {_OWNER_PROJECTION} FROM project_task_links l "
     "JOIN threads t ON t.thread_id = l.thread_id "
+    f"{_CONTEXT_JOIN}"
 )
 # Same activity sentinel as the thread-list ordering: last_active=0 means
 # "no turns yet", so brand-new threads sort by created_at instead of sinking.
@@ -48,14 +69,49 @@ def _escape_like(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+def _row_value(row: DbRow | None, key: str) -> Any:
+    """Read an optional column from a driver row (sqlite3.Row or Mapping)."""
+    if row is None:
+        return None
+    try:
+        return row[key]
+    except (KeyError, IndexError):
+        return None
+
+
+def _row_has(row: DbRow | None, key: str) -> bool:
+    """True when the driver row actually carries the column (even if NULL)."""
+    if row is None:
+        return False
+    try:
+        row[key]
+    except (KeyError, IndexError):
+        return False
+    return True
+
+
+def _is_unique_violation(exc: BaseException) -> bool:
+    """True for a duplicate-key failure on SQLite or PostgreSQL."""
+    if getattr(exc, "sqlstate", None) == "23505":
+        return True
+    if isinstance(exc, sqlite3.IntegrityError):
+        message = str(exc).lower()
+        return "unique" in message or "idx_project_task_contexts_runtime_agent" in message
+    return False
+
+
 @dataclass(frozen=True)
 class ProjectTaskSummary:
     """Safe task summary — exactly the contract's public fields.
 
     ``agent_id``/``title``/``last_active``/``created_at`` come from the joined
     thread row (task times); the link's own ``created_at`` stays internal.
-    Never carries ``session_key``, artifacts, messages, workspace paths, or
-    model credentials.
+    ``agent_id`` is always the publicly displayable expert: for 030A
+    ``mode='files'`` rows it is the SOURCE expert, never the private runtime.
+    ``chat_agent_id`` carries the agent that owns the private thread (the
+    runtime for files rows) and ``source_expert_id`` the frozen source expert;
+    both are projected only by owner queries. Never carries ``session_key``,
+    artifacts, messages, workspace paths, or model credentials.
     """
 
     project_id: str
@@ -67,19 +123,36 @@ class ProjectTaskSummary:
     last_active: int
     created_at: int
     can_read_text: bool = True
+    mode: str = "chat"
+    chat_agent_id: str | None = None
+    source_expert_id: str | None = None
 
     @classmethod
     def from_row(cls, row: DbRow) -> ProjectTaskSummary:
         title = row["title"]
+        agent_id = str(row["agent_id"])
+        mode_raw = _row_value(row, "mode")
+        mode = str(mode_raw) if str(mode_raw) in ("chat", "files") else "chat"
+        if _row_has(row, "chat_agent_id"):
+            chat_raw = row["chat_agent_id"]
+            chat_agent_id = None if chat_raw is None else str(chat_raw)
+        else:
+            # Pre-030A row shape: chat tasks always chat on the thread agent.
+            chat_agent_id = agent_id
+        source_raw = _row_value(row, "source_expert_id")
+        source_expert_id = None if source_raw is None else str(source_raw)
         return cls(
             project_id=str(row["project_id"]),
             thread_id=str(row["thread_id"]),
             owner_user_id=int(row["owner_user_id"]),
-            agent_id=str(row["agent_id"]),
+            agent_id=agent_id,
             title=None if title is None else str(title),
             source=str(row["source"]),
             last_active=int(row["last_active"]),
             created_at=int(row["created_at"]),
+            mode=mode,
+            chat_agent_id=chat_agent_id,
+            source_expert_id=source_expert_id,
         )
 
 
@@ -110,7 +183,13 @@ class TaskCreateMutation:
     link, or snapshot row behind. ``invalid_expert`` is the uniform outcome for
     a nonempty 029 project expert list whose selected Agent is no longer in the
     list or is unshared/disabled/deleted; ``invalid_agent`` keeps the 028
-    empty-list ACL refusal.
+    empty-list ACL refusal. DB-marked internal ``project_task_files`` runtimes
+    are refused as sources on both branches (never ``standard``).
+
+    :meth:`ProjectTaskRepo.create_files_with_context` additionally returns
+    ``invalid_runtime`` when the private runtime row is missing, is not an
+    internal runtime, belongs to another user, or is already bound by the 028
+    unique partial index.
     """
 
     outcome: str
@@ -200,13 +279,28 @@ class ProjectTaskRepo:
         digest: str,
         expert_selection_revision: int,
         ts: int,
+        mode: str = "chat",
+        source_expert_id: str | None = None,
+        runtime_agent_id: str | None = None,
     ) -> None:
         conn.execute(
             "INSERT INTO project_task_contexts("
             "thread_id, project_id, owner_user_id, instructions_snapshot, "
-            "snapshot_version, instructions_sha256, captured_at, expert_selection_revision) "
-            "VALUES (?, ?, ?, ?, 1, ?, ?, ?)",
-            (thread_id, project_id, user_id, instructions, digest, ts, expert_selection_revision),
+            "snapshot_version, instructions_sha256, captured_at, expert_selection_revision, "
+            "mode, source_expert_id, runtime_agent_id) "
+            "VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)",
+            (
+                thread_id,
+                project_id,
+                user_id,
+                instructions,
+                digest,
+                ts,
+                expert_selection_revision,
+                mode,
+                source_expert_id,
+                runtime_agent_id,
+            ),
         )
 
     def _summary_for(
@@ -241,6 +335,8 @@ class ProjectTaskRepo:
                     "WHERE t.thread_id = ? AND t.user_id = ? "
                     "AND t.channel_type = 'dashboard' "
                     "AND t.session_key = t.agent_id || ':dashboard:' || ? || ':dm' "
+                    "AND NOT EXISTS (SELECT 1 FROM agents a WHERE a.agent_id = t.agent_id "
+                    "AND a.runtime_kind = 'project_task_files') "
                     "ON CONFLICT (thread_id) DO NOTHING "
                     "RETURNING id",
                     (project_id, ts, thread_id, user_id, str(user_id)),
@@ -255,7 +351,9 @@ class ProjectTaskRepo:
                     "JOIN threads t ON t.thread_id = l.thread_id "
                     "WHERE l.thread_id = ? AND l.owner_user_id = ? AND t.user_id = ? "
                     "AND t.channel_type = 'dashboard' "
-                    "AND t.session_key = t.agent_id || ':dashboard:' || ? || ':dm'",
+                    "AND t.session_key = t.agent_id || ':dashboard:' || ? || ':dm' "
+                    "AND NOT EXISTS (SELECT 1 FROM agents a WHERE a.agent_id = t.agent_id "
+                    "AND a.runtime_kind = 'project_task_files')",
                     (thread_id, user_id, user_id, str(user_id)),
                 ).fetchone()
                 if existing is None:
@@ -331,10 +429,15 @@ class ProjectTaskRepo:
             expert_revision = int(project["experts_revision"])
             expert_ids = self._expert_ids(conn, project_id)
             agent = conn.execute(
-                "SELECT kind, user_id, is_shared, enabled FROM agents WHERE agent_id = ?"
-                + self._member_share_lock(),
+                "SELECT kind, user_id, is_shared, enabled, runtime_kind FROM agents "
+                "WHERE agent_id = ?" + self._member_share_lock(),
                 (agent_id,),
             ).fetchone()
+            # A DB-marked internal runtime is never a valid project source,
+            # even when the caller knows its id or it was forced into the 029
+            # expert list; the marker is DB-trusted and cannot be forged via
+            # ``config_json``.
+            internal_source = _row_value(agent, "runtime_kind") == "project_task_files"
             if expert_ids:
                 if (
                     expected_experts_revision is None
@@ -344,6 +447,7 @@ class ProjectTaskRepo:
                 if (
                     agent_id not in expert_ids
                     or agent is None
+                    or internal_source
                     or str(agent["kind"]) != "expert"
                     or not int(agent["enabled"])
                     or int(agent["is_shared"] or 0) != 1
@@ -357,6 +461,7 @@ class ProjectTaskRepo:
                     return TaskCreateMutation(outcome="stale_experts")
                 if (
                     agent is None
+                    or internal_source
                     or str(agent["kind"]) != "expert"
                     or not int(agent["enabled"])
                     or not (
@@ -401,8 +506,159 @@ class ProjectTaskRepo:
                     source="project",
                     last_active=0,
                     created_at=ts,
+                    mode="chat",
+                    chat_agent_id=agent_id,
                 ),
             )
+
+    def create_files_with_context(
+        self,
+        *,
+        project_id: str,
+        user_id: int,
+        source_agent_id: str,
+        runtime_agent_id: str,
+        thread_id: str,
+        session_key: str,
+        expected_instructions_sha256: str,
+        expected_experts_revision: int | None = None,
+        is_admin: bool = False,
+    ) -> TaskCreateMutation:
+        """Bind one pre-created private runtime to a project in ONE transaction.
+
+        The 030A ``mode='files'`` sibling of :meth:`create_with_context`: the
+        same membership/archive/expert/digest re-checks run inside the write
+        transaction, plus a DB-trusted recheck that the runtime row itself is a
+        ``project_task_files`` runtime owned by the caller and that the source
+        Agent is not an internal runtime. It then inserts the private thread
+        (``threads.agent_id = runtime_agent_id``), its history projection, the
+        ``source='project'`` link, and the context row carrying ``mode='files'``
+        plus the frozen ``source_expert_id``/``runtime_agent_id``. The 028
+        unique partial index on ``runtime_agent_id`` makes a concurrent double
+        bind an ``invalid_runtime`` refusal that rolls back completely.
+
+        Lock order on PostgreSQL matches :meth:`create_with_context` — member
+        row, project row, expert rows, then the SOURCE agent row, then the
+        RUNTIME agent row (all ``FOR SHARE``), then inserts.
+        """
+        ts = now_ts()
+        try:
+            with self._db.transaction() as conn:
+                if self._member_role_locked(conn, project_id, user_id) is None:
+                    return TaskCreateMutation(outcome="not_member")
+                project = self._project_row_locked(conn, project_id)
+                if project is None:
+                    return TaskCreateMutation(outcome="not_member")
+                if int(project["archived"]):
+                    return TaskCreateMutation(outcome="archived")
+                expert_revision = int(project["experts_revision"])
+                expert_ids = self._expert_ids(conn, project_id)
+                source = conn.execute(
+                    "SELECT kind, user_id, is_shared, enabled, runtime_kind FROM agents "
+                    "WHERE agent_id = ?" + self._member_share_lock(),
+                    (source_agent_id,),
+                ).fetchone()
+                internal_source = _row_value(source, "runtime_kind") == "project_task_files"
+                if expert_ids:
+                    if (
+                        expected_experts_revision is None
+                        or expected_experts_revision != expert_revision
+                    ):
+                        return TaskCreateMutation(outcome="stale_experts")
+                    if (
+                        source_agent_id not in expert_ids
+                        or source is None
+                        or internal_source
+                        or str(source["kind"]) != "expert"
+                        or not int(source["enabled"])
+                        or int(source["is_shared"] or 0) != 1
+                    ):
+                        return TaskCreateMutation(outcome="invalid_expert")
+                else:
+                    if (
+                        expected_experts_revision is not None
+                        and expected_experts_revision != expert_revision
+                    ):
+                        return TaskCreateMutation(outcome="stale_experts")
+                    if (
+                        source is None
+                        or internal_source
+                        or str(source["kind"]) != "expert"
+                        or not int(source["enabled"])
+                        or not (
+                            is_admin
+                            or source["user_id"] == user_id
+                            or int(source["is_shared"] or 0) == 1
+                        )
+                    ):
+                        return TaskCreateMutation(outcome="invalid_agent")
+                # Runtime row: existence, DB marker and owner are re-checked in
+                # the same transaction as the insert (never trusted from the
+                # caller's earlier B2 create).
+                runtime = conn.execute(
+                    "SELECT user_id, runtime_kind FROM agents WHERE agent_id = ?"
+                    + self._member_share_lock(),
+                    (runtime_agent_id,),
+                ).fetchone()
+                if (
+                    runtime is None
+                    or _row_value(runtime, "runtime_kind") != "project_task_files"
+                    or int(runtime["user_id"]) != user_id
+                ):
+                    return TaskCreateMutation(outcome="invalid_runtime")
+                instructions = str(project["instructions"])
+                digest = hashlib.sha256(instructions.encode("utf-8")).hexdigest()
+                if digest != expected_instructions_sha256:
+                    return TaskCreateMutation(outcome="stale_instructions")
+                self._insert_new_thread(
+                    conn,
+                    thread_id=thread_id,
+                    agent_id=runtime_agent_id,
+                    user_id=user_id,
+                    session_key=session_key,
+                    ts=ts,
+                )
+                self._insert_projection(conn, thread_id=thread_id, ts=ts)
+                self._insert_link(
+                    conn, project_id=project_id, thread_id=thread_id, user_id=user_id, ts=ts
+                )
+                self._insert_snapshot(
+                    conn,
+                    project_id=project_id,
+                    thread_id=thread_id,
+                    user_id=user_id,
+                    instructions=instructions,
+                    digest=digest,
+                    expert_selection_revision=expert_revision,
+                    ts=ts,
+                    mode="files",
+                    source_expert_id=source_agent_id,
+                    runtime_agent_id=runtime_agent_id,
+                )
+                return TaskCreateMutation(
+                    outcome="created",
+                    summary=ProjectTaskSummary(
+                        project_id=project_id,
+                        thread_id=thread_id,
+                        owner_user_id=user_id,
+                        agent_id=source_agent_id,
+                        title=None,
+                        source="project",
+                        last_active=0,
+                        created_at=ts,
+                        mode="files",
+                        chat_agent_id=runtime_agent_id,
+                        source_expert_id=source_agent_id,
+                    ),
+                )
+        except Exception as exc:
+            # The 028 unique partial index on ``runtime_agent_id`` is the
+            # race-safe double-bind guard: the loser rolls back completely and
+            # classifies as an unavailable runtime. SQLite raises
+            # IntegrityError, psycopg unique_violation has sqlstate 23505.
+            if _is_unique_violation(exc):
+                return TaskCreateMutation(outcome="invalid_runtime")
+            raise
 
     def detach(self, *, project_id: str, thread_id: str, user_id: int) -> str:
         """Remove one link row. Outcomes: removed | missing | not_member.

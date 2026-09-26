@@ -1121,6 +1121,84 @@ class AgentManager:
                 )
             return await self._compensate_project_task_runtime(agent_id)
 
+    async def delete_project_task_file_task(self, *, thread_id: str, owner_user_id: int) -> bool:
+        """Complete, retryable full delete of ONE owned private file task (030A B3).
+
+        This is the only complete-delete entry for an internal runtime thread;
+        the project link/context are irrelevant (detach keeps the task, and the
+        dedicated route stays available afterwards). Every step is ordered so a
+        failure leaves a retryable record:
+
+        1. verify the exact thread↔runtime↔owner binding (DB only; no bytes);
+        2. delete the thread's checkpoint while the runtime may still be live;
+        3. unload the runtime; a harness-removal failure aborts with the row
+           kept and marked ``failed``;
+        4. remove the private root bytes; a failure aborts the same way;
+        5. only a proven byte removal deletes the thread/projection/link/
+           context/share/session rows (and the runtime row when it was the
+           last thread) in one transaction.
+
+        Returns False when the caller does not own the exact bound thread (or the
+        thread/runtime rows are already gone — repeated delete answers 404).
+        A step that cannot be proven complete raises
+        ``PROJECT_TASK_FILES_UNAVAILABLE`` (503) after marking the row as a
+        retryable ``failed`` marker: the task stays visible and the caller can
+        retry, and a partial cleanup is never reported as success.
+        """
+        unavailable = OctopError(
+            ErrorCode.PROJECT_TASK_FILES_UNAVAILABLE,
+            "controlled file task delete could not be completed",
+        )
+        async with self._lock:
+            thread = self._repos.thread_repo.get(thread_id)
+            if thread is None or int(thread.user_id) != int(owner_user_id):
+                return False
+            row = self._repos.agent_repo.get(thread.agent_id)
+            if row is None or not _is_project_task_runtime(row):
+                return False
+            if int(row.user_id or 0) != int(owner_user_id):
+                return False
+            agent_id = row.agent_id
+            # Checkpoint first: it needs the live harness handle and a failure
+            # keeps the thread row visible for a retry.
+            try:
+                await self.delete_thread_checkpoint(agent_id, thread_id)
+            except Exception:
+                logger.exception(
+                    "project-task full delete: checkpoint removal failed for %s/%s",
+                    agent_id,
+                    thread_id,
+                )
+                self._mark_project_task_cleanup_incomplete(agent_id)
+                raise unavailable from None
+            if self._harness_manager is not None:
+                try:
+                    await asyncio.to_thread(self._quiesce_harness_memory, agent_id)
+                    await self._harness_manager.aremove_agent(agent_id)
+                except Exception:
+                    logger.exception(
+                        "project-task full delete: runtime unload failed for %s", agent_id
+                    )
+                    self._mark_project_task_cleanup_incomplete(agent_id)
+                    raise unavailable from None
+            root = self._paths.project_task_file_runtime_dir(agent_id)
+            try:
+                if await asyncio.to_thread(root.exists):
+                    await asyncio.to_thread(shutil.rmtree, root)
+            except Exception:
+                logger.exception(
+                    "project-task full delete: private dir removal failed for %s", agent_id
+                )
+                self._mark_project_task_cleanup_incomplete(agent_id)
+                raise unavailable from None
+            removed = self._repos.agent_repo.delete_project_task_file_task_rows(
+                agent_id=agent_id, thread_id=thread_id, owner_user_id=owner_user_id
+            )
+            if not removed:
+                self._mark_project_task_cleanup_incomplete(agent_id)
+                return False
+            return True
+
     async def cleanup_stale_project_task_runtimes(self) -> int:
         """Bounded recovery scan for crash-orphaned internal runtimes.
 

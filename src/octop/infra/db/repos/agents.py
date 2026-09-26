@@ -307,6 +307,91 @@ class AgentRepo:
             ).fetchall()
         return map_rows(rows, AgentRow)
 
+    def count_project_task_runtimes(self, *, user_id: int | None = None) -> int:
+        """Registered internal runtimes, instance-wide or for one owner.
+
+        Read-only count driven by the DB-trusted ``runtime_kind`` marker, used
+        by the 030A pre-check; the authoritative quota decision stays in
+        :meth:`create_project_task_runtime_with_quota`.
+        """
+        with self._db.connect() as conn:
+            return _count_project_task_runtimes(conn, user_id=user_id)
+
+    def delete_project_task_runtime_if_unreferenced(self, agent_id: str) -> bool:
+        """Delete one DB-marked internal runtime only while it owns no thread.
+
+        Used by 030A compensation after a failed project-task transaction.
+        Returns True only when the row existed, is an internal runtime, has no
+        ``threads`` reference, and was deleted. Unknown ids, standard rows and
+        linked runtimes return False with no write.
+        """
+        with self._db.transaction() as conn:
+            row = conn.execute(
+                "SELECT runtime_kind FROM agents WHERE agent_id = ?", (agent_id,)
+            ).fetchone()
+            if row is None or str(row["runtime_kind"]) != RUNTIME_KIND_PROJECT_TASK_FILES:
+                return False
+            referenced = conn.execute(
+                "SELECT 1 FROM threads WHERE agent_id = ? LIMIT 1", (agent_id,)
+            ).fetchone()
+            if referenced is not None:
+                return False
+            conn.execute("DELETE FROM agents WHERE agent_id = ?", (agent_id,))
+            return True
+
+    def delete_project_task_file_task_rows(
+        self, *, agent_id: str, thread_id: str, owner_user_id: int
+    ) -> bool:
+        """Delete every metadata row of one owned private file task, atomically.
+
+        Guarded on the exact thread↔runtime↔owner binding: the thread must
+        belong to *owner_user_id*, its ``agent_id`` must equal *agent_id*, and
+        that Agent row must be a DB-marked ``project_task_files`` runtime owned
+        by the same user. Only then are the session, share/content-grant,
+        context, projection, link, and thread rows removed in one transaction;
+        the runtime Agent row is deleted too when this was its last thread.
+        Any guard failure returns False with zero writes, so a dedicated
+        full-task delete can never remove another user's data or detach a
+        standard Agent.
+        """
+        with self._db.transaction() as conn:
+            thread = conn.execute(
+                "SELECT agent_id, user_id FROM threads WHERE thread_id = ?", (thread_id,)
+            ).fetchone()
+            if thread is None:
+                return False
+            if str(thread["agent_id"]) != agent_id or int(thread["user_id"]) != owner_user_id:
+                return False
+            row = conn.execute(
+                "SELECT runtime_kind, user_id FROM agents WHERE agent_id = ?", (agent_id,)
+            ).fetchone()
+            if (
+                row is None
+                or str(row["runtime_kind"]) != RUNTIME_KIND_PROJECT_TASK_FILES
+                or int(row["user_id"]) != owner_user_id
+            ):
+                return False
+            # Children before parents: content grants reference shares,
+            # shares/contexts reference the link, the link references the
+            # thread. Sessions carry no FK to threads, so they are explicit.
+            conn.execute("DELETE FROM sessions WHERE thread_id = ?", (thread_id,))
+            conn.execute(
+                "DELETE FROM project_task_content_grants WHERE thread_id = ?", (thread_id,)
+            )
+            conn.execute("DELETE FROM project_task_shares WHERE thread_id = ?", (thread_id,))
+            conn.execute("DELETE FROM project_task_contexts WHERE thread_id = ?", (thread_id,))
+            conn.execute("DELETE FROM thread_history_projection WHERE thread_id = ?", (thread_id,))
+            conn.execute("DELETE FROM project_task_links WHERE thread_id = ?", (thread_id,))
+            deleted = conn.execute("DELETE FROM threads WHERE thread_id = ?", (thread_id,))
+            if getattr(deleted, "rowcount", 1) != 1:
+                return False
+            remaining = conn.execute(
+                "SELECT 1 FROM threads WHERE agent_id = ? LIMIT 1", (agent_id,)
+            ).fetchone()
+            if remaining is None:
+                conn.execute("DELETE FROM agents WHERE agent_id = ?", (agent_id,))
+            return True
+
     def get(self, agent_id: str) -> AgentRow | None:
         with self._db.connect() as conn:
             r = conn.execute("SELECT * FROM agents WHERE agent_id = ?", (agent_id,)).fetchone()

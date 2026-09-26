@@ -31,6 +31,9 @@ _SUMMARY_KEYS = {
     "created_at",
     "access",
     "can_read_text",
+    "mode",
+    "chat_agent_id",
+    "source_expert_id",
 }
 
 

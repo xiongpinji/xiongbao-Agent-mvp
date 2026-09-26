@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from octop.api.deps import current_user, get_server
 from octop.infra.errors import ErrorCode, OctopError
+from octop.infra.projects import file_tasks
 from octop.infra.projects.service import (
     DEFAULT_PAGE_LIMIT,
     INVITE_DEFAULT_EXPIRES_DAYS,
@@ -223,6 +224,27 @@ async def create_project(
         instructions=body.instructions,
     )
     return _detail_payload(view)
+
+
+@router.get(
+    "/task-capabilities",
+    summary="Hint: project task modes this host can offer",
+)
+async def task_capabilities(
+    server: OctopServer = Depends(get_server),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    """Non-authoritative UI hint for ``mode='files'`` availability.
+
+    Declared before ``/{project_id}`` so the literal path never loses to the
+    dynamic route. ``available=false`` reasons: ``disabled`` (030A gate still
+    closed) or ``storage_unavailable`` (managed root not writable). Creation
+    re-checks the gate, capability, quota, and ACL server-side regardless of
+    this response.
+    """
+    if server.services is None:
+        raise OctopError(ErrorCode.INTERNAL_ERROR, "server services unavailable")
+    return {"files": file_tasks.files_task_capability(server.services.paths)}
 
 
 @router.get("/{project_id}", summary="Get one accessible project")

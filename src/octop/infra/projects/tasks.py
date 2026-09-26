@@ -36,6 +36,11 @@ import json
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from octop.infra.db.repos.agents import (
+    PROJECT_TASK_FILES_GLOBAL_LIMIT,
+    PROJECT_TASK_FILES_OWNER_LIMIT,
+    RUNTIME_KIND_PROJECT_TASK_FILES,
+)
 from octop.infra.db.repos.project_task_shares import VisibleTaskSummary
 from octop.infra.db.repos.project_tasks import ProjectTaskSummary
 from octop.infra.errors import ErrorCode, OctopError
@@ -62,6 +67,9 @@ class TaskSummaryView:
 
     ``access`` is ``owner`` for the task owner and ``reader`` for an active
     share recipient; it is the only field PS-05B adds to the 021 summary.
+    ``mode``/``chat_agent_id``/``source_expert_id`` are the 030A additions:
+    the owner sees the private runtime binding for ``files`` tasks while
+    readers always get NULLs (the SQL projection hard-NULLs them).
     """
 
     project_id: str
@@ -74,6 +82,9 @@ class TaskSummaryView:
     created_at: int
     access: str = "owner"
     can_read_text: bool = True
+    mode: str = "chat"
+    chat_agent_id: str | None = None
+    source_expert_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -153,6 +164,31 @@ def expert_unavailable_error() -> OctopError:
     return OctopError(
         ErrorCode.PROJECT_EXPERT_UNAVAILABLE,
         "the selected project expert is no longer available",
+    )
+
+
+def files_unsupported_error() -> OctopError:
+    """422: this host/backend cannot construct the controlled files backend."""
+    return OctopError(
+        ErrorCode.PROJECT_TASK_FILES_UNSUPPORTED,
+        "controlled file tasks are not supported on this host",
+    )
+
+
+def files_unavailable_error() -> OctopError:
+    """503: transient runtime/storage failure while binding a files task."""
+    return OctopError(
+        ErrorCode.PROJECT_TASK_FILES_UNAVAILABLE,
+        "controlled file task runtime is unavailable",
+    )
+
+
+def files_quota_error(scope: str) -> OctopError:
+    """409: the fixed per-owner/global internal runtime quota is exhausted."""
+    return OctopError(
+        ErrorCode.PROJECT_TASK_FILES_QUOTA,
+        f"controlled file task quota reached ({scope})",
+        details={"scope": scope},
     )
 
 
@@ -249,6 +285,10 @@ class ProjectTaskService:
     def _thread_repo(self) -> Any:
         return self._services.thread_repo
 
+    @property
+    def _agent_repo(self) -> Any:
+        return self._services.agent_repo
+
     # ------------------------------------------------------------ access
 
     def _require_membership(self, project_id: str, user_id: int) -> Any:
@@ -268,6 +308,14 @@ class ProjectTaskService:
         thread = self._thread_repo.get(thread_id)
         if thread is None or int(thread.user_id) != int(user_id):
             raise _task_not_found()
+        # A DB-marked internal project-task runtime is never a valid manual
+        # attach target, even for its owner: files tasks bind through the
+        # dedicated creation path only, never the generic :dm attach.
+        agent_repo = getattr(self._services, "agent_repo", None)
+        if agent_repo is not None:
+            agent = agent_repo.get(thread.agent_id)
+            if agent is not None and agent.runtime_kind == RUNTIME_KIND_PROJECT_TASK_FILES:
+                raise _task_not_found()
         expected_key = ThreadRegistry.dashboard_key(agent_id=thread.agent_id, user_id=user_id)
         if (
             thread.channel_type != ThreadRegistry.CHANNEL_DASHBOARD
@@ -292,6 +340,9 @@ class ProjectTaskService:
             can_read_text=summary.can_read_text
             if isinstance(summary, VisibleTaskSummary)
             else True,
+            mode=summary.mode,
+            chat_agent_id=summary.chat_agent_id,
+            source_expert_id=summary.source_expert_id,
         )
 
     # ------------------------------------------------------------ attach
@@ -421,6 +472,98 @@ class ProjectTaskService:
             )
         if mutation.summary is None:  # pragma: no cover - created carries a summary
             raise OctopError(ErrorCode.INTERNAL_ERROR, "task summary missing after create")
+        return self._view(mutation.summary)
+
+    # ------------------------------------------------------------ files mode
+
+    def precheck_files_task(
+        self,
+        project_id: str,
+        *,
+        user_id: int,
+        expected_instructions_sha256: str,
+    ) -> None:
+        """Side-effect-free 030A pre-check before any runtime is created.
+
+        Membership (uniform 404), archive state (403), the freshly-read
+        instruction digest (409), and the fixed per-owner/global runtime quota
+        (409) are checked here so a doomed request never allocates a runtime.
+        The digest and quota are re-checked inside the bind transaction and the
+        B1 quota insert, never trusted from this read.
+        """
+        self._require_membership(project_id, user_id)
+        project = self._project_repo.get_project(project_id)
+        if project is None:
+            raise _project_not_found()
+        if project.archived:
+            raise _archived_error()
+        digest = instructions_sha256(project.instructions)
+        if digest != expected_instructions_sha256.strip().lower():
+            raise OctopError(
+                ErrorCode.PROJECT_INSTRUCTIONS_CHANGED,
+                "project instructions changed since they were confirmed",
+            )
+        if self._agent_repo.count_project_task_runtimes(user_id=user_id) >= (
+            PROJECT_TASK_FILES_OWNER_LIMIT
+        ):
+            raise files_quota_error("owner")
+        if self._agent_repo.count_project_task_runtimes() >= PROJECT_TASK_FILES_GLOBAL_LIMIT:
+            raise files_quota_error("global")
+
+    def bind_files_task(
+        self,
+        project_id: str,
+        *,
+        user_id: int,
+        source_agent_id: str,
+        runtime_agent_id: str,
+        expected_instructions_sha256: str,
+        expected_experts_revision: int | None = None,
+        is_admin: bool = False,
+    ) -> TaskSummaryView:
+        """Atomically bind a freshly created private runtime to a project task.
+
+        The repository re-validates membership, archive state, the expert list
+        and revision, the instruction digest, the source expert, and the
+        runtime row (existence, DB marker, owner) inside ONE write transaction
+        that also inserts the thread/projection/link/context as ``mode='files'``.
+        ``invalid_runtime`` (missing, foreign, wrong kind, or concurrently
+        bound) maps to the recoverable 503 ``PROJECT_TASK_FILES_UNAVAILABLE`` so
+        the caller compensates and can retry.
+        """
+        mutation = self._repo.create_files_with_context(
+            project_id=project_id,
+            user_id=user_id,
+            source_agent_id=source_agent_id,
+            runtime_agent_id=runtime_agent_id,
+            thread_id=f"thr_{new_ulid()}",
+            session_key=ThreadRegistry.dashboard_key(agent_id=runtime_agent_id, user_id=user_id),
+            expected_instructions_sha256=expected_instructions_sha256.strip().lower(),
+            expected_experts_revision=expected_experts_revision,
+            is_admin=is_admin,
+        )
+        if mutation.outcome == "not_member":
+            raise _project_not_found()
+        if mutation.outcome == "archived":
+            raise _archived_error()
+        if mutation.outcome == "stale_instructions":
+            raise OctopError(
+                ErrorCode.PROJECT_INSTRUCTIONS_CHANGED,
+                "project instructions changed since they were confirmed",
+            )
+        if mutation.outcome == "stale_experts":
+            raise _experts_changed_error()
+        if mutation.outcome == "invalid_expert":
+            raise expert_unavailable_error()
+        if mutation.outcome == "invalid_agent":
+            raise OctopError(
+                ErrorCode.FORBIDDEN,
+                "agent no longer accessible or supported for file tasks",
+            )
+        if mutation.outcome == "invalid_runtime":
+            raise files_unavailable_error()
+        if mutation.summary is None:  # pragma: no cover - created carries a summary
+            raise OctopError(ErrorCode.INTERNAL_ERROR, "task summary missing after files bind")
         return self._view(mutation.summary)
 
     # ------------------------------------------------------------ reads

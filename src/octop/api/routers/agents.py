@@ -32,6 +32,7 @@ from octop.infra.agents.runtime_limits import (
     AGENT_RUNTIME_CONFIG_KEYS,
     agent_runtime_values,
 )
+from octop.infra.db.repos.agents import RUNTIME_KIND_PROJECT_TASK_FILES
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.users.permissions import user_has_permission
 
@@ -76,6 +77,54 @@ class AgentPatchBody(AgentRuntimeFields):
     skill_package_ids: list[str] | None = None
     knowledge_base_ids: list[str] | None = None
     mcp_servers: list[str] | None = None
+
+
+def _is_internal_runtime(row: Any) -> bool:
+    """True for DB-marked 030A internal project-task file runtimes."""
+    return getattr(row, "runtime_kind", None) == RUNTIME_KIND_PROJECT_TASK_FILES
+
+
+def _refuse_internal_runtime(row: Any) -> None:
+    """Deny ordinary Agent management surface for an internal runtime.
+
+    A minimal owner card may resolve an existing chat deep link, but it never
+    grants detail/config/share/start/stop/delete/avatar/channel access; the
+    dedicated ``DELETE /api/project-task-files/{thread_id}`` route and the
+    owner's existing chat/history paths are the only narrow allowances.
+    """
+    if _is_internal_runtime(row):
+        raise OctopError(
+            ErrorCode.FORBIDDEN,
+            "internal project-task runtime is not manageable",
+            details={"internal": True},
+        )
+
+
+def _internal_card(row: Any, *, viewer_user_id: int | None) -> dict[str, Any]:
+    """Minimal owner-visible card for one internal runtime Agent.
+
+    Exactly the contract's leak-safe field set: no ``config``,
+    ``system_prompt``, workspace/private-root path, model ref, connector or
+    credential state. Enough for ``AgentContext`` to resolve an existing
+    ``/chat/{chat_agent_id}/{thread_id}`` deep link and nothing more.
+    """
+    return {
+        "id": row.id,
+        "agent_id": row.agent_id,
+        "name": row.name,
+        "state": row.last_state or "unknown",
+        "kind": getattr(row, "kind", None) or "expert",
+        "internal": True,
+        "icon": row.icon,
+        "icon_name": row.icon_name,
+        "icon_url": display_agent_icon_url(
+            agent_id=row.agent_id,
+            stored=row.icon_url,
+            updated_at=getattr(row, "updated_at", None),
+        ),
+        "color": row.color,
+        "is_owner": row.user_id is not None and row.user_id == viewer_user_id,
+    }
 
 
 def _attach_unread_counts(
@@ -218,7 +267,10 @@ async def list_agents(
     """List agents for the dashboard.
 
     Default ``scope=mine`` returns agents owned by the authenticated user plus
-    agents other users have explicitly shared.
+    agents other users have explicitly shared. The owner's internal 030A
+    project-task file runtimes appear only here, as minimal leak-safe cards (no
+    config/prompt/paths/connectors), so an existing task chat deep link can
+    resolve; they never appear for other users or in ``scope=all``.
     Holders of the ``users`` permission (and admins) may pass ``scope=all``.
     """
     if scope == "all" and not user_has_permission(user, "users"):
@@ -231,7 +283,9 @@ async def list_agents(
     assert server.app_runtime is not None
     registry = server.app_runtime.agent_registry
     if scope == "all":
-        rows = registry.list_rows()
+        # Internal project-task runtimes are never admin-listable, even for
+        # the owner's own scope=all view.
+        rows = [r for r in registry.list_rows() if not _is_internal_runtime(r)]
         user_ids = {r.user_id for r in rows if r.user_id is not None}
         username_by_id: dict[int, str] = {}
         for uid in user_ids:
@@ -251,7 +305,13 @@ async def list_agents(
         return _attach_unread_counts(server, user.id, payloads)
 
     owned = registry.list_agents(user.id)
-    shared = server.services.agent_repo.list_shared(exclude_user_id=user.id)
+    # Internal runtimes are never shared to others; a stray is_shared flag must
+    # not leak them into somebody else's list.
+    shared = [
+        row
+        for row in server.services.agent_repo.list_shared(exclude_user_id=user.id)
+        if not _is_internal_runtime(row)
+    ]
     rows = list({row.agent_id: row for row in [*shared, *owned]}.values())
     shared_owner_username_by_id: dict[int, str] = {}
     for row in shared:
@@ -260,22 +320,25 @@ async def list_agents(
         owner = server.services.user_repo.get(row.user_id)
         if owner is not None:
             shared_owner_username_by_id[row.user_id] = owner.username
-    return _attach_unread_counts(
-        server,
-        user.id,
-        [
-            _row_dict(
-                r,
-                viewer_user_id=user.id,
-                owner_username=(
-                    shared_owner_username_by_id.get(r.user_id) if r.user_id is not None else None
-                ),
-                bootstrap_pending=_bootstrap_pending_for(server, r.agent_id),
-                server=server,
-            )
-            for r in rows
-        ],
-    )
+    standard_payloads = [
+        _row_dict(
+            r,
+            viewer_user_id=user.id,
+            owner_username=(
+                shared_owner_username_by_id.get(r.user_id) if r.user_id is not None else None
+            ),
+            bootstrap_pending=_bootstrap_pending_for(server, r.agent_id),
+            server=server,
+        )
+        for r in rows
+        if not _is_internal_runtime(r)
+    ]
+    internal_cards = [
+        _internal_card(r, viewer_user_id=user.id) for r in rows if _is_internal_runtime(r)
+    ]
+    # Internal minimal cards are appended last: default selection / local
+    # restore must never pick one ahead of a manageable Agent.
+    return _attach_unread_counts(server, user.id, standard_payloads) + internal_cards
 
 
 @router.post("", status_code=201, summary="Create agent")
@@ -363,6 +426,7 @@ async def get_agent(
     if row is None:
         raise OctopError(ErrorCode.AGENT_NOT_FOUND, f"agent {agent_id!r} not found")
     assert_agent_access_row(row, user)
+    _refuse_internal_runtime(row)
     return _row_dict(
         row,
         viewer_user_id=user.id,
@@ -388,6 +452,7 @@ async def patch_agent(
     if row is None:
         raise OctopError(ErrorCode.AGENT_NOT_FOUND, f"agent {agent_id!r} not found")
     _assert_agent_owner(row, user)
+    _refuse_internal_runtime(row)
     if body.config is not None and isinstance(body.config, dict):
         assert_user_backend_root_dirs(
             user,
@@ -455,6 +520,7 @@ async def delete_agent(
     if row is None:
         raise OctopError(ErrorCode.AGENT_NOT_FOUND, f"agent {agent_id!r} not found")
     _assert_agent_owner(row, user)
+    _refuse_internal_runtime(row)
     await server.app_runtime.agent_registry.delete(agent_id)
 
 
@@ -467,6 +533,8 @@ async def upload_agent_avatar(
 ) -> dict[str, str]:
     """Store an uploaded image in the agent workspace and set ``icon_url``."""
     data = await file.read()
+    assert server.app_runtime is not None
+    _refuse_internal_runtime(server.app_runtime.agent_registry.get_row(agent_id))
     workspace = await require_agent_workspace(agent_id, user=user, server=server, owner_only=True)
     await write_workspace_avatar(workspace, data)
     icon_url = agent_avatar_api_path(agent_id)
@@ -489,6 +557,8 @@ async def get_agent_avatar(
     server: Any = Depends(get_server),
 ) -> Response:
     """Return the uploaded avatar bytes. Owner or shared-agent viewers."""
+    assert server.app_runtime is not None
+    _refuse_internal_runtime(server.app_runtime.agent_registry.get_row(agent_id))
     workspace = await require_agent_workspace(agent_id, user=user, server=server, owner_only=False)
     found = await read_workspace_avatar(workspace)
     if found is None:
@@ -508,6 +578,8 @@ async def delete_agent_avatar(
     server: Any = Depends(get_server),
 ) -> Response:
     """Remove the workspace avatar file and clear ``icon_url``."""
+    assert server.app_runtime is not None
+    _refuse_internal_runtime(server.app_runtime.agent_registry.get_row(agent_id))
     workspace = await require_agent_workspace(agent_id, user=user, server=server, owner_only=True)
     await delete_workspace_avatar(workspace)
     assert server.app_runtime is not None
@@ -527,6 +599,7 @@ async def start_agent(
     if row is None:
         raise OctopError(ErrorCode.AGENT_NOT_FOUND, f"agent {agent_id!r} not found")
     _assert_agent_owner(row, user)
+    _refuse_internal_runtime(row)
     await server.app_runtime.agent_registry.start(agent_id)
 
 
@@ -542,6 +615,7 @@ async def stop_agent(
     if row is None:
         raise OctopError(ErrorCode.AGENT_NOT_FOUND, f"agent {agent_id!r} not found")
     _assert_agent_owner(row, user)
+    _refuse_internal_runtime(row)
     await server.app_runtime.agent_registry.stop(agent_id)
 
 
@@ -557,6 +631,7 @@ async def reload_agent(
     if row is None:
         raise OctopError(ErrorCode.AGENT_NOT_FOUND, f"agent {agent_id!r} not found")
     _assert_agent_owner(row, user)
+    _refuse_internal_runtime(row)
     await server.app_runtime.agent_registry.reload(agent_id)
 
 
@@ -572,6 +647,7 @@ async def agent_status(
     if row is None:
         raise OctopError(ErrorCode.AGENT_NOT_FOUND, f"agent {agent_id!r} not found")
     _assert_agent_owner(row, user)
+    _refuse_internal_runtime(row)
     channels = server.app_runtime.gateway.list_channels(agent_id)
     cron_jobs = server.app_runtime.cron_manager.list_by_agent(agent_id)
     return {
