@@ -202,6 +202,18 @@ describe("ChatDockFileList — private refusals perform zero requests", () => {
     ["~/secret/note.txt"],
     ["../etc/passwd"],
     ["note\x00.txt"],
+    ["/file:///etc/passwd"],
+    ["/file:///workspace/note.txt"],
+    ["\\file:///etc/passwd"],
+    ["\\\\file:///etc/passwd"],
+    ["\\/file:///etc/passwd"],
+    ["/file:\\home\\wally\\note.txt"],
+    ["/C:/Users/wally/note.txt"],
+    ["\\C:\\Users\\wally\\note.txt"],
+    ["/workspace/C:/Users/wally/note.txt"],
+    ["/~/secret/note.txt"],
+    ["\\~\\secret\\note.txt"],
+    ["/workspace/~/secret/note.txt"],
   ])("refuses private row %s with zero download requests", async (bad) => {
     requestBlobMock.mockResolvedValue(new Blob(["bytes"]));
     const user = userEvent.setup();

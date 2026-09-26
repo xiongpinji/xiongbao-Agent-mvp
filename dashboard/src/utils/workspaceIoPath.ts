@@ -95,9 +95,13 @@ export function toDockWorkspaceApiPath(raw: string): string {
  * confined under the managed root — never a host path. Refused **without**
  * collapsing (no substring matching of host paths, no filesystem access):
  * ``file:`` / URL schemes, Windows drive letters, UNC shares, ``~`` home
- * prefixes, ``..`` traversal segments and NUL bytes. The server remains the
- * final authority; this only prevents the UI from silently rewriting a
- * refused shape into a private path or firing a doomed request.
+ * prefixes, ``..`` traversal segments and NUL bytes. The managed-relative key
+ * is re-checked after virtual-root / leading-separator stripping, so a prefix
+ * cannot smuggle in a ``file:`` URL, drive letter or ``~``; a relative name
+ * that merely contains a colon (``my:file.txt``) is not a host shape and
+ * stays accepted. The server remains the final authority; this only prevents
+ * the UI from silently rewriting a refused shape into a private path or
+ * firing a doomed request.
  */
 export function toPrivateWorkspaceRelPath(raw: string): string | null {
   const trimmed = raw.trim();
@@ -111,5 +115,10 @@ export function toPrivateWorkspaceRelPath(raw: string): string | null {
   if (posix.split("/").includes("..")) return null;
   const rel = stripVirtualWorkspaceRoot(posix).replace(/^\/+/, "");
   if (!rel) return null;
+  // Host shapes that only surface once virtual-root / leading separators are
+  // gone (``/file:…``, ``/C:…``, ``/~…``) must not become a private key.
+  if (rel.startsWith("~")) return null;
+  if (/^[A-Za-z]:/.test(rel)) return null;
+  if (rel.toLowerCase().startsWith("file:")) return null;
   return rel;
 }

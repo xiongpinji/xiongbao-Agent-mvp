@@ -3,6 +3,7 @@ import {
   isHostAbsolutePath,
   stripVirtualWorkspaceRoot,
   toDockWorkspaceApiPath,
+  toPrivateWorkspaceRelPath,
   toWorkspaceApiPath,
 } from "./workspaceIoPath";
 
@@ -38,5 +39,50 @@ describe("workspaceIoPath", () => {
   it("rewrites legacy /outbound to relative", () => {
     expect(toWorkspaceApiPath("/outbound/a.txt")).toBe("outbound/a.txt");
     expect(toDockWorkspaceApiPath("/outbound/a.txt")).toBe("outbound/a.txt");
+  });
+});
+
+describe("toPrivateWorkspaceRelPath — prefixed host shapes", () => {
+  it("maps legitimate relative, dashboard-root and virtual-root keys", () => {
+    expect(toPrivateWorkspaceRelPath("note.txt")).toBe("note.txt");
+    expect(toPrivateWorkspaceRelPath("generated/a.pptx")).toBe(
+      "generated/a.pptx",
+    );
+    expect(toPrivateWorkspaceRelPath("/note.txt")).toBe("note.txt");
+    expect(toPrivateWorkspaceRelPath("/workspace/note.txt")).toBe("note.txt");
+    expect(toPrivateWorkspaceRelPath("generated\\a.pptx")).toBe(
+      "generated/a.pptx",
+    );
+  });
+
+  it.each([
+    ["/file:///etc/passwd"],
+    ["/file:///workspace/note.txt"],
+    ["/File:///etc/passwd"],
+    ["\\file:///etc/passwd"],
+    ["\\\\file:///etc/passwd"],
+    ["\\/file:///etc/passwd"],
+    ["/file:\\home\\wally\\note.txt"],
+    ["/C:/Users/wally/note.txt"],
+    ["\\C:\\Users\\wally\\note.txt"],
+    ["/c:/note.txt"],
+    ["/workspace/C:/Users/wally/note.txt"],
+    ["/~/secret/note.txt"],
+    ["\\~\\secret\\note.txt"],
+    ["/workspace/~/secret/note.txt"],
+    ["\\/~/secret/note.txt"],
+  ])("refuses prefixed host shape %s", (bad) => {
+    expect(toPrivateWorkspaceRelPath(bad)).toBeNull();
+  });
+
+  it("keeps a relative key that only contains a colon filename", () => {
+    expect(toPrivateWorkspaceRelPath("/my:file.txt")).toBe("my:file.txt");
+    expect(toPrivateWorkspaceRelPath("dir/my:file.txt")).toBe(
+      "dir/my:file.txt",
+    );
+  });
+
+  it("still refuses a raw scheme-like filename (existing contract)", () => {
+    expect(toPrivateWorkspaceRelPath("my:file.txt")).toBeNull();
   });
 });
