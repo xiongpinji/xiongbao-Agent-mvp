@@ -1609,32 +1609,46 @@ def _ensure_project_task_files_v28(db: DatabasePool) -> None:
     first and execute everything inside one explicit transaction, watermark
     last. Statement order mirrors the file: the ``mode`` CHECK references the
     two id columns, so ``mode`` must be added after them.
+
+    Each table is guarded by a real existence check. A supported users-only
+    partial legacy install (watermark already advanced past 001, which was
+    never applied) has no ``agents`` table; ``PRAGMA table_info`` on a missing
+    table returns zero rows, which an unguarded read misinterprets as "table
+    present, column missing" and then crashes on ``ALTER TABLE agents``. Such
+    partial installs must still advance the watermark — exactly how migrations
+    010 and 013 already skip absent ``threads`` / ``connectors`` — so the guard
+    skips only the absent table's DDL. A full-schema database has ``agents``
+    and ``project_task_contexts`` present, so both guards pass and every 028
+    artifact is applied unchanged; nothing here swallows a real ALTER error.
     """
     with db.transaction() as conn:
-        agent_columns = {row["name"] for row in conn.execute("PRAGMA table_info(agents)")}
-        if "runtime_kind" not in agent_columns:
+        if _relation_exists(db, "agents", conn):
+            agent_columns = {row["name"] for row in conn.execute("PRAGMA table_info(agents)")}
+            if "runtime_kind" not in agent_columns:
+                conn.execute(
+                    "ALTER TABLE agents ADD COLUMN runtime_kind TEXT NOT NULL DEFAULT 'standard' "
+                    "CHECK (runtime_kind IN ('standard', 'project_task_files'))"
+                )
+        if _relation_exists(db, "project_task_contexts", conn):
+            context_columns = {
+                row["name"] for row in conn.execute("PRAGMA table_info(project_task_contexts)")
+            }
+            if "source_expert_id" not in context_columns:
+                conn.execute("ALTER TABLE project_task_contexts ADD COLUMN source_expert_id TEXT")
+            if "runtime_agent_id" not in context_columns:
+                conn.execute("ALTER TABLE project_task_contexts ADD COLUMN runtime_agent_id TEXT")
+            if "mode" not in context_columns:
+                conn.execute(
+                    "ALTER TABLE project_task_contexts ADD COLUMN mode "
+                    "TEXT NOT NULL DEFAULT 'chat' "
+                    "CHECK (mode IN ('chat', 'files')) "
+                    "CHECK (mode <> 'files' OR (source_expert_id IS NOT NULL "
+                    "AND runtime_agent_id IS NOT NULL))"
+                )
             conn.execute(
-                "ALTER TABLE agents ADD COLUMN runtime_kind TEXT NOT NULL DEFAULT 'standard' "
-                "CHECK (runtime_kind IN ('standard', 'project_task_files'))"
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_project_task_contexts_runtime_agent "
+                "ON project_task_contexts(runtime_agent_id) WHERE runtime_agent_id IS NOT NULL"
             )
-        context_columns = {
-            row["name"] for row in conn.execute("PRAGMA table_info(project_task_contexts)")
-        }
-        if "source_expert_id" not in context_columns:
-            conn.execute("ALTER TABLE project_task_contexts ADD COLUMN source_expert_id TEXT")
-        if "runtime_agent_id" not in context_columns:
-            conn.execute("ALTER TABLE project_task_contexts ADD COLUMN runtime_agent_id TEXT")
-        if "mode" not in context_columns:
-            conn.execute(
-                "ALTER TABLE project_task_contexts ADD COLUMN mode TEXT NOT NULL DEFAULT 'chat' "
-                "CHECK (mode IN ('chat', 'files')) "
-                "CHECK (mode <> 'files' OR (source_expert_id IS NOT NULL "
-                "AND runtime_agent_id IS NOT NULL))"
-            )
-        conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_project_task_contexts_runtime_agent "
-            "ON project_task_contexts(runtime_agent_id) WHERE runtime_agent_id IS NOT NULL"
-        )
         conn.execute("UPDATE _schema_version SET version = 28")
 
 

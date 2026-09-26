@@ -321,6 +321,91 @@ def test_partial_replay_after_a_prefix_of_the_ddl_recovers(tmp_path: Path) -> No
 
 
 # ---------------------------------------------------------------------------
+# Users-only partial legacy install: 001 never applied, so ``agents`` is absent
+# ---------------------------------------------------------------------------
+
+
+def _seed_users_only_legacy_v8(pool: SqlitePool) -> None:
+    """Recreate the supported users-only partial legacy fixture (watermark 8).
+
+    Mirrors tests/unit/test_user_locale.py: a database that advanced past the
+    base schema without ever applying 001_initial.sql, so it has ``users`` and
+    ``_schema_version`` but no ``agents`` table. Migrations 009+ must still
+    carry it forward.
+    """
+    with pool.connect() as conn:
+        conn.executescript(
+            """
+            CREATE TABLE users (
+              id            INTEGER PRIMARY KEY AUTOINCREMENT,
+              username      TEXT UNIQUE NOT NULL,
+              password_hash TEXT NOT NULL,
+              role          TEXT NOT NULL,
+              display_name  TEXT,
+              disabled      INTEGER NOT NULL DEFAULT 0,
+              created_at    INTEGER NOT NULL
+            );
+            CREATE TABLE _schema_version (version INTEGER NOT NULL);
+            INSERT INTO _schema_version(version) VALUES (8);
+            INSERT INTO users(username, password_hash, role, created_at)
+            VALUES ('legacy', 'h', 'admin', 0);
+            """
+        )
+
+
+def test_v28_advances_users_only_partial_legacy_without_agents(tmp_path: Path) -> None:
+    """v28 must skip the absent ``agents`` table, not crash on ``ALTER TABLE``.
+
+    The users-only partial install has no ``agents`` (001 was never applied),
+    but ``project_task_contexts`` is created by 026 before v28 runs. The
+    guarded helper skips only the missing table's DDL, still applies the 028
+    columns/index to the present ``project_task_contexts``, and advances the
+    watermark to the max — matching how 010/013 already advance partial
+    installs. No real ALTER error is swallowed: ``agents`` genuinely does not
+    exist here, so there is nothing to alter.
+    """
+    pool = SqlitePool(tmp_path / "users-only-legacy.db")
+    _seed_users_only_legacy_v8(pool)
+
+    run_migrations(pool)
+
+    assert _watermark(pool) == _max_discovered_version("sqlite")
+    assert _watermark(pool) >= 28
+    # ``agents`` was never created and v28 must not fabricate it.
+    with pool.connect() as conn:
+        agents_row = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'agents'"
+        ).fetchone()
+    assert agents_row is None
+    # The 028 artifacts that CAN apply (project_task_contexts exists) did apply.
+    assert _columns(pool, "project_task_contexts") >= {
+        "mode",
+        "source_expert_id",
+        "runtime_agent_id",
+    }
+    with pool.connect() as conn:
+        index_row = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'index' "
+            "AND name = 'idx_project_task_contexts_runtime_agent'"
+        ).fetchone()
+    assert index_row is not None
+    # The legacy user survived the whole migration chain.
+    assert UserRepo(pool).get_by_username("legacy") is not None
+
+
+def test_v28_full_schema_still_gets_agents_runtime_kind(tmp_path: Path) -> None:
+    """Contrast: a real full-schema install still receives ``agents.runtime_kind``.
+
+    Guards against the existence check silently skipping the agents ALTER on a
+    database that DOES have ``agents``.
+    """
+    pool = SqlitePool(tmp_path / "full.db")
+    run_migrations(pool)
+    assert "runtime_kind" in _columns(pool, "agents")
+    assert _watermark(pool) == _max_discovered_version("sqlite")
+
+
+# ---------------------------------------------------------------------------
 # DDL authority: mode / runtime_kind CHECKs and the unique runtime id
 # ---------------------------------------------------------------------------
 
