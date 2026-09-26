@@ -7,3 +7,5 @@
 候选定向 ProjectDetail **27/27**、Projects **221/221**，目标 ESLint/Prettier、TypeScript/Vite 构建和差异检查通过；合入后 Windows 主线 Projects **221/221**、`tsc -b` 与 Vite 生产构建通过。GLM 没有运行这些测试。构建保留既有大 chunk 提示。
 
 GLM 另指出同开信息面板与编辑弹窗时一次 Escape 可能关闭两层、部分暗色品牌焦点轮廓的非文本对比偏低，以及全局双语键树缺少一致性检查；这些是后续 P2。移动端信息面板随页头滚动的 P2 仍开放。真实 WorkBuddy 逐状态视觉、桌面键盘及多用户旅程未由本修复核销，项目空间 11 条旅程的双重验收仍为 **0/11**；底部项目任务输入仍禁用。
+
+后续 [041 验收](PROJECT_DETAIL_041_KEYBOARD_ACCEPTANCE.md) 已关闭上述 Escape 双层关闭和暗色焦点轮廓两项 P2；全量双语键、移动端几何及真实桌面辅助技术验收仍待完成。
