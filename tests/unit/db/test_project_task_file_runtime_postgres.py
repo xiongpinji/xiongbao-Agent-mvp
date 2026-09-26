@@ -199,6 +199,7 @@ def test_pg_files_context_requires_both_ids_and_unique_runtime() -> None:
 
     from octop.infra.db.migrate import run_migrations
     from octop.infra.db.pool import PostgresPool
+    from octop.infra.db.repos.agents import AgentRepo
     from octop.infra.db.repos.projects import ProjectRepo
     from octop.infra.db.repos.threads import ThreadRepo
     from octop.infra.db.repos.users import UserRepo
@@ -217,6 +218,11 @@ def test_pg_files_context_requires_both_ids_and_unique_runtime() -> None:
             creator_user_id=user_id, name=f"pg项目{_unique_suffix()}"
         ).project_id
         agent_id = f"ag_pg_ctx_{_unique_suffix()}"
+        AgentRepo(pool).create(
+            agent_id=agent_id,
+            user_id=user_id,
+            name=f"pg-ctx-{_unique_suffix()}",
+        )
         suffix = _unique_suffix()
         thread_ids = [f"thr_pg_{suffix}_{tag}" for tag in ("bad", "half", "ok", "dup", "chat")]
         for thread_id in thread_ids:
