@@ -1,6 +1,6 @@
 # 030A · 项目任务受控文件工作区合同
 
-状态：第三版设计经 `qwen-code-review-20260925-083120-73e484` 于固定源码 `32610c59` 只读审查 **GO、无 P0/P1**，只接受设计与 M0 优先顺序；该审查没有运行测试。首稿和第二稿分别经 `qwen-code-review-20260925-072159-741e0c`、`qwen-code-review-20260925-074749-68ba6f` 判定为 NO-GO。此处补入第三版审查指出的两条 P2 入口名称。030A 将可执行本地 shell 移出，先在 Windows 与 Linux 交付**真实的任务级文件工具边界**；[M0 工具/路径探针](PROJECT_TASK_WORKSPACE_030_M0_ACCEPTANCE.md)、[B1 持久化与配额](PROJECT_TASK_WORKSPACE_030_B1_ACCEPTANCE.md)及 [B2 内部运行时](PROJECT_TASK_WORKSPACE_030_B2_ACCEPTANCE.md)已分片验收。B3/B4 服务端任务接线和入口门禁尚未完成，`mode="files"` 仍未开放。文档不是功能完成证据。
+状态：第三版设计经 `qwen-code-review-20260925-083120-73e484` 于固定源码 `32610c59` 只读审查 **GO、无 P0/P1**，只接受设计与 M0 优先顺序；该审查没有运行测试。首稿和第二稿分别经 `qwen-code-review-20260925-072159-741e0c`、`qwen-code-review-20260925-074749-68ba6f` 判定为 NO-GO。此处补入第三版审查指出的两条 P2 入口名称。030A 将可执行本地 shell 移出，先在 Windows 与 Linux 交付**真实的任务级文件工具边界**；[M0 工具/路径探针](PROJECT_TASK_WORKSPACE_030_M0_ACCEPTANCE.md)、[B1 持久化与配额](PROJECT_TASK_WORKSPACE_030_B1_ACCEPTANCE.md)及 [B2 内部运行时](PROJECT_TASK_WORKSPACE_030_B2_ACCEPTANCE.md)已分片验收。B3/B4/F1–F3 已作为[开关关闭的集成候选](PROJECT_TASK_WORKSPACE_030_F3_INTEGRATED_ACCEPTANCE.md)推送；`mode="files"` 仍未开放。文档不是功能完成证据。
 
 ## 范围与产品语义
 

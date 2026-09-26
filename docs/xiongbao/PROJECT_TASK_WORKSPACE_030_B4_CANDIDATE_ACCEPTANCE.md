@@ -17,6 +17,8 @@
 
 未通过的全量检查应单列：严格 mypy 在未改动的 `src/octop/infra/projects/asset_storage.py` 两处 `unused-ignore` 报错；以当前 WSL 工作树 CRLF 检出方式检查全量 Prettier 时，三个未改动文件仍不符合格式。未将这些基线项算作本批绿灯，也未运行会自动重写全仓文件的 `make all`。
 
+后续集成已将 B3/B4/F1/F2 和 F3 推送到 `dde580e5147438215183f6338d8271fdeda16df8`。F3 修复了“已发现文件”行下载及前缀路径的前端拒绝；集成候选的 GLM 只读复核与 137/137 前端测试见 [F3 集成验收](PROJECT_TASK_WORKSPACE_030_F3_INTEGRATED_ACCEPTANCE.md)。其后端父提交 `66bd2cc376e8a7f8581866883629cba2914bd425` 的非 live 全量 pytest 为 **4494 通过、15 跳过**，不能据此推断开关开启后的运行效果。
+
 ## 激活前置条件
 
-`src/octop/infra/projects/file_tasks.py` 中 `PROJECT_TASK_FILES_MODE_ENABLED = False` 保持不变。当前不能创建文件模式任务。启用前仍需：修复 F2 的“已发现文件”逐行下载 P1、Windows junction/reparse-point 实机隔离、真实 B2 runtime 和模型可见工具边界、PostgreSQL 迁移与配额并发、已认证浏览器/HTTP 完整旅程，以及按 030 合同决定 TOCTOU 风险姿态。GLM 的三个 P3（大写 `FILE://` 的拒绝码、额外路径矩阵、下载文件名 CR/LF）也保留为后续修整项。
+`src/octop/infra/projects/file_tasks.py` 中 `PROJECT_TASK_FILES_MODE_ENABLED = False` 保持不变。当前不能创建文件模式任务。F2 的“已发现文件”逐行下载 P1 已由 F3 修复；Windows 实机仅通过纯路径解析器的 junction 逃逸探针，尚未验证已认证 HTTP 文件入口及其他 reparse point。启用前仍需：真实 B2 runtime 和模型可见工具边界、PostgreSQL 迁移与配额并发、已认证浏览器/HTTP 完整旅程、Windows 文件入口路径与重解析点验证，以及按 030 合同决定 TOCTOU 风险姿态。GLM 的三个 P3（大写 `FILE://` 的拒绝码、额外路径矩阵、下载文件名 CR/LF）也保留为后续修整项。
