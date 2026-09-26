@@ -27,6 +27,14 @@ leaks or cross-project access:
   enforced by the DB unique constraint and surfaced as ``name_conflict``;
 * node and version ids are server-generated ULIDs — request data never
   chooses an id or an ``object_key``;
+* recoverable trash (042): every ordinary read/write entrance filters
+  ``deleted_at IS NULL`` before paging or aggregating, ``trash_node`` marks
+  the target plus all its ACTIVE descendants with one shared
+  ``(deleted_at, deleted_by, trash_root_id)`` triple in one transaction and
+  swaps only the root's ``name_key`` to an unconstructible temp key, and
+  ``restore_trashed`` reactivates exactly the rows of one trash root with the
+  parent UNIQUE constraint as the final conflict guard — versions and object
+  bytes are never mutated by either side;
 * this repo writes no ``project_events`` rows (asset slices are event-silent).
 """
 
@@ -44,7 +52,17 @@ _ROOT_SELECT = (
 )
 _NODE_SELECT = (
     "SELECT node_id, project_id, parent_node_id, kind, name, name_key, "
-    "created_by, created_at, updated_at "
+    "created_by, created_at, updated_at, "
+    "deleted_at, deleted_by, trash_root_id, original_name_key "
+    "FROM project_asset_nodes "
+    "WHERE project_id = ? AND node_id = ? AND deleted_at IS NULL"
+)
+# 042: the trash management paths are the ONLY readers allowed to see
+# deleted rows; every ordinary entrance keeps using the filtered select.
+_NODE_SELECT_WITH_TRASH = (
+    "SELECT node_id, project_id, parent_node_id, kind, name, name_key, "
+    "created_by, created_at, updated_at, "
+    "deleted_at, deleted_by, trash_root_id, original_name_key "
     "FROM project_asset_nodes WHERE project_id = ? AND node_id = ?"
 )
 _VERSION_SELECT = (
@@ -71,7 +89,11 @@ _ROOT_UPSERT = (
 
 @dataclass(frozen=True)
 class AssetNodeRow:
-    """One folder/file node. Never carries object keys or disk paths."""
+    """One folder/file node. Never carries object keys or disk paths.
+
+    The 042 trash columns stay ``None`` for active nodes; only the trash
+    management paths ever observe non-NULL values.
+    """
 
     node_id: str
     project_id: str
@@ -82,11 +104,19 @@ class AssetNodeRow:
     created_by: int | None
     created_at: int
     updated_at: int
+    deleted_at: int | None
+    deleted_by: int | None
+    trash_root_id: str | None
+    original_name_key: str | None
 
     @classmethod
     def from_row(cls, row: DbRow) -> AssetNodeRow:
         parent = row["parent_node_id"]
         creator = row["created_by"]
+        deleted_at = row["deleted_at"]
+        deleted_by = row["deleted_by"]
+        trash_root = row["trash_root_id"]
+        original_key = row["original_name_key"]
         return cls(
             node_id=str(row["node_id"]),
             project_id=str(row["project_id"]),
@@ -97,6 +127,10 @@ class AssetNodeRow:
             created_by=None if creator is None else int(creator),
             created_at=int(row["created_at"]),
             updated_at=int(row["updated_at"]),
+            deleted_at=None if deleted_at is None else int(deleted_at),
+            deleted_by=None if deleted_by is None else int(deleted_by),
+            trash_root_id=None if trash_root is None else str(trash_root),
+            original_name_key=None if original_key is None else str(original_key),
         )
 
 
@@ -257,6 +291,56 @@ class VersionCommit:
     version: AssetVersionRow | None = None
 
 
+@dataclass(frozen=True)
+class TrashDeletion:
+    """Outcome of :meth:`ProjectAssetRepo.trash_node` (042).
+
+    ``outcome`` is one of: trashed, not_member, archived, node_missing,
+    forbidden. ``node_missing`` covers every uniform-404 sentinel: unknown
+    ids, cross-project ids, the hidden root and already-trashed nodes.
+    """
+
+    outcome: str
+
+
+@dataclass(frozen=True)
+class TrashRestoration:
+    """Outcome of :meth:`ProjectAssetRepo.restore_trashed` (042).
+
+    ``outcome`` is one of: restored, not_member, archived, node_missing,
+    forbidden, parent_in_trash, name_conflict. ``node`` carries the
+    reactivated row on success only; ``size_bytes``/``media_type`` mirror the
+    file node's CURRENT version (both ``None`` for folders) so the API can
+    answer with the safe node shape without a second read.
+    """
+
+    outcome: str
+    node: AssetNodeRow | None = None
+    size_bytes: int | None = None
+    media_type: str | None = None
+
+
+@dataclass(frozen=True)
+class TrashListRow:
+    """One trash-root listing row (042 frozen UI DTO source).
+
+    Safe display fields only — never object keys, host paths or emails.
+    ``deleted_by_name`` is the deleter's display name with username fallback
+    (``None`` when the deleter was deleted); ``can_restore`` is computed for
+    the calling viewer but every mutation rechecks independently.
+    """
+
+    node_id: str
+    parent_node_id: str | None
+    kind: str
+    name: str
+    original_path: str
+    deleted_at: int
+    deleted_by: int | None
+    deleted_by_name: str | None
+    can_restore: bool
+
+
 class _AssetConflict(Exception):
     """Internal signal to roll the write transaction back cleanly."""
 
@@ -383,6 +467,77 @@ def _touch_node_updated(conn: Any, *, project_id: str, node_id: str, ts: int) ->
     )
 
 
+def _mark_subtree_trashed(
+    conn: Any,
+    *,
+    project_id: str,
+    ts: int,
+    actor_user_id: int,
+    root_id: str,
+    node_ids: list[str],
+) -> None:
+    """Stamp one trash operation onto the target plus its active subtree (042).
+
+    Module-level like the other write steps so the fixed statement order is
+    observable. The ``deleted_at IS NULL`` guard keeps the write idempotent
+    even if a racer slipped an independently trashed id into ``node_ids``;
+    ``project_asset_versions`` is deliberately untouched.
+    """
+    placeholders = ", ".join("?" for _ in node_ids)
+    conn.execute(
+        "UPDATE project_asset_nodes "
+        "SET deleted_at = ?, deleted_by = ?, trash_root_id = ?, updated_at = ? "
+        f"WHERE project_id = ? AND node_id IN ({placeholders}) AND deleted_at IS NULL",
+        (ts, actor_user_id, root_id, ts, project_id, *node_ids),
+    )
+
+
+def _rename_trashed_root(conn: Any, *, project_id: str, node_id: str, temp_name_key: str) -> None:
+    """Release the trashed root's display name inside its parent (042).
+
+    Saves the pre-trash folded key and swaps in a temporary key the user can
+    never construct (``validate_asset_name`` rejects control characters), so
+    a same-name re-creation succeeds while the node waits in the trash.
+    """
+    conn.execute(
+        "UPDATE project_asset_nodes SET original_name_key = name_key, name_key = ? "
+        "WHERE project_id = ? AND node_id = ?",
+        (temp_name_key, project_id, node_id),
+    )
+
+
+def _restore_root_name_key(
+    conn: Any, *, project_id: str, node_id: str, name_key: str, ts: int
+) -> None:
+    """Reactivate one trash root: clear its trash columns, put the original
+    folded name back (042). The parent UNIQUE constraint on
+    ``(project_id, parent_node_id, name_key)`` is the final conflict guard.
+    """
+    conn.execute(
+        "UPDATE project_asset_nodes "
+        "SET deleted_at = NULL, deleted_by = NULL, trash_root_id = NULL, "
+        "name_key = ?, original_name_key = NULL, updated_at = ? "
+        "WHERE project_id = ? AND node_id = ?",
+        (name_key, ts, project_id, node_id),
+    )
+
+
+def _clear_subtree_trash(conn: Any, *, project_id: str, root_id: str, ts: int) -> None:
+    """Reactivate every remaining row of one trash root (042).
+
+    Scoped by ``trash_root_id`` only — descendants that were trashed as
+    their own independent roots keep their metadata, and the root row itself
+    was already cleared by :func:`_restore_root_name_key`. Versions and
+    current pointers are never touched.
+    """
+    conn.execute(
+        "UPDATE project_asset_nodes "
+        "SET deleted_at = NULL, deleted_by = NULL, trash_root_id = NULL, updated_at = ? "
+        "WHERE project_id = ? AND trash_root_id = ?",
+        (ts, project_id, root_id),
+    )
+
+
 class ProjectAssetRepo:
     def __init__(self, db: DatabasePool) -> None:
         self._db = db
@@ -495,10 +650,13 @@ class ProjectAssetRepo:
                 raise _AssetConflict("parent_missing")
             return root
         row = conn.execute(
-            "SELECT kind FROM project_asset_nodes WHERE project_id = ? AND node_id = ?",
+            "SELECT kind FROM project_asset_nodes "
+            "WHERE project_id = ? AND node_id = ? AND deleted_at IS NULL"
+            + self._node_update_lock(),
             (project_id, parent_node_id),
         ).fetchone()
         if row is None:
+            # 042: a trashed parent is missing to every ordinary write.
             raise _AssetConflict("parent_missing")
         if str(row["kind"]) != "folder":
             raise _AssetConflict("parent_not_folder")
@@ -518,6 +676,39 @@ class ProjectAssetRepo:
             _NODE_SELECT + self._node_update_lock(), (project_id, node_id)
         ).fetchone()
         return AssetNodeRow.from_row(row) if row is not None else None
+
+    def _node_locked_with_trash(
+        self, conn: Any, project_id: str, node_id: str
+    ) -> AssetNodeRow | None:
+        """Locked node read that also sees trashed rows (042 trash paths only)."""
+        row = conn.execute(
+            _NODE_SELECT_WITH_TRASH + self._node_update_lock(), (project_id, node_id)
+        ).fetchone()
+        return AssetNodeRow.from_row(row) if row is not None else None
+
+    def _active_descendant_rows(self, conn: Any, project_id: str, root_id: str) -> list[Any]:
+        """Every ACTIVE descendant row below one node, breadth-first.
+
+        Read inside the caller's locked write transaction, so the subtree
+        cannot change while it is collected. Already-trashed children
+        (independent trash roots) are excluded — they keep their own
+        ``(deleted_at, deleted_by, trash_root_id)`` metadata.
+        """
+        rows: list[Any] = []
+        frontier = [root_id]
+        while frontier:
+            placeholders = ", ".join("?" for _ in frontier)
+            batch = conn.execute(
+                "SELECT node_id, created_by FROM project_asset_nodes "
+                "WHERE project_id = ? AND deleted_at IS NULL "
+                f"AND parent_node_id IN ({placeholders})" + self._node_update_lock(),
+                (project_id, *frontier),
+            ).fetchall()
+            if not batch:
+                break
+            rows.extend(batch)
+            frontier = [str(row["node_id"]) for row in batch]
+        return rows
 
     def _node_version_row(
         self, conn: Any, project_id: str, node_id: str, version_id: str
@@ -829,7 +1020,8 @@ class ProjectAssetRepo:
         never duplicates or skips. ``total`` counts the same filtered set.
         The hidden root itself never appears (its parent is NULL).
         """
-        where = "WHERE n.project_id = ? AND n.parent_node_id = ?"
+        # 042: trashed nodes are invisible to every listing/search page.
+        where = "WHERE n.project_id = ? AND n.parent_node_id = ? AND n.deleted_at IS NULL"
         params: list[Any] = [project_id, parent_node_id]
         if kind is not None:
             where += " AND n.kind = ?"
@@ -863,17 +1055,28 @@ class ProjectAssetRepo:
         total = int(total_row["n"]) if total_row is not None else 0
         return map_rows(rows, AssetListRow), total
 
-    def usage(self, project_id: str, *, user_id: int) -> tuple[int, int] | None:
-        """Real usage: count + bytes of committed current file versions only.
+    def usage(self, project_id: str, *, user_id: int) -> tuple[int, int, int, int] | None:
+        """Real usage split by trash state (042); ``None`` for non-members.
 
-        Folders and non-current (historical) versions never contribute;
-        ``None`` for non-members.
+        Returns ``(file_count, total_bytes, trash_file_count,
+        trash_total_bytes)`` — each pair counts only committed CURRENT file
+        versions on the matching side of ``deleted_at``. Folders and
+        non-current (historical) versions never contribute to either pair, so
+        no quota or physical-bytes claim is made.
         """
         with self._db.transaction() as conn:
             if self._member_role_locked(conn, project_id, user_id) is None:
                 return None
             row = conn.execute(
-                "SELECT COUNT(*) AS n, COALESCE(SUM(v.size_bytes), 0) AS total "
+                "SELECT "
+                "COALESCE(SUM(CASE WHEN n.deleted_at IS NULL THEN 1 ELSE 0 END), 0) "
+                "AS n, "
+                "COALESCE(SUM(CASE WHEN n.deleted_at IS NULL THEN v.size_bytes END), 0) "
+                "AS total, "
+                "COALESCE(SUM(CASE WHEN n.deleted_at IS NOT NULL THEN 1 ELSE 0 END), 0) "
+                "AS trash_n, "
+                "COALESCE(SUM(CASE WHEN n.deleted_at IS NOT NULL "
+                "THEN v.size_bytes END), 0) AS trash_total "
                 "FROM project_asset_nodes n "
                 "JOIN project_asset_versions v "
                 "ON v.project_id = n.project_id AND v.node_id = n.node_id "
@@ -882,8 +1085,13 @@ class ProjectAssetRepo:
                 (project_id,),
             ).fetchone()
         if row is None:
-            return 0, 0
-        return int(row["n"]), int(row["total"])
+            return 0, 0, 0, 0
+        return (
+            int(row["n"]),
+            int(row["total"]),
+            int(row["trash_n"]),
+            int(row["trash_total"]),
+        )
 
     def get_download(
         self, project_id: str, *, user_id: int, node_id: str
@@ -905,7 +1113,8 @@ class ProjectAssetRepo:
                 "JOIN project_asset_versions v "
                 "ON v.project_id = n.project_id AND v.node_id = n.node_id "
                 "AND v.is_current = 1 "
-                "WHERE n.project_id = ? AND n.node_id = ? AND n.kind = 'file'",
+                "WHERE n.project_id = ? AND n.node_id = ? AND n.kind = 'file' "
+                "AND n.deleted_at IS NULL",
                 (project_id, node_id),
             ).fetchone()
         return AssetDownloadRow.from_row(row) if row is not None else None
@@ -974,7 +1183,7 @@ class ProjectAssetRepo:
                 "JOIN project_asset_versions v "
                 "ON v.project_id = n.project_id AND v.node_id = n.node_id "
                 "WHERE n.project_id = ? AND n.node_id = ? AND n.kind = 'file' "
-                "AND v.version_id = ?",
+                "AND n.deleted_at IS NULL AND v.version_id = ?",
                 (project_id, node_id, version_id),
             ).fetchone()
         return AssetDownloadRow.from_row(row) if row is not None else None
@@ -1001,3 +1210,279 @@ class ProjectAssetRepo:
             if version is None:
                 return None
             return node, version
+
+    # ------------------------------------------------------------ trash (042)
+
+    def trash_node(self, *, project_id: str, actor_user_id: int, node_id: str) -> TrashDeletion:
+        """Soft-delete one node and its whole ACTIVE subtree (042).
+
+        One write transaction with the 023A lock order: member row (PG ``FOR
+        SHARE``) → target node row (PG ``FOR UPDATE``) → archived/unknown
+        check. The hidden root, unknown ids, cross-project ids and
+        already-trashed nodes all answer ``node_missing`` (uniform 404).
+        Members may only trash a tree whose every ACTIVE row is self-created;
+        owner/admin manage everything (otherwise ``forbidden``, nothing
+        written). Independently trashed descendants keep their own
+        ``(deleted_at, deleted_by, trash_root_id)`` metadata. Versions and
+        object bytes are never mutated or removed here.
+        """
+        ts = now_ts()
+        try:
+            with self._db.transaction() as conn:
+                role = self._member_role_locked(conn, project_id, actor_user_id)
+                if role is None:
+                    raise _AssetConflict("not_member")
+                node = self._node_locked_with_trash(conn, project_id, node_id)
+                archived = self._project_archived(conn, project_id)
+                if archived is None:
+                    raise _AssetConflict("not_member")
+                if archived:
+                    raise _AssetConflict("archived")
+                if node is None or node.deleted_at is not None or node.parent_node_id is None:
+                    # Unknown / cross-project / already trashed / hidden root.
+                    raise _AssetConflict("node_missing")
+                descendants = self._active_descendant_rows(conn, project_id, node_id)
+                if role not in ("owner", "admin"):
+                    # Members own the WHOLE active subtree or nothing: every
+                    # row must be self-created (NULL creator → owner/admin).
+                    if node.created_by != actor_user_id:
+                        raise _AssetConflict("forbidden")
+                    for child in descendants:
+                        creator = child["created_by"]
+                        if creator is None or int(creator) != actor_user_id:
+                            raise _AssetConflict("forbidden")
+                subtree_ids = [node_id, *(str(row["node_id"]) for row in descendants)]
+                _mark_subtree_trashed(
+                    conn,
+                    project_id=project_id,
+                    ts=ts,
+                    actor_user_id=actor_user_id,
+                    root_id=node_id,
+                    node_ids=subtree_ids,
+                )
+                _rename_trashed_root(
+                    conn,
+                    project_id=project_id,
+                    node_id=node_id,
+                    temp_name_key="\x1f" + node_id,
+                )
+                return TrashDeletion(outcome="trashed")
+        except _AssetConflict as conflict:
+            return TrashDeletion(outcome=conflict.outcome)
+
+    def _restore_name_available(
+        self,
+        conn: Any,
+        *,
+        project_id: str,
+        parent_node_id: str,
+        name_key: str,
+        exclude_node_id: str,
+    ) -> bool:
+        """Pre-check the name slot a restore would re-occupy.
+
+        A method (not inline SQL) so the race test can bypass it and prove the
+        parent UNIQUE constraint remains the final conflict guard.
+        """
+        row = conn.execute(
+            "SELECT 1 FROM project_asset_nodes "
+            "WHERE project_id = ? AND parent_node_id = ? AND name_key = ? "
+            "AND deleted_at IS NULL AND node_id <> ?",
+            (project_id, parent_node_id, name_key, exclude_node_id),
+        ).fetchone()
+        return row is None
+
+    def restore_trashed(
+        self, *, project_id: str, actor_user_id: int, node_id: str
+    ) -> TrashRestoration:
+        """Reactivate one trash root with its whole same-root subtree (042).
+
+        Lock order: member (PG ``FOR SHARE``) → root row (PG ``FOR UPDATE``)
+        → archived check → original parent row (PG ``FOR UPDATE``) → name
+        pre-check → root update → subtree update → node/version re-read.
+        Only rows whose ``trash_root_id`` equals this root come back;
+        independently trashed descendants stay in the trash as their own
+        roots. Missing parent or a parent still in the trash answer
+        ``parent_in_trash``; a same-name active occupant answers
+        ``name_conflict`` with the WHOLE tree rolled back (the pre-check is
+        best-effort — the parent UNIQUE constraint decides races). Repeated,
+        non-root, active, unknown and cross-project targets all answer
+        ``node_missing``.
+        """
+        ts = now_ts()
+        try:
+            with self._db.transaction() as conn:
+                role = self._member_role_locked(conn, project_id, actor_user_id)
+                if role is None:
+                    raise _AssetConflict("not_member")
+                node = self._node_locked_with_trash(conn, project_id, node_id)
+                archived = self._project_archived(conn, project_id)
+                if archived is None:
+                    raise _AssetConflict("not_member")
+                if archived:
+                    raise _AssetConflict("archived")
+                if (
+                    node is None
+                    or node.deleted_at is None
+                    or node.trash_root_id != node_id
+                    or node.original_name_key is None
+                    or node.parent_node_id is None
+                ):
+                    # Not a trash root: active / unknown / cross-project /
+                    # hidden root / trashed descendant / repeated restore.
+                    raise _AssetConflict("node_missing")
+                if role not in ("owner", "admin") and node.deleted_by != actor_user_id:
+                    # NULL deleted_by (deleted user) → owner/admin only.
+                    raise _AssetConflict("forbidden")
+                parent = self._node_locked_with_trash(conn, project_id, node.parent_node_id)
+                if parent is None or parent.deleted_at is not None:
+                    raise _AssetConflict("parent_in_trash")
+                if not self._restore_name_available(
+                    conn,
+                    project_id=project_id,
+                    parent_node_id=node.parent_node_id,
+                    name_key=node.original_name_key,
+                    exclude_node_id=node_id,
+                ):
+                    raise _AssetConflict("name_conflict")
+                try:
+                    _restore_root_name_key(
+                        conn,
+                        project_id=project_id,
+                        node_id=node_id,
+                        name_key=node.original_name_key,
+                        ts=ts,
+                    )
+                except Exception as exc:  # pragma: no branch - dialect errors
+                    if _is_unique_violation(exc):
+                        # Lost the race for the released name: roll the whole
+                        # tree back and answer exactly like the pre-check.
+                        raise _AssetConflict("name_conflict") from exc
+                    raise
+                _clear_subtree_trash(conn, project_id=project_id, root_id=node_id, ts=ts)
+                restored = self._node_row(conn, project_id, node_id)
+                if restored is None:
+                    raise RuntimeError("restored node vanished inside the write transaction")
+                size_bytes: int | None = None
+                media_type: str | None = None
+                if restored.kind == "file":
+                    version_row = conn.execute(
+                        "SELECT size_bytes, media_type FROM project_asset_versions "
+                        "WHERE project_id = ? AND node_id = ? AND is_current = 1",
+                        (project_id, node_id),
+                    ).fetchone()
+                    if version_row is not None:
+                        size_bytes = int(version_row["size_bytes"])
+                        media = version_row["media_type"]
+                        media_type = None if media is None else str(media)
+                return TrashRestoration(
+                    outcome="restored",
+                    node=restored,
+                    size_bytes=size_bytes,
+                    media_type=media_type,
+                )
+        except _AssetConflict as conflict:
+            return TrashRestoration(outcome=conflict.outcome)
+
+    def _original_path(
+        self, conn: Any, project_id: str, row: Any, cache: dict[str, tuple[str | None, str]]
+    ) -> str:
+        """Display path relative to the hidden root, including the item name.
+
+        Ancestors contribute their display names whether active or trashed —
+        the path must still tell the user where the item originally lived.
+        The hidden root (NULL parent) contributes nothing. ``cache`` memoizes
+        ancestors shared by one page of trash roots.
+        """
+        parts = [str(row["name"])]
+        parent = row["parent_node_id"]
+        while parent is not None:
+            parent_id = str(parent)
+            if parent_id not in cache:
+                ancestor = conn.execute(
+                    "SELECT parent_node_id, name FROM project_asset_nodes "
+                    "WHERE project_id = ? AND node_id = ?",
+                    (project_id, parent_id),
+                ).fetchone()
+                if ancestor is None:
+                    break
+                grand = ancestor["parent_node_id"]
+                cache[parent_id] = (
+                    None if grand is None else str(grand),
+                    str(ancestor["name"]),
+                )
+            next_parent, name = cache[parent_id]
+            if next_parent is None:
+                # The hidden root — the path is relative to it.
+                break
+            parts.append(name)
+            parent = next_parent
+        parts.reverse()
+        return "/".join(parts)
+
+    def list_trash(
+        self, project_id: str, *, user_id: int, limit: int, offset: int
+    ) -> tuple[list[TrashListRow], int] | None:
+        """One page of the project's trash roots (042); ``None`` for
+        non-members and unknown projects.
+
+        Lists trash ROOTS only (``trash_root_id = node_id``), newest first
+        with ``node_id DESC`` as the deterministic tie-break so same-second
+        deletions page without duplicates or skips. Membership is the only
+        gate — reads survive archival. Rows carry safe display fields only:
+        ``original_path`` (hidden-root-relative, including the item's own
+        name), ``deleted_by_name`` (display name → username → ``None``; never
+        an email or object key) and a viewer-scoped ``can_restore`` hint that
+        every mutation rechecks independently.
+        """
+        with self._db.transaction() as conn:
+            role = self._member_role_locked(conn, project_id, user_id)
+            if role is None:
+                # The service maps this sentinel to the uniform 404.
+                return None
+            total_row = conn.execute(
+                "SELECT COUNT(*) AS n FROM project_asset_nodes "
+                "WHERE project_id = ? AND deleted_at IS NOT NULL "
+                "AND trash_root_id = node_id",
+                (project_id,),
+            ).fetchone()
+            rows = conn.execute(
+                "SELECT n.node_id, n.parent_node_id, n.kind, n.name, "
+                "n.deleted_at, n.deleted_by, u.display_name, u.username "
+                "FROM project_asset_nodes n "
+                "LEFT JOIN users u ON u.id = n.deleted_by "
+                "WHERE n.project_id = ? AND n.deleted_at IS NOT NULL "
+                "AND n.trash_root_id = n.node_id "
+                "ORDER BY n.deleted_at DESC, n.node_id DESC LIMIT ? OFFSET ?",
+                (project_id, limit, offset),
+            ).fetchall()
+            total = int(total_row["n"]) if total_row is not None else 0
+            can_manage = role in ("owner", "admin")
+            path_cache: dict[str, tuple[str | None, str]] = {}
+            items: list[TrashListRow] = []
+            for row in rows:
+                parent = row["parent_node_id"]
+                deleted_by = row["deleted_by"]
+                deleted_by_name: str | None = None
+                if deleted_by is not None:
+                    display = row["display_name"]
+                    candidate = "" if display is None else str(display).strip()
+                    if candidate:
+                        deleted_by_name = candidate
+                    elif row["username"] is not None:
+                        deleted_by_name = str(row["username"])
+                items.append(
+                    TrashListRow(
+                        node_id=str(row["node_id"]),
+                        parent_node_id=None if parent is None else str(parent),
+                        kind=str(row["kind"]),
+                        name=str(row["name"]),
+                        original_path=self._original_path(conn, project_id, row, path_cache),
+                        deleted_at=int(row["deleted_at"]),
+                        deleted_by=None if deleted_by is None else int(deleted_by),
+                        deleted_by_name=deleted_by_name,
+                        can_restore=can_manage
+                        or (deleted_by is not None and int(deleted_by) == int(user_id)),
+                    )
+                )
+        return items, total

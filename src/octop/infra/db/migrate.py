@@ -1638,6 +1638,39 @@ def _ensure_project_task_files_v28(db: DatabasePool) -> None:
         conn.execute("UPDATE _schema_version SET version = 28")
 
 
+def _ensure_project_asset_trash_v29(db: DatabasePool) -> None:
+    """Apply SQLite v29 atomically, including recovery from a partial replay.
+
+    029 adds four nullable recoverable-trash columns to
+    ``project_asset_nodes`` plus one listing index; a stopped upgrade can
+    leave a prefix of them applied while ``_schema_version`` still reads 28,
+    and replaying the file blindly would fail on the existing columns. Keep
+    the same schema as 029_project_asset_trash.sql, but inspect the columns
+    first and execute everything inside one explicit transaction, watermark
+    last.
+    """
+    with db.transaction() as conn:
+        node_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(project_asset_nodes)")
+        }
+        if "deleted_at" not in node_columns:
+            conn.execute("ALTER TABLE project_asset_nodes ADD COLUMN deleted_at INTEGER")
+        if "deleted_by" not in node_columns:
+            conn.execute(
+                "ALTER TABLE project_asset_nodes ADD COLUMN deleted_by INTEGER "
+                "REFERENCES users(id) ON DELETE SET NULL"
+            )
+        if "trash_root_id" not in node_columns:
+            conn.execute("ALTER TABLE project_asset_nodes ADD COLUMN trash_root_id TEXT")
+        if "original_name_key" not in node_columns:
+            conn.execute("ALTER TABLE project_asset_nodes ADD COLUMN original_name_key TEXT")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_project_asset_nodes_trash "
+            "ON project_asset_nodes(project_id, trash_root_id, deleted_at)"
+        )
+        conn.execute("UPDATE _schema_version SET version = 29")
+
+
 def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
     """Apply one SQLite migration.
 
@@ -1671,6 +1704,8 @@ def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
     Version 27 adds project experts with one atomic, replay-safe transaction.
     Version 28 adds project-task file runtime columns with one atomic,
     replay-safe transaction.
+    Version 29 adds the recoverable project-asset trash columns with one
+    atomic, replay-safe transaction.
     """
     if version == 2:
         if _table_exists(db, "cron_jobs"):
@@ -1791,6 +1826,9 @@ def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
         return
     if version == 28:
         _ensure_project_task_files_v28(db)
+        return
+    if version == 29:
+        _ensure_project_asset_trash_v29(db)
         return
     sql = path.read_text(encoding="utf-8")
     with db.connect() as conn:

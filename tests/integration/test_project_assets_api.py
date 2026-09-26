@@ -22,6 +22,7 @@ from typing import Any
 import pytest
 
 from octop.api.app import build_app
+from octop.api.routers.project_assets import router as asset_router
 from octop.i18n import error_message
 from tests.support.auth import create_user, resolve_user_id
 
@@ -224,7 +225,12 @@ async def test_upload_list_usage_download_roundtrip(env_with_provider: Any) -> N
 
     r = await _usage(ctx, ctx["member_auth"])
     assert r.status_code == 200, r.text
-    assert r.json() == {"file_count": 1, "total_bytes": len(data)}
+    assert r.json() == {
+        "file_count": 1,
+        "total_bytes": len(data),
+        "trash_file_count": 0,
+        "trash_total_bytes": 0,
+    }
 
     # Download answers the same bytes with a conservative, attachment-forced
     # response; the non-ASCII name uses the RFC 5987 form.
@@ -248,7 +254,12 @@ async def test_upload_list_usage_download_roundtrip(env_with_provider: Any) -> N
     objects = _files_under(_assets_root(ctx["srv"]))
     assert len(objects) == 2
     r = await _usage(ctx, ctx["owner_auth"])
-    assert r.json() == {"file_count": 2, "total_bytes": 2 * len(data)}
+    assert r.json() == {
+        "file_count": 2,
+        "total_bytes": 2 * len(data),
+        "trash_file_count": 0,
+        "trash_total_bytes": 0,
+    }
 
 
 async def test_zero_byte_upload_roundtrip(env_with_provider: Any) -> None:
@@ -324,7 +335,12 @@ async def test_folders_filters_search_and_pagination(env_with_provider: Any) -> 
 
     # Usage counts every committed current file in the project, nested included.
     r = await _usage(ctx, auth)
-    assert r.json() == {"file_count": 4, "total_bytes": 3 + 2 + 1 + 2}
+    assert r.json() == {
+        "file_count": 4,
+        "total_bytes": 3 + 2 + 1 + 2,
+        "trash_file_count": 0,
+        "trash_total_bytes": 0,
+    }
 
 
 async def test_folder_and_unknown_node_download_404(env_with_provider: Any) -> None:
@@ -586,7 +602,12 @@ async def test_archived_project_reads_ok_writes_403(env_with_provider: Any) -> N
     r = await _list(ctx, ctx["member_auth"])
     assert r.status_code == 200 and r.json()["total"] == 1
     r = await _usage(ctx, ctx["member_auth"])
-    assert r.status_code == 200 and r.json() == {"file_count": 1, "total_bytes": 6}
+    assert r.status_code == 200 and r.json() == {
+        "file_count": 1,
+        "total_bytes": 6,
+        "trash_file_count": 0,
+        "trash_total_bytes": 0,
+    }
     r = await _download(ctx, ctx["member_auth"], node_id)
     assert r.status_code == 200 and r.content == b"before"
 
@@ -931,7 +952,12 @@ async def test_new_version_upload_roundtrip(env_with_provider: Any) -> None:
     assert item["size_bytes"] == len(second_data)
     assert item["name"] == "报告.txt"
     r = await _usage(ctx, ctx["owner_auth"])
-    assert r.json() == {"file_count": 1, "total_bytes": len(second_data)}
+    assert r.json() == {
+        "file_count": 1,
+        "total_bytes": len(second_data),
+        "trash_file_count": 0,
+        "trash_total_bytes": 0,
+    }
     r = await _download(ctx, ctx["owner_auth"], node_id)
     assert r.status_code == 200 and r.content == second_data
     r = await _download_version(ctx, ctx["member_auth"], node_id, v1)
@@ -966,7 +992,12 @@ async def test_restore_version_roundtrip(env_with_provider: Any) -> None:
     r = await _download(ctx, ctx["owner_auth"], node_id)
     assert r.content == b"the-original"
     r = await _usage(ctx, ctx["owner_auth"])
-    assert r.json() == {"file_count": 1, "total_bytes": len(b"the-original")}
+    assert r.json() == {
+        "file_count": 1,
+        "total_bytes": len(b"the-original"),
+        "trash_file_count": 0,
+        "trash_total_bytes": 0,
+    }
     r = await _list_versions(ctx, ctx["owner_auth"], node_id)
     flags = {i["version_id"]: i["is_current"] for i in r.json()["items"]}
     assert flags == {v1: True, v2: False}
@@ -1162,3 +1193,541 @@ async def test_version_responses_never_leak_paths_keys_or_secrets(
             f"{pid}/{v2}",
         ):
             assert secret not in text, secret
+
+
+# ---------------------------------------------------------------------------
+# 042: recoverable trash — DELETE /assets/{node_id}, GET /assets/trash,
+# POST /assets/trash/{node_id}/restore
+# ---------------------------------------------------------------------------
+
+_TRASH_ITEM_KEYS = {
+    "node_id",
+    "parent_node_id",
+    "kind",
+    "name",
+    "original_path",
+    "deleted_at",
+    "deleted_by_name",
+    "can_restore",
+}
+_PAGE_KEYS = {"items", "total", "limit", "offset", "has_more"}
+
+
+async def _delete(
+    ctx: dict[str, Any],
+    auth: dict[str, str],
+    node_id: str,
+    *,
+    pid: str | None = None,
+    headers: dict[str, str] | None = None,
+) -> Any:
+    return await ctx["client"].delete(
+        f"/api/projects/{pid or ctx['pid']}/assets/{node_id}",
+        headers={**auth, **(headers or {})},
+    )
+
+
+async def _trash_list(
+    ctx: dict[str, Any],
+    auth: dict[str, str],
+    *,
+    pid: str | None = None,
+    headers: dict[str, str] | None = None,
+    **params: Any,
+) -> Any:
+    return await ctx["client"].get(
+        f"/api/projects/{pid or ctx['pid']}/assets/trash",
+        headers={**auth, **(headers or {})},
+        params=params or None,
+    )
+
+
+async def _restore_node(
+    ctx: dict[str, Any],
+    auth: dict[str, str],
+    node_id: str,
+    *,
+    pid: str | None = None,
+    headers: dict[str, str] | None = None,
+) -> Any:
+    return await ctx["client"].post(
+        f"/api/projects/{pid or ctx['pid']}/assets/trash/{node_id}/restore",
+        headers={**auth, **(headers or {})},
+    )
+
+
+async def test_trash_openapi_surface_and_static_route_order(env_with_provider: Any) -> None:
+    _client, srv, _admin_auth = env_with_provider
+    app = build_app(srv)
+    spec = app.openapi()
+    paths = spec["paths"]
+    delete_path = "/api/projects/{project_id}/assets/{node_id}"
+    trash_path = "/api/projects/{project_id}/assets/trash"
+    restore_path = "/api/projects/{project_id}/assets/trash/{node_id}/restore"
+    assert delete_path in paths and "delete" in paths[delete_path]
+    assert "204" in paths[delete_path]["delete"]["responses"]
+    trash_schema = paths[trash_path]["get"]["responses"]["200"]["content"]["application/json"][
+        "schema"
+    ]
+    restore_schema = paths[restore_path]["post"]["responses"]["200"]["content"]["application/json"][
+        "schema"
+    ]
+    assert trash_schema["$ref"].endswith("AssetTrashPageResponse")
+    assert restore_schema["$ref"].endswith("AssetNodeResponse")
+    # The static trash routes are registered before any variable node route.
+    api_routes = [r.path for r in asset_router.routes if hasattr(r, "path")]
+    i_trash = next(i for i, p in enumerate(api_routes) if p.endswith("/assets/trash"))
+    i_restore = next(i for i, p in enumerate(api_routes) if p.endswith("/trash/{node_id}/restore"))
+    i_download = next(
+        i for i, p in enumerate(api_routes) if p.endswith("/assets/{node_id}/download")
+    )
+    assert i_trash < i_download
+    assert i_restore < i_download
+
+
+async def test_trash_roundtrip_204_gating_and_restore(env_with_provider: Any) -> None:
+    ctx = await _base(env_with_provider)
+    srv = ctx["srv"]
+    data = b"trash-me-042"
+    sha = hashlib.sha256(data).hexdigest()
+    node_id, v1 = await _seeded_file(ctx, name="回收站.txt", data=data)
+    r = await _upload_version(ctx, ctx["owner_auth"], node_id, data=b"trash-me-v2-long")
+    assert r.status_code == 201, r.text
+    v2 = r.json()["version"]["version_id"]
+    objects_before = _files_under(_assets_root(srv))
+    rows_before = _asset_rows(srv, ctx["pid"])
+
+    r = await _delete(ctx, ctx["owner_auth"], node_id)
+    assert r.status_code == 204, r.text
+    assert r.content == b""
+
+    # Rows and bytes are all retained — this is a recoverable trash.
+    assert _asset_rows(srv, ctx["pid"]) == rows_before
+    assert _files_under(_assets_root(srv)) == objects_before
+
+    # Every ordinary entrance answers the uniform 404.
+    r = await _list(ctx, ctx["owner_auth"])
+    assert r.status_code == 200 and r.json()["total"] == 0
+    for probe in (
+        _download(ctx, ctx["owner_auth"], node_id),
+        _list_versions(ctx, ctx["owner_auth"], node_id),
+        _download_version(ctx, ctx["owner_auth"], node_id, v1),
+        _download_version(ctx, ctx["owner_auth"], node_id, v2),
+        _upload_version(ctx, ctx["owner_auth"], node_id, data=b"late"),
+        _restore_version(ctx, ctx["owner_auth"], node_id, v1),
+        _delete(ctx, ctx["owner_auth"], node_id),  # repeated delete
+        _restore_node(ctx, ctx["owner_auth"], node_id + "X"),  # unknown id
+    ):
+        r = await probe
+        assert r.status_code == 404, r.text
+        assert r.json()["error"]["code"] == "NOT_FOUND"
+    r = await _usage(ctx, ctx["owner_auth"])
+    assert r.json() == {
+        "file_count": 0,
+        "total_bytes": 0,
+        "trash_file_count": 1,
+        "trash_total_bytes": len(b"trash-me-v2-long"),
+    }
+
+    # The trash listing exposes exactly the frozen DTO.
+    r = await _trash_list(ctx, ctx["owner_auth"])
+    assert r.status_code == 200, r.text
+    page = r.json()
+    assert set(page) == _PAGE_KEYS
+    assert page["total"] == 1 and page["has_more"] is False
+    item = page["items"][0]
+    assert set(item) == _TRASH_ITEM_KEYS
+    assert item["node_id"] == node_id
+    assert item["kind"] == "file"
+    assert item["name"] == "回收站.txt"
+    assert item["original_path"] == "回收站.txt"
+    assert isinstance(item["deleted_at"], int) and item["deleted_at"] > 0
+    assert item["deleted_by_name"] == OWNER  # username fallback; never an email
+    assert item["can_restore"] is True
+
+    # Restore answers the existing safe node shape.
+    r = await _restore_node(ctx, ctx["owner_auth"], node_id)
+    assert r.status_code == 200, r.text
+    payload = r.json()
+    assert set(payload) == _ITEM_KEYS
+    assert payload["node_id"] == node_id
+    assert payload["name"] == "回收站.txt"
+    assert payload["kind"] == "file"
+    assert payload["size_bytes"] == len(b"trash-me-v2-long")
+
+    # Bytes, SHA and the version history are unchanged by the round trip.
+    r = await _download(ctx, ctx["owner_auth"], node_id)
+    assert r.status_code == 200 and r.content == b"trash-me-v2-long"
+    r = await _download_version(ctx, ctx["owner_auth"], node_id, v1)
+    assert r.status_code == 200 and r.content == data
+    assert hashlib.sha256(r.content).hexdigest() == sha
+    r = await _list_versions(ctx, ctx["owner_auth"], node_id)
+    assert r.status_code == 200 and r.json()["total"] == 2
+    current = [i for i in r.json()["items"] if i["is_current"]]
+    assert len(current) == 1 and current[0]["version_id"] == v2
+    assert _files_under(_assets_root(srv)) == objects_before
+
+    # Repeated restore is a 404; the trash is empty; usage flipped back.
+    r = await _restore_node(ctx, ctx["owner_auth"], node_id)
+    assert r.status_code == 404 and r.json()["error"]["code"] == "NOT_FOUND"
+    r = await _trash_list(ctx, ctx["owner_auth"])
+    assert r.json()["total"] == 0
+    r = await _usage(ctx, ctx["owner_auth"])
+    assert r.json() == {
+        "file_count": 1,
+        "total_bytes": len(b"trash-me-v2-long"),
+        "trash_file_count": 0,
+        "trash_total_bytes": 0,
+    }
+
+
+async def test_trash_folder_hides_subtree_and_restores_whole_tree(
+    env_with_provider: Any,
+) -> None:
+    ctx = await _base(env_with_provider)
+    r = await _mkfolder(ctx, ctx["owner_auth"], name="文件夹")
+    assert r.status_code == 201, r.text
+    folder_id = r.json()["node_id"]
+    r = await _mkfolder(ctx, ctx["owner_auth"], name="子文件夹", parent_id=folder_id)
+    assert r.status_code == 201, r.text
+    sub_id = r.json()["node_id"]
+    r = await _upload(ctx, ctx["owner_auth"], name="里面.txt", data=b"inner", parent_id=sub_id)
+    assert r.status_code == 201, r.text
+    inner_id = r.json()["node_id"]
+
+    r = await _delete(ctx, ctx["owner_auth"], folder_id)
+    assert r.status_code == 204, r.text
+    r = await _list(ctx, ctx["owner_auth"])
+    assert r.json()["total"] == 0
+    r = await _list(ctx, ctx["owner_auth"], parent_id=folder_id)
+    assert r.status_code == 404
+    r = await _download(ctx, ctx["owner_auth"], inner_id)
+    assert r.status_code == 404
+    # One trash entry for the whole subtree; children are not separate roots.
+    r = await _trash_list(ctx, ctx["owner_auth"])
+    page = r.json()
+    assert page["total"] == 1
+    assert page["items"][0]["node_id"] == folder_id
+    assert page["items"][0]["kind"] == "folder"
+    assert page["items"][0]["original_path"] == "文件夹"
+
+    r = await _restore_node(ctx, ctx["owner_auth"], folder_id)
+    assert r.status_code == 200, r.text
+    assert r.json()["node_id"] == folder_id
+    r = await _list(ctx, ctx["owner_auth"])
+    assert r.json()["total"] == 1 and r.json()["items"][0]["name"] == "文件夹"
+    r = await _list(ctx, ctx["owner_auth"], parent_id=folder_id)
+    assert r.status_code == 200 and r.json()["total"] == 1
+    r = await _list(ctx, ctx["owner_auth"], parent_id=sub_id)
+    assert r.status_code == 200 and r.json()["items"][0]["node_id"] == inner_id
+    r = await _download(ctx, ctx["owner_auth"], inner_id)
+    assert r.status_code == 200 and r.content == b"inner"
+    r = await _trash_list(ctx, ctx["owner_auth"])
+    assert r.json()["total"] == 0
+
+
+async def test_trash_same_name_recreate_then_restore_409(env_with_provider: Any) -> None:
+    ctx = await _base(env_with_provider)
+    node_id, _v1 = await _seeded_file(ctx, name="dup.txt", data=b"first")
+    r = await _delete(ctx, ctx["owner_auth"], node_id)
+    assert r.status_code == 204, r.text
+    r = await _upload(ctx, ctx["owner_auth"], name="DUP.TXT", data=b"second")
+    assert r.status_code == 201, r.text
+    new_id = r.json()["node_id"]
+
+    client = ctx["client"]
+    url = f"/api/projects/{ctx['pid']}/assets/trash/{node_id}/restore"
+    r = await client.post(url, headers={**ctx["owner_auth"], "Accept-Language": "zh-CN,zh;q=0.9"})
+    assert r.status_code == 409, r.text
+    envelope = r.json()["error"]
+    assert envelope["code"] == "PROJECT_ASSET_NAME_CONFLICT"
+    assert envelope["message"] == error_message("PROJECT_ASSET_NAME_CONFLICT", "zh")
+    r = await client.post(url, headers={**ctx["owner_auth"], "Accept-Language": "en"})
+    assert r.status_code == 409
+    assert r.json()["error"]["message"] == error_message("PROJECT_ASSET_NAME_CONFLICT", "en")
+
+    # The refused restore is atomic: the trashed root stays fully in the trash.
+    r = await _trash_list(ctx, ctx["owner_auth"])
+    assert r.json()["total"] == 1 and r.json()["items"][0]["node_id"] == node_id
+    # The active winner is untouched.
+    r = await _download(ctx, ctx["owner_auth"], new_id)
+    assert r.status_code == 200 and r.content == b"second"
+
+
+async def test_restore_parent_in_trash_409_with_paired_i18n(env_with_provider: Any) -> None:
+    ctx = await _base(env_with_provider)
+    r = await _mkfolder(ctx, ctx["owner_auth"], name="外层")
+    assert r.status_code == 201, r.text
+    outer_id = r.json()["node_id"]
+    r = await _mkfolder(ctx, ctx["owner_auth"], name="内层", parent_id=outer_id)
+    assert r.status_code == 201, r.text
+    inner_id = r.json()["node_id"]
+    r = await _delete(ctx, ctx["owner_auth"], inner_id)
+    assert r.status_code == 204, r.text
+    r = await _delete(ctx, ctx["owner_auth"], outer_id)
+    assert r.status_code == 204, r.text
+
+    client = ctx["client"]
+    url = f"/api/projects/{ctx['pid']}/assets/trash/{inner_id}/restore"
+    r = await client.post(url, headers={**ctx["owner_auth"], "Accept-Language": "zh-CN,zh;q=0.9"})
+    assert r.status_code == 409, r.text
+    envelope = r.json()["error"]
+    assert envelope["code"] == "PROJECT_ASSET_PARENT_IN_TRASH"
+    assert envelope["message"] == error_message("PROJECT_ASSET_PARENT_IN_TRASH", "zh")
+    r = await client.post(url, headers={**ctx["owner_auth"], "Accept-Language": "en"})
+    assert r.status_code == 409
+    assert r.json()["error"]["message"] == error_message("PROJECT_ASSET_PARENT_IN_TRASH", "en")
+
+    # Restoring the parent first unblocks the child root.
+    r = await _restore_node(ctx, ctx["owner_auth"], outer_id)
+    assert r.status_code == 200, r.text
+    r = await _restore_node(ctx, ctx["owner_auth"], inner_id)
+    assert r.status_code == 200, r.text
+    r = await _list(ctx, ctx["owner_auth"], parent_id=outer_id)
+    assert r.json()["total"] == 1 and r.json()["items"][0]["node_id"] == inner_id
+    r = await _trash_list(ctx, ctx["owner_auth"])
+    assert r.json()["total"] == 0
+
+
+async def test_trash_http_permissions(env_with_provider: Any) -> None:
+    ctx = await _base(env_with_provider)
+    srv, pid, client = ctx["srv"], ctx["pid"], ctx["client"]
+    r = await _upload(ctx, ctx["member_auth"], name="成员的.txt", data=b"m")
+    assert r.status_code == 201, r.text
+    member_node = r.json()["node_id"]
+    r = await _upload(ctx, ctx["owner_auth"], name="主人的.txt", data=b"o")
+    assert r.status_code == 201, r.text
+    owner_node = r.json()["node_id"]
+
+    # A member may delete their own file.
+    r = await _delete(ctx, ctx["member_auth"], member_node)
+    assert r.status_code == 204, r.text
+    # ... never someone else's.
+    r = await _delete(ctx, ctx["member_auth"], owner_node)
+    assert r.status_code == 403 and r.json()["error"]["code"] == "FORBIDDEN"
+    # Owner-deleted roots are not member-restorable.
+    r = await _delete(ctx, ctx["owner_auth"], owner_node)
+    assert r.status_code == 204, r.text
+    r = await _restore_node(ctx, ctx["member_auth"], owner_node)
+    assert r.status_code == 403 and r.json()["error"]["code"] == "FORBIDDEN"
+    r = await _restore_node(ctx, ctx["owner_auth"], owner_node)
+    assert r.status_code == 200, r.text
+    # A member restores their own root.
+    r = await _restore_node(ctx, ctx["member_auth"], member_node)
+    assert r.status_code == 200, r.text
+    # A member's folder holding someone else's active file is refused.
+    r = await _mkfolder(ctx, ctx["member_auth"], name="成员夹")
+    assert r.status_code == 201, r.text
+    mixed_folder = r.json()["node_id"]
+    r = await _upload(
+        ctx, ctx["owner_auth"], name="他人文件.txt", data=b"x", parent_id=mixed_folder
+    )
+    assert r.status_code == 201, r.text
+    r = await _delete(ctx, ctx["member_auth"], mixed_folder)
+    assert r.status_code == 403 and r.json()["error"]["code"] == "FORBIDDEN"
+    # The owner manages the mixed folder.
+    r = await _delete(ctx, ctx["owner_auth"], mixed_folder)
+    assert r.status_code == 204, r.text
+    r = await _trash_list(ctx, ctx["member_auth"])
+    assert r.status_code == 200, r.text
+    items = {i["node_id"]: i for i in r.json()["items"]}
+    assert items[mixed_folder]["can_restore"] is False
+    assert items[mixed_folder]["deleted_by_name"] == OWNER
+    r = await _trash_list(ctx, ctx["owner_auth"])
+    assert {i["node_id"]: i for i in r.json()["items"]}[mixed_folder]["can_restore"] is True
+    r = await _restore_node(ctx, ctx["owner_auth"], mixed_folder)
+    assert r.status_code == 200, r.text
+
+    # Outsiders get the uniform 404 on all three entrances.
+    for probe in (
+        _trash_list(ctx, ctx["outsider_auth"]),
+        _delete(ctx, ctx["outsider_auth"], member_node),
+        _restore_node(ctx, ctx["outsider_auth"], member_node),
+    ):
+        r = await probe
+        assert r.status_code == 404, r.text
+        assert r.json()["error"]["code"] == "NOT_FOUND"
+    # A revoked member loses every trash entrance.
+    removed = srv.services.project_repo.remove_member(
+        project_id=pid, user_id=ctx["member_uid"], actor_user_id=ctx["owner_uid"]
+    )
+    assert removed.outcome == "removed"
+    for probe in (
+        _trash_list(ctx, ctx["member_auth"]),
+        _delete(ctx, ctx["member_auth"], member_node),
+        _restore_node(ctx, ctx["member_auth"], member_node),
+    ):
+        r = await probe
+        assert r.status_code == 404, r.text
+    # Cross-project node ids never resolve.
+    r = await client.post("/api/projects", headers=ctx["owner_auth"], json={"name": "第二个项目42"})
+    assert r.status_code == 201, r.text
+    pid2 = r.json()["project_id"]
+    r = await _delete(ctx, ctx["owner_auth"], member_node, pid=pid2)
+    assert r.status_code == 404
+    r = await _restore_node(ctx, ctx["owner_auth"], member_node, pid=pid2)
+    assert r.status_code == 404
+    r = await _trash_list(ctx, ctx["owner_auth"], pid=pid2)
+    assert r.status_code == 200 and r.json()["total"] == 0
+    # The hidden root can never be trashed or restored.
+    with srv.services.db.connect() as conn:
+        root_row = conn.execute(
+            "SELECT node_id FROM project_asset_nodes "
+            "WHERE project_id = ? AND parent_node_id IS NULL",
+            (pid,),
+        ).fetchone()
+    assert root_row is not None
+    r = await _delete(ctx, ctx["owner_auth"], root_row["node_id"])
+    assert r.status_code == 404
+    r = await _restore_node(ctx, ctx["owner_auth"], root_row["node_id"])
+    assert r.status_code == 404
+
+
+async def test_trash_archived_project_reads_stay_writes_403(env_with_provider: Any) -> None:
+    ctx = await _base(env_with_provider)
+    srv = ctx["srv"]
+    first_id, _v1 = await _seeded_file(ctx, name="归档甲.txt", data=b"a")
+    second_id, _v2 = await _seeded_file(ctx, name="归档乙.txt", data=b"b")
+    r = await _delete(ctx, ctx["owner_auth"], first_id)
+    assert r.status_code == 204, r.text
+    with srv.services.db.transaction() as conn:
+        conn.execute("UPDATE project_spaces SET archived = 1 WHERE project_id = ?", (ctx["pid"],))
+    # The trash read stays available for members.
+    r = await _trash_list(ctx, ctx["member_auth"])
+    assert r.status_code == 200, r.text
+    assert r.json()["total"] == 1 and r.json()["items"][0]["node_id"] == first_id
+    # Both trash mutations refuse with 403.
+    r = await _delete(ctx, ctx["owner_auth"], second_id)
+    assert r.status_code == 403 and r.json()["error"]["code"] == "FORBIDDEN"
+    r = await _restore_node(ctx, ctx["owner_auth"], first_id)
+    assert r.status_code == 403 and r.json()["error"]["code"] == "FORBIDDEN"
+    # Nothing changed on disk or in the trash listing.
+    r = await _trash_list(ctx, ctx["owner_auth"])
+    assert r.json()["total"] == 1
+
+
+async def test_trash_list_pagination_and_param_validation(env_with_provider: Any) -> None:
+    ctx = await _base(env_with_provider)
+    ids: list[str] = []
+    for i in range(3):
+        node_id, _v = await _seeded_file(ctx, name=f"批量{i}.txt", data=b"x")
+        ids.append(node_id)
+        r = await _delete(ctx, ctx["owner_auth"], node_id)
+        assert r.status_code == 204, r.text
+    r = await _trash_list(ctx, ctx["owner_auth"], limit=2)
+    assert r.status_code == 200, r.text
+    page = r.json()
+    assert set(page) == _PAGE_KEYS
+    assert page["total"] == 3 and page["limit"] == 2 and page["offset"] == 0
+    assert page["has_more"] is True and len(page["items"]) == 2
+    r = await _trash_list(ctx, ctx["owner_auth"], limit=2, offset=2)
+    page2 = r.json()
+    assert page2["has_more"] is False and len(page2["items"]) == 1 and page2["total"] == 3
+    seen = {i["node_id"] for i in page["items"]} | {i["node_id"] for i in page2["items"]}
+    assert seen == set(ids)
+    # Param validation mirrors the ordinary listing.
+    r = await _trash_list(ctx, ctx["owner_auth"], limit=0)
+    assert r.status_code == 422, r.text
+    r = await _trash_list(ctx, ctx["owner_auth"], limit=101)
+    assert r.status_code == 422, r.text
+
+
+async def test_trash_original_path_and_display_name(env_with_provider: Any) -> None:
+    ctx = await _base(env_with_provider)
+    srv = ctx["srv"]
+    r = await _mkfolder(ctx, ctx["owner_auth"], name="报表2026")
+    assert r.status_code == 201, r.text
+    folder_id = r.json()["node_id"]
+    r = await _mkfolder(ctx, ctx["owner_auth"], name="Q1", parent_id=folder_id)
+    assert r.status_code == 201, r.text
+    sub_id = r.json()["node_id"]
+    node_id, _v = await _seeded_file(ctx, name="三月.pdf", data=b"p")
+    # The same display name is legal in a different folder (per-parent rule).
+    r = await _upload(ctx, ctx["owner_auth"], name="三月.pdf", data=b"p", parent_id=sub_id)
+    assert r.status_code == 201, r.text
+    deep_id = r.json()["node_id"]
+    r = await _delete(ctx, ctx["owner_auth"], node_id)
+    assert r.status_code == 204, r.text
+
+    # A display name wins over the username in deleted_by_name.
+    srv.services.repos.user_repo.update_sso_profile(ctx["owner_uid"], display_name="熊宝队长")
+    r = await _trash_list(ctx, ctx["owner_auth"])
+    assert r.status_code == 200, r.text
+    items = {i["node_id"]: i for i in r.json()["items"]}
+    assert items[node_id]["original_path"] == "三月.pdf"  # root-level file
+    assert items[node_id]["deleted_by_name"] == "熊宝队长"
+
+    r = await _delete(ctx, ctx["owner_auth"], deep_id)
+    assert r.status_code == 204, r.text
+    r = await _trash_list(ctx, ctx["owner_auth"])
+    items = {i["node_id"]: i for i in r.json()["items"]}
+    assert items[deep_id]["original_path"] == "报表2026/Q1/三月.pdf"
+    # Trashing the ancestor folder keeps the deeper original_path readable.
+    r = await _delete(ctx, ctx["owner_auth"], folder_id)
+    assert r.status_code == 204, r.text
+    r = await _trash_list(ctx, ctx["owner_auth"])
+    items = {i["node_id"]: i for i in r.json()["items"]}
+    assert items[folder_id]["original_path"] == "报表2026"
+    assert items[deep_id]["original_path"] == "报表2026/Q1/三月.pdf"
+
+
+async def test_trash_responses_never_leak_paths_keys_or_emails(env_with_provider: Any) -> None:
+    ctx = await _base(env_with_provider)
+    srv = ctx["srv"]
+    node_id, v1 = await _seeded_file(ctx, name="泄漏回收站.txt", data=b"leak-042")
+    with srv.services.db.connect() as conn:
+        keys = [
+            r["object_key"]
+            for r in conn.execute(
+                "SELECT object_key FROM project_asset_versions WHERE project_id = ?",
+                (ctx["pid"],),
+            ).fetchall()
+        ]
+        emails = [
+            r["email"]
+            for r in conn.execute("SELECT email FROM users WHERE email IS NOT NULL").fetchall()
+        ]
+    r = await _delete(ctx, ctx["owner_auth"], node_id)
+    assert r.status_code == 204, r.text
+    r = await _trash_list(ctx, ctx["owner_auth"])
+    texts = [r.text]
+    r = await _restore_node(ctx, ctx["owner_auth"], node_id)
+    texts.append(r.text)
+    home_root = str(srv.services.paths.root)
+    for text in texts:
+        for secret in (
+            home_root,
+            "project-assets",
+            "object_key",
+            "_tmp",
+            ".part",
+            *keys,
+            *emails,
+            f"{ctx['pid']}/{v1}",
+        ):
+            assert secret not in text, secret
+
+
+async def test_trashed_object_bytes_stay_in_the_cleanup_keep_set(
+    env_with_provider: Any,
+) -> None:
+    ctx = await _base(env_with_provider)
+    srv = ctx["srv"]
+    node_id, _v1 = await _seeded_file(ctx, name="保留字节.txt", data=b"keep-me")
+    objects_before = _files_under(_assets_root(srv))
+    r = await _delete(ctx, ctx["owner_auth"], node_id)
+    assert r.status_code == 204, r.text
+    # Physical bytes are retained while the node is in the trash.
+    assert _files_under(_assets_root(srv)) == objects_before
+    # The repo keep-set still covers the trashed version's object key.
+    with srv.services.db.connect() as conn:
+        row = conn.execute(
+            "SELECT object_key FROM project_asset_versions WHERE node_id = ?", (node_id,)
+        ).fetchone()
+    assert row is not None
+    assert row["object_key"] in srv.services.project_asset_repo.all_object_keys()
+    # Restoring brings the exact bytes back.
+    r = await _restore_node(ctx, ctx["owner_auth"], node_id)
+    assert r.status_code == 200, r.text
+    r = await _download(ctx, ctx["owner_auth"], node_id)
+    assert r.status_code == 200 and r.content == b"keep-me"

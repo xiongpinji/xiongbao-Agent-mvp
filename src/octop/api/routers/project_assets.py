@@ -12,7 +12,9 @@ always answer a forced attachment with conservative ``application/octet-
 stream`` + ``nosniff``; real disk paths and object keys never appear in any
 response. The PS-06B-1 version routes append after the 023A static routes so
 ``/assets/usage``, ``/assets/folders``, and ``/assets/upload`` are never
-shadowed by a ``/{node_id}`` segment.
+shadowed by a ``/{node_id}`` segment; the 042 trash routes (``/assets/trash``
+and ``/assets/trash/{node_id}/restore``) are registered before every
+variable ``/assets/{node_id}/...`` route for the same reason.
 
 All disk and sync-DB work runs in the default executor so the event loop
 stays responsive during large uploads.
@@ -27,7 +29,7 @@ from functools import partial
 from typing import BinaryIO, Literal, cast
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict
 from starlette.background import BackgroundTask
 
@@ -38,10 +40,12 @@ from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.projects.asset_storage import AssetStorageError, open_regular_file_no_follow
 from octop.infra.projects.assets import (
     ASSET_NAME_MAX_LENGTH,
+    DEFAULT_TRASH_PAGE_LIMIT,
     DEFAULT_VERSION_PAGE_LIMIT,
     AssetDownloadView,
     AssetNodeView,
     AssetPage,
+    AssetTrashPageView,
     AssetUsageView,
     AssetVersionPageView,
     ProjectAssetService,
@@ -132,6 +136,39 @@ class AssetUsageResponse(BaseModel):
 
     file_count: int
     total_bytes: int
+    trash_file_count: int
+    trash_total_bytes: int
+
+
+class AssetTrashItemResponse(BaseModel):
+    """One trash root's safe display row (042 frozen UI DTO).
+
+    Exactly these fields: ``original_path`` is hidden-root-relative and
+    includes the item's display name; ``deleted_by_name`` is a safe display
+    name or null — never an email, object key or host path; ``can_restore``
+    is a server-computed hint that every mutation rechecks independently.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    node_id: str
+    parent_node_id: str | None
+    kind: AssetKind
+    name: str
+    original_path: str
+    deleted_at: int
+    deleted_by_name: str | None
+    can_restore: bool
+
+
+class AssetTrashPageResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[AssetTrashItemResponse]
+    total: int
+    limit: int
+    offset: int
+    has_more: bool
 
 
 class AssetVersionItemResponse(BaseModel):
@@ -239,6 +276,29 @@ def _version_page_payload(page: AssetVersionPageView) -> AssetVersionPageRespons
     )
 
 
+def _trash_page_payload(page: AssetTrashPageView) -> AssetTrashPageResponse:
+    """Exactly the frozen 042 trash DTO — no keys, paths or emails."""
+    return AssetTrashPageResponse(
+        items=[
+            AssetTrashItemResponse(
+                node_id=item.node_id,
+                parent_node_id=item.parent_node_id,
+                kind=cast(AssetKind, item.kind),
+                name=item.name,
+                original_path=item.original_path,
+                deleted_at=item.deleted_at,
+                deleted_by_name=item.deleted_by_name,
+                can_restore=item.can_restore,
+            )
+            for item in page.items
+        ],
+        total=page.total,
+        limit=page.limit,
+        offset=page.offset,
+        has_more=page.has_more,
+    )
+
+
 async def _attachment_response(
     loop: asyncio.AbstractEventLoop, view: AssetDownloadView
 ) -> StreamingResponse:
@@ -317,13 +377,19 @@ async def get_asset_usage(
     user: User = Depends(current_user),
 ) -> AssetUsageResponse:
     """Counts and sums only committed current file versions — never temps,
-    never orphaned objects, never historical versions."""
+    never orphaned objects, never historical versions. The 042 trash pair
+    tallies the current versions of trashed files the same way."""
     service = _asset_service(server)
     loop = asyncio.get_running_loop()
     usage: AssetUsageView = await loop.run_in_executor(
         None, partial(service.get_usage, project_id, user_id=user.id)
     )
-    return AssetUsageResponse(file_count=usage.file_count, total_bytes=usage.total_bytes)
+    return AssetUsageResponse(
+        file_count=usage.file_count,
+        total_bytes=usage.total_bytes,
+        trash_file_count=usage.trash_file_count,
+        trash_total_bytes=usage.trash_total_bytes,
+    )
 
 
 @router.post(
@@ -402,6 +468,84 @@ async def upload_asset(
         ),
     )
     return _upload_payload(view)
+
+
+@router.get(
+    "/assets/trash",
+    response_model=AssetTrashPageResponse,
+    summary="List the project's asset trash roots (members only)",
+)
+async def list_asset_trash(
+    project_id: str,
+    server: OctopServer = Depends(get_server),
+    user: User = Depends(current_user),
+    limit: int = Query(DEFAULT_TRASH_PAGE_LIMIT, ge=1, le=MAX_PAGE_LIMIT),
+    offset: int = Query(0, ge=0),
+) -> AssetTrashPageResponse:
+    """Trash ROOTS only (a trashed folder lists once, its subtree rides
+    along), newest first with ``node_id`` as the stable tie-break. A
+    membership-gated read: it keeps working on archived projects. Rows carry
+    safe display fields only — ``original_path``, ``deleted_by_name`` and a
+    ``can_restore`` hint; restore rechecks independently."""
+    service = _asset_service(server)
+    loop = asyncio.get_running_loop()
+    page: AssetTrashPageView = await loop.run_in_executor(
+        None,
+        partial(service.list_trash, project_id, user_id=user.id, limit=limit, offset=offset),
+    )
+    return _trash_page_payload(page)
+
+
+@router.post(
+    "/assets/trash/{node_id}/restore",
+    response_model=AssetNodeResponse,
+    summary="Restore one trash root with its whole subtree (live projects only)",
+)
+async def restore_trashed_asset(
+    project_id: str,
+    node_id: str,
+    server: OctopServer = Depends(get_server),
+    user: User = Depends(current_user),
+) -> AssetNodeResponse:
+    """Restores exactly the rows of one trash root; independently trashed
+    descendants stay in the trash. A still-trashed original parent answers
+    409 ``PROJECT_ASSET_PARENT_IN_TRASH``; a same-name active occupant
+    answers 409 ``PROJECT_ASSET_NAME_CONFLICT`` with the whole tree rolled
+    back. Repeated, non-root, active, foreign and unknown targets share the
+    uniform 404. Bytes and versions come back untouched."""
+    service = _asset_service(server)
+    loop = asyncio.get_running_loop()
+    view = await loop.run_in_executor(
+        None,
+        partial(service.restore_trashed_asset, project_id, user_id=user.id, node_id=node_id),
+    )
+    return _node_payload(view)
+
+
+@router.delete(
+    "/assets/{node_id}",
+    status_code=204,
+    summary="Move one asset node and its subtree to the trash (live projects only)",
+)
+async def delete_asset(
+    project_id: str,
+    node_id: str,
+    server: OctopServer = Depends(get_server),
+    user: User = Depends(current_user),
+) -> Response:
+    """Recoverable soft delete (042): the target plus its whole ACTIVE
+    subtree moves to the trash in one transaction — versions and object
+    bytes are retained, never purged here. Members only own fully
+    self-created subtrees (403 otherwise); owner/admin manage everything.
+    Unknown, foreign, hidden-root and already-trashed targets answer the
+    uniform 404; archived projects answer 403."""
+    service = _asset_service(server)
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(
+        None,
+        partial(service.trash_asset, project_id, user_id=user.id, node_id=node_id),
+    )
+    return Response(status_code=204)
 
 
 @router.get(

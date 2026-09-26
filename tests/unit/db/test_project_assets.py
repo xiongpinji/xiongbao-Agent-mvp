@@ -305,6 +305,11 @@ def test_migration_023_shape(db: SqlitePool) -> None:
         "created_by",
         "created_at",
         "updated_at",
+        # 042 recoverable trash (v29).
+        "deleted_at",
+        "deleted_by",
+        "trash_root_id",
+        "original_name_key",
     }
     assert version_cols == {
         "version_id",
@@ -970,7 +975,8 @@ def test_usage_counts_only_current_file_bytes(
     # A zero-byte file counts as a file with zero bytes.
     _commit_file(repo, pid, member_id, root, name="empty.bin", size_bytes=0, media_type=None)
     usage = repo.usage(pid, user_id=member_id)
-    assert usage == (3, 10)  # Report.PDF (7) + notes.txt (3) + empty.bin (0)
+    # (active files, active bytes, trash files, trash bytes) — 042 split.
+    assert usage == (3, 10, 0, 0)  # Report.PDF (7) + notes.txt (3) + empty.bin (0)
     assert repo.usage(pid, user_id=999999) is None
     assert repo.usage("ghost-project", user_id=member_id) is None
     assert root and beta
@@ -2261,7 +2267,7 @@ def test_commit_new_version_flips_current_and_preserves_old(
     # Current-version readers follow the new version.
     download = repo.get_download(pid, user_id=member_id, node_id=node_id)
     assert download is not None and download.version_id == second.version.version_id
-    assert repo.usage(pid, user_id=member_id) == (1, 5)
+    assert repo.usage(pid, user_id=member_id) == (1, 5, 0, 0)
 
 
 def test_commit_new_version_rejections_write_nothing(
@@ -2494,6 +2500,10 @@ _FAKE_NODE_ROW: dict[str, Any] = {
     "created_by": None,
     "created_at": 0,
     "updated_at": 0,
+    "deleted_at": None,
+    "deleted_by": None,
+    "trash_root_id": None,
+    "original_name_key": None,
 }
 _FAKE_VERSION_ROW: dict[str, Any] = {
     "version_id": _FAKE_VERSION,
@@ -3309,3 +3319,1804 @@ def test_task_shares_never_authorize_asset_versions(
         assert excinfo.value.code == ErrorCode.NOT_FOUND
     # The owner keeps full access.
     assert service.list_versions(pid, user_id=owner_id, node_id=node_id).total == 1
+
+
+# ---------------------------------------------------------------------------
+# 042 recoverable trash helpers
+# ---------------------------------------------------------------------------
+
+_TRASH_COLS = ("deleted_at", "deleted_by", "trash_root_id", "original_name_key")
+
+
+def _watermark(pool: SqlitePool) -> int:
+    with pool.connect() as conn:
+        return int(conn.execute("SELECT version FROM _schema_version").fetchone()["version"])
+
+
+def _columns(pool: SqlitePool, table: str) -> set[str]:
+    with pool.connect() as conn:
+        return {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def _indexes(pool: SqlitePool) -> set[str]:
+    with pool.connect() as conn:
+        return {
+            r["name"]
+            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='index'").fetchall()
+        }
+
+
+def _trash_row(db: SqlitePool, project_id: str, node_id: str) -> Any:
+    with db.connect() as conn:
+        return conn.execute(
+            "SELECT node_id, parent_node_id, kind, name, name_key, created_by, "
+            "deleted_at, deleted_by, trash_root_id, original_name_key "
+            "FROM project_asset_nodes WHERE project_id = ? AND node_id = ?",
+            (project_id, node_id),
+        ).fetchone()
+
+
+def _downgrade_to_v28(pool: SqlitePool) -> None:
+    """Roll back every 029 artifact so ``run_migrations`` must replay it."""
+    with pool.connect() as conn:
+        conn.executescript(
+            """
+            DROP INDEX IF EXISTS idx_project_asset_nodes_trash;
+            ALTER TABLE project_asset_nodes DROP COLUMN original_name_key;
+            ALTER TABLE project_asset_nodes DROP COLUMN trash_root_id;
+            ALTER TABLE project_asset_nodes DROP COLUMN deleted_by;
+            ALTER TABLE project_asset_nodes DROP COLUMN deleted_at;
+            UPDATE _schema_version SET version = 28;
+            """
+        )
+
+
+def _set_deleted_at(db: SqlitePool, project_id: str, node_id: str, deleted_at: int) -> None:
+    with db.transaction() as conn:
+        conn.execute(
+            "UPDATE project_asset_nodes SET deleted_at = ? WHERE project_id = ? AND node_id = ?",
+            (deleted_at, project_id, node_id),
+        )
+
+
+def _version_snapshot(db: SqlitePool, project_id: str) -> list[tuple[Any, ...]]:
+    return [
+        (
+            r["version_id"],
+            r["node_id"],
+            r["object_key"],
+            r["size_bytes"],
+            r["sha256"],
+            r["media_type"],
+            r["uploaded_by"],
+            r["is_current"],
+        )
+        for r in _version_rows(db, project_id)
+    ]
+
+
+def _admin_id(users: UserRepo, projects: ProjectRepo, pid: str, *, name: str = "admin42") -> int:
+    uid = users.create(username=name, password_hash="h", role="user")
+    projects.add_member(pid, uid, role="admin")
+    return uid
+
+
+# ---------------------------------------------------------------------------
+# 042 migration v29: fresh shape, v28 upgrade, partial replay, PG parity
+# ---------------------------------------------------------------------------
+
+
+def test_migration_029_shape_on_fresh_db(db: SqlitePool) -> None:
+    version = _watermark(db)
+    assert version == _max_discovered_version("sqlite")
+    assert version >= 29
+    assert set(_TRASH_COLS) <= _columns(db, "project_asset_nodes")
+    assert "idx_project_asset_nodes_trash" in _indexes(db)
+
+
+def test_migration_upgrades_from_v28_preserves_active_nodes(tmp_path: Path) -> None:
+    pool = SqlitePool(tmp_path / "upgrade-029.db")
+    run_migrations(pool)
+    users = UserRepo(pool)
+    projects = ProjectRepo(pool)
+    assets = ProjectAssetRepo(pool)
+    owner = users.create(username="upgrader", password_hash="h", role="user")
+    project = projects.create_with_owner(creator_user_id=owner, name="升级回收站")
+    local_pid = project.project_id
+    root = assets.ensure_root(local_pid)
+    assert root is not None
+    created = assets.create_folder(
+        project_id=local_pid,
+        actor_user_id=owner,
+        parent_node_id=root,
+        name="旧资料",
+        name_key="旧资料",
+    )
+    assert created.outcome == "created" and created.row is not None
+    old_id = created.row.node_id
+
+    _downgrade_to_v28(pool)
+    assert _watermark(pool) == 28
+    assert not (set(_TRASH_COLS) & _columns(pool, "project_asset_nodes"))
+
+    run_migrations(pool)
+
+    assert _watermark(pool) == _max_discovered_version("sqlite")
+    assert set(_TRASH_COLS) <= _columns(pool, "project_asset_nodes")
+    assert "idx_project_asset_nodes_trash" in _indexes(pool)
+    with pool.connect() as conn:
+        row = conn.execute(
+            "SELECT deleted_at, deleted_by, trash_root_id, original_name_key "
+            "FROM project_asset_nodes WHERE node_id = ?",
+            (old_id,),
+        ).fetchone()
+    assert row is not None
+    assert all(row[col] is None for col in _TRASH_COLS)
+    # The upgraded schema keeps serving old and new operations alike.
+    again = assets.create_folder(
+        project_id=local_pid,
+        actor_user_id=owner,
+        parent_node_id=root,
+        name="新资料",
+        name_key="新资料",
+    )
+    assert again.outcome == "created"
+    trashed = assets.trash_node(project_id=local_pid, actor_user_id=owner, node_id=old_id)
+    assert trashed.outcome == "trashed"
+
+
+def test_migration_029_sql_file_applies_cleanly_on_v28(tmp_path: Path) -> None:
+    pool = SqlitePool(tmp_path / "canonical-029.db")
+    run_migrations(pool)
+    _downgrade_to_v28(pool)
+    sql = (MIGRATIONS / "029_project_asset_trash.sql").read_text(encoding="utf-8")
+    with pool.connect() as conn:
+        conn.executescript(sql)
+    assert _watermark(pool) == 29
+    assert set(_TRASH_COLS) <= _columns(pool, "project_asset_nodes")
+    assert "idx_project_asset_nodes_trash" in _indexes(pool)
+
+
+def test_migration_029_partial_replay_with_all_artifacts_present(tmp_path: Path) -> None:
+    """A crash after the full DDL but before the watermark must replay clean."""
+    pool = SqlitePool(tmp_path / "partial-029.db")
+    run_migrations(pool)
+    with pool.connect() as conn:
+        conn.execute("UPDATE _schema_version SET version = 28")
+    run_migrations(pool)
+    assert _watermark(pool) == _max_discovered_version("sqlite")
+    assert set(_TRASH_COLS) <= _columns(pool, "project_asset_nodes")
+    assert "idx_project_asset_nodes_trash" in _indexes(pool)
+
+
+def test_migration_029_partial_replay_after_prefix_of_ddl_recovers(tmp_path: Path) -> None:
+    """A crash mid-DDL (columns 1-2 applied, rest missing) still converges."""
+    pool = SqlitePool(tmp_path / "partial-029-prefix.db")
+    run_migrations(pool)
+    with pool.connect() as conn:
+        conn.executescript(
+            """
+            DROP INDEX IF EXISTS idx_project_asset_nodes_trash;
+            ALTER TABLE project_asset_nodes DROP COLUMN original_name_key;
+            ALTER TABLE project_asset_nodes DROP COLUMN trash_root_id;
+            UPDATE _schema_version SET version = 28;
+            """
+        )
+    run_migrations(pool)
+    assert _watermark(pool) == _max_discovered_version("sqlite")
+    assert set(_TRASH_COLS) <= _columns(pool, "project_asset_nodes")
+    assert "idx_project_asset_nodes_trash" in _indexes(pool)
+
+
+def test_migration_029_pg_pair_declares_same_shape() -> None:
+    sqlite_sql = (MIGRATIONS / "029_project_asset_trash.sql").read_text(encoding="utf-8")
+    pg_sql = (MIGRATIONS / "029_project_asset_trash.pg.sql").read_text(encoding="utf-8")
+    shared_tokens = (
+        "ALTER TABLE project_asset_nodes ADD COLUMN deleted_at INTEGER",
+        "ALTER TABLE project_asset_nodes ADD COLUMN deleted_by INTEGER "
+        "REFERENCES users(id) ON DELETE SET NULL",
+        "ALTER TABLE project_asset_nodes ADD COLUMN trash_root_id TEXT",
+        "ALTER TABLE project_asset_nodes ADD COLUMN original_name_key TEXT",
+        "CREATE INDEX IF NOT EXISTS idx_project_asset_nodes_trash",
+        "ON project_asset_nodes(project_id, trash_root_id, deleted_at)",
+        "UPDATE _schema_version SET version = 29",
+    )
+    for token in shared_tokens:
+        assert token in sqlite_sql, token
+        assert token in pg_sql, token
+    # Only the first header line may differ between the paired files.
+    assert sqlite_sql.split("\n", 1)[1] == pg_sql.split("\n", 1)[1]
+    statements = _split_pg_sql(pg_sql)
+    assert len(statements) >= 6
+    assert all(stmt.strip() for stmt in statements)
+    assert statements[-1] == "UPDATE _schema_version SET version = 29"
+
+
+def test_user_delete_nulls_deleted_by(db: SqlitePool, repo: ProjectAssetRepo, pid: str) -> None:
+    users = UserRepo(db)
+    actor = users.create(username="deleter42", password_hash="h", role="user")
+    projects = ProjectRepo(db)
+    projects.add_member(pid, actor, role="member")
+    root = repo.ensure_root(pid)
+    assert root is not None
+    commit = _commit_file(repo, pid, actor, root, name="gone.txt")
+    node_id = commit.node.node_id
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=actor, node_id=node_id).outcome == "trashed"
+    )
+    with db.transaction() as conn:
+        conn.execute("DELETE FROM users WHERE id = ?", (actor,))
+    row = _trash_row(db, pid, node_id)
+    assert row["deleted_by"] is None
+    # The trash metadata itself survives the user deletion.
+    assert row["deleted_at"] is not None
+    assert row["trash_root_id"] == node_id
+
+
+# ---------------------------------------------------------------------------
+# 042 repo: trash_node
+# ---------------------------------------------------------------------------
+
+
+def test_trash_file_marks_only_trash_columns(
+    repo: ProjectAssetRepo, db: SqlitePool, pid: str, member_id: int
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    commit = _commit_file(repo, pid, member_id, root, name="a.txt", size_bytes=5)
+    assert commit.node is not None
+    node_id = commit.node.node_id
+    before_versions = _version_snapshot(db, pid)
+
+    result = repo.trash_node(project_id=pid, actor_user_id=member_id, node_id=node_id)
+
+    assert result.outcome == "trashed"
+    row = _trash_row(db, pid, node_id)
+    assert isinstance(row["deleted_at"], int) and row["deleted_at"] > 0
+    assert row["deleted_by"] == member_id
+    assert row["trash_root_id"] == node_id
+    assert row["original_name_key"] == "a.txt"
+    # The temp name key frees the display name; the display name never changes.
+    assert row["name_key"] == "\x1f" + node_id
+    assert row["name"] == "a.txt"
+    # Versions are never mutated or removed by trashing.
+    assert _version_snapshot(db, pid) == before_versions
+    # Ordinary reads no longer see the node.
+    assert repo.get_node(pid, node_id) is None
+
+
+def test_trash_folder_marks_active_subtree_and_skips_independent_trash(
+    repo: ProjectAssetRepo,
+    db: SqlitePool,
+    pid: str,
+    member_id: int,
+    other_member_id: int,
+    owner_id: int,
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    folder = repo.create_folder(
+        project_id=pid, actor_user_id=member_id, parent_node_id=root, name="A", name_key="a"
+    )
+    assert folder.row is not None
+    folder_id = folder.row.node_id
+    sub = repo.create_folder(
+        project_id=pid,
+        actor_user_id=member_id,
+        parent_node_id=folder_id,
+        name="A1",
+        name_key="a1",
+    )
+    assert sub.row is not None
+    x = _commit_file(repo, pid, member_id, sub.row.node_id, name="x.txt")
+    y = _commit_file(repo, pid, member_id, folder_id, name="y.txt")
+    z = _commit_file(repo, pid, other_member_id, folder_id, name="z.txt")
+    assert x.node is not None and y.node is not None and z.node is not None
+
+    # z is trashed first as its own independent root (created by other_member).
+    assert (
+        repo.trash_node(
+            project_id=pid, actor_user_id=other_member_id, node_id=z.node.node_id
+        ).outcome
+        == "trashed"
+    )
+    z_before = _trash_row(db, pid, z.node.node_id)
+
+    result = repo.trash_node(project_id=pid, actor_user_id=owner_id, node_id=folder_id)
+    assert result.outcome == "trashed"
+
+    a_row = _trash_row(db, pid, folder_id)
+    shared = (a_row["deleted_at"], a_row["deleted_by"], a_row["trash_root_id"])
+    assert shared[1] == owner_id and shared[2] == folder_id
+    for node_id in (sub.row.node_id, x.node.node_id, y.node.node_id):
+        row = _trash_row(db, pid, node_id)
+        assert (row["deleted_at"], row["deleted_by"], row["trash_root_id"]) == shared
+        # Descendants keep their display name_key; only the root is renamed.
+        assert row["original_name_key"] is None
+        assert not row["name_key"].startswith("\x1f")
+    assert a_row["original_name_key"] == "a"
+    assert a_row["name_key"] == "\x1f" + folder_id
+    # The independently trashed child keeps its own root and metadata.
+    z_after = _trash_row(db, pid, z.node.node_id)
+    assert z_after["trash_root_id"] == z.node.node_id
+    assert z_after["deleted_by"] == other_member_id
+    assert z_after["deleted_at"] == z_before["deleted_at"]
+    assert z_after["original_name_key"] == "z.txt"
+
+
+def test_trash_uniform_rejections(
+    repo: ProjectAssetRepo,
+    db: SqlitePool,
+    projects: ProjectRepo,
+    pid: str,
+    member_id: int,
+    outsider_id: int,
+    owner_id: int,
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    commit = _commit_file(repo, pid, member_id, root, name="a.txt")
+    node_id = commit.node.node_id
+    # Non-member and unknown project → not_member sentinel.
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=outsider_id, node_id=node_id).outcome
+        == "not_member"
+    )
+    assert (
+        repo.trash_node(
+            project_id="ghost-project", actor_user_id=member_id, node_id=node_id
+        ).outcome
+        == "not_member"
+    )
+    # Unknown id, the hidden root, and a cross-project id → uniform missing.
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=member_id, node_id=new_ulid()).outcome
+        == "node_missing"
+    )
+    assert repo.get_root(pid) == root
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=owner_id, node_id=root).outcome
+        == "node_missing"
+    )
+    other = projects.create_with_owner(creator_user_id=owner_id, name="别的项目42")
+    other_root = repo.ensure_root(other.project_id)
+    assert other_root is not None
+    other_commit = _commit_file(repo, other.project_id, owner_id, other_root, name="b.txt")
+    assert other_commit.node is not None
+    projects.add_member(other.project_id, member_id, role="member")
+    assert (
+        repo.trash_node(
+            project_id=pid, actor_user_id=member_id, node_id=other_commit.node.node_id
+        ).outcome
+        == "node_missing"
+    )
+    # Already-trashed target → uniform missing (repeat delete is a 404).
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=member_id, node_id=node_id).outcome
+        == "trashed"
+    )
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=member_id, node_id=node_id).outcome
+        == "node_missing"
+    )
+    # Archived project → archived sentinel; nothing changed by the rejections.
+    _archive(db, pid)
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=owner_id, node_id=node_id).outcome
+        == "archived"
+    )
+    row = _trash_row(db, pid, node_id)
+    assert row["trash_root_id"] == node_id and row["deleted_by"] == member_id
+
+
+def test_trash_member_requires_self_owned_active_subtree(
+    repo: ProjectAssetRepo,
+    db: SqlitePool,
+    users: UserRepo,
+    projects: ProjectRepo,
+    pid: str,
+    member_id: int,
+    other_member_id: int,
+    owner_id: int,
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    mine = _commit_file(repo, pid, member_id, root, name="mine.txt")
+    theirs = _commit_file(repo, pid, other_member_id, root, name="theirs.txt")
+    f_mine = repo.create_folder(
+        project_id=pid, actor_user_id=member_id, parent_node_id=root, name="MineF", name_key="minef"
+    )
+    assert f_mine.row is not None and mine.node is not None and theirs.node is not None
+    inside_theirs = _commit_file(repo, pid, other_member_id, f_mine.row.node_id, name="in.txt")
+    f_theirs = repo.create_folder(
+        project_id=pid,
+        actor_user_id=other_member_id,
+        parent_node_id=root,
+        name="TheirsF",
+        name_key="theirsf",
+    )
+    assert f_theirs.row is not None and inside_theirs.node is not None
+    inside_mine = _commit_file(
+        repo, pid, member_id, f_theirs.row.node_id, name="member-in-theirs.txt"
+    )
+    assert inside_mine.outcome == "committed"
+    orphan = _seed_node(db, project_id=pid, parent_node_id=root, kind="file", name="orphan.txt")
+    admin_id = _admin_id(users, projects, pid)
+
+    # A member may trash their own file.
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=member_id, node_id=mine.node.node_id).outcome
+        == "trashed"
+    )
+    # ... never someone else's file.
+    assert (
+        repo.trash_node(
+            project_id=pid, actor_user_id=member_id, node_id=theirs.node.node_id
+        ).outcome
+        == "forbidden"
+    )
+    # A folder is only member-trashable when EVERY active item in the subtree
+    # is self-created; f_mine contains other_member's active file.
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=member_id, node_id=f_mine.row.node_id).outcome
+        == "forbidden"
+    )
+    # The folder creator check applies too: f_theirs belongs to other_member.
+    assert (
+        repo.trash_node(
+            project_id=pid, actor_user_id=member_id, node_id=f_theirs.row.node_id
+        ).outcome
+        == "forbidden"
+    )
+    # other_member cannot trash f_theirs either: it holds member's active file.
+    assert (
+        repo.trash_node(
+            project_id=pid, actor_user_id=other_member_id, node_id=f_theirs.row.node_id
+        ).outcome
+        == "forbidden"
+    )
+    # NULL created_by → owner/admin only; a member is refused.
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=member_id, node_id=orphan).outcome
+        == "forbidden"
+    )
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=admin_id, node_id=orphan).outcome == "trashed"
+    )
+    # Owner and admin manage everything.
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=owner_id, node_id=theirs.node.node_id).outcome
+        == "trashed"
+    )
+    assert (
+        repo.trash_node(
+            project_id=pid, actor_user_id=admin_id, node_id=f_theirs.row.node_id
+        ).outcome
+        == "trashed"
+    )
+    # Every forbidden call above left its subtree untouched.
+    assert _trash_row(db, pid, f_mine.row.node_id)["deleted_at"] is None
+    assert _trash_row(db, pid, inside_theirs.node.node_id)["deleted_at"] is None
+    # An independently trashed child does not block a member's folder trash:
+    # only ACTIVE descendants count for the ownership sweep.
+    f_mix = repo.create_folder(
+        project_id=pid, actor_user_id=member_id, parent_node_id=root, name="MixF", name_key="mixf"
+    )
+    assert f_mix.row is not None
+    z = _commit_file(repo, pid, other_member_id, f_mix.row.node_id, name="z.txt")
+    assert z.node is not None
+    assert (
+        repo.trash_node(
+            project_id=pid, actor_user_id=other_member_id, node_id=z.node.node_id
+        ).outcome
+        == "trashed"
+    )
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=member_id, node_id=f_mix.row.node_id).outcome
+        == "trashed"
+    )
+
+
+def test_trash_releases_name_for_recreate(
+    repo: ProjectAssetRepo, db: SqlitePool, pid: str, member_id: int
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    first = _commit_file(repo, pid, member_id, root, name="dup.txt")
+    assert first.node is not None
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=member_id, node_id=first.node.node_id).outcome
+        == "trashed"
+    )
+    # The same (folded) name is free again for a brand-new node.
+    second = _commit_file(repo, pid, member_id, root, name="DUP.TXT")
+    assert second.outcome == "committed" and second.node is not None
+    assert second.node.node_id != first.node.node_id
+    listed = repo.list_nodes(
+        pid, user_id=member_id, parent_node_id=root, kind=None, name_like=None, limit=50, offset=0
+    )
+    assert listed is not None
+    assert [r.name for r in listed[0]] == ["DUP.TXT"] and listed[1] == 1
+    # Folders behave the same.
+    folder = repo.create_folder(
+        project_id=pid, actor_user_id=member_id, parent_node_id=root, name="F", name_key="f"
+    )
+    assert folder.row is not None
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=member_id, node_id=folder.row.node_id).outcome
+        == "trashed"
+    )
+    again = repo.create_folder(
+        project_id=pid, actor_user_id=member_id, parent_node_id=root, name="f", name_key="f"
+    )
+    assert again.outcome == "created"
+
+
+# ---------------------------------------------------------------------------
+# 042 repo: restore_trashed
+# ---------------------------------------------------------------------------
+
+
+def test_restore_file_root_clears_all_trash_columns(
+    repo: ProjectAssetRepo, db: SqlitePool, pid: str, member_id: int
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    commit = _commit_file(repo, pid, member_id, root, name="a.txt", size_bytes=5)
+    assert commit.node is not None and commit.version is not None
+    node_id = commit.node.node_id
+    version_id = commit.version.version_id
+    before_versions = _version_snapshot(db, pid)
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=member_id, node_id=node_id).outcome
+        == "trashed"
+    )
+
+    result = repo.restore_trashed(project_id=pid, actor_user_id=member_id, node_id=node_id)
+
+    assert result.outcome == "restored"
+    assert result.node is not None
+    assert result.node.node_id == node_id
+    assert result.node.name == "a.txt"
+    assert result.node.name_key == "a.txt"
+    assert result.size_bytes == 5
+    assert result.media_type == "text/plain"
+    row = _trash_row(db, pid, node_id)
+    assert all(row[col] is None for col in _TRASH_COLS)
+    assert row["name_key"] == "a.txt"
+    # node_id, version rows and the current pointer are untouched.
+    assert _version_snapshot(db, pid) == before_versions
+    assert [r["version_id"] for r in _current_versions(db, pid, node_id)] == [version_id]
+    assert repo.get_node(pid, node_id) is not None
+
+
+def test_restore_folder_restores_whole_tree_only_same_root(
+    repo: ProjectAssetRepo,
+    db: SqlitePool,
+    pid: str,
+    member_id: int,
+    other_member_id: int,
+    owner_id: int,
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    folder = repo.create_folder(
+        project_id=pid, actor_user_id=member_id, parent_node_id=root, name="A", name_key="a"
+    )
+    assert folder.row is not None
+    folder_id = folder.row.node_id
+    sub = repo.create_folder(
+        project_id=pid, actor_user_id=member_id, parent_node_id=folder_id, name="A1", name_key="a1"
+    )
+    assert sub.row is not None
+    x = _commit_file(repo, pid, member_id, sub.row.node_id, name="x.txt")
+    y = _commit_file(repo, pid, member_id, folder_id, name="y.txt")
+    z = _commit_file(repo, pid, other_member_id, folder_id, name="z.txt")
+    assert x.node is not None and y.node is not None and z.node is not None and sub.row is not None
+    # z becomes an independent trash root first.
+    assert (
+        repo.trash_node(
+            project_id=pid, actor_user_id=other_member_id, node_id=z.node.node_id
+        ).outcome
+        == "trashed"
+    )
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=owner_id, node_id=folder_id).outcome
+        == "trashed"
+    )
+
+    result = repo.restore_trashed(project_id=pid, actor_user_id=owner_id, node_id=folder_id)
+
+    assert result.outcome == "restored"
+    assert result.node is not None and result.size_bytes is None
+    for node_id in (folder_id, sub.row.node_id, x.node.node_id, y.node.node_id):
+        row = _trash_row(db, pid, node_id)
+        assert all(row[col] is None for col in _TRASH_COLS), node_id
+        assert not row["name_key"].startswith("\x1f")
+    # The independent root stays trashed with its own metadata.
+    z_row = _trash_row(db, pid, z.node.node_id)
+    assert z_row["deleted_at"] is not None
+    assert z_row["trash_root_id"] == z.node.node_id
+    assert z_row["original_name_key"] == "z.txt"
+
+
+def test_restore_repeated_or_non_root_is_uniform_missing(
+    repo: ProjectAssetRepo,
+    db: SqlitePool,
+    projects: ProjectRepo,
+    pid: str,
+    member_id: int,
+    owner_id: int,
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    folder = repo.create_folder(
+        project_id=pid, actor_user_id=member_id, parent_node_id=root, name="A", name_key="a"
+    )
+    assert folder.row is not None
+    x = _commit_file(repo, pid, member_id, folder.row.node_id, name="x.txt")
+    assert x.node is not None
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=owner_id, node_id=folder.row.node_id).outcome
+        == "trashed"
+    )
+    # A trashed descendant is not a trash root → uniform missing.
+    assert (
+        repo.restore_trashed(project_id=pid, actor_user_id=owner_id, node_id=x.node.node_id).outcome
+        == "node_missing"
+    )
+    # Restoring the root twice → uniform missing after the first success.
+    assert (
+        repo.restore_trashed(
+            project_id=pid, actor_user_id=owner_id, node_id=folder.row.node_id
+        ).outcome
+        == "restored"
+    )
+    assert (
+        repo.restore_trashed(
+            project_id=pid, actor_user_id=owner_id, node_id=folder.row.node_id
+        ).outcome
+        == "node_missing"
+    )
+    # Active nodes, unknown ids, the hidden root, cross-project ids.
+    assert (
+        repo.restore_trashed(project_id=pid, actor_user_id=owner_id, node_id=x.node.node_id).outcome
+        == "node_missing"
+    )
+    assert (
+        repo.restore_trashed(project_id=pid, actor_user_id=owner_id, node_id=new_ulid()).outcome
+        == "node_missing"
+    )
+    assert (
+        repo.restore_trashed(project_id=pid, actor_user_id=owner_id, node_id=root).outcome
+        == "node_missing"
+    )
+    other = projects.create_with_owner(creator_user_id=owner_id, name="别的项目42b")
+    other_root = repo.ensure_root(other.project_id)
+    assert other_root is not None
+    other_commit = _commit_file(repo, other.project_id, owner_id, other_root, name="c.txt")
+    assert other_commit.node is not None
+    assert (
+        repo.trash_node(
+            project_id=other.project_id,
+            actor_user_id=owner_id,
+            node_id=other_commit.node.node_id,
+        ).outcome
+        == "trashed"
+    )
+    projects.add_member(other.project_id, member_id, role="member")
+    assert (
+        repo.restore_trashed(
+            project_id=pid, actor_user_id=member_id, node_id=other_commit.node.node_id
+        ).outcome
+        == "node_missing"
+    )
+    # Non-members get the not_member sentinel before any node lookup.
+    outsider = UserRepo(db).create(username="out42", password_hash="h", role="user")
+    assert (
+        repo.restore_trashed(
+            project_id=pid, actor_user_id=outsider, node_id=folder.row.node_id
+        ).outcome
+        == "not_member"
+    )
+
+
+def test_restore_same_name_conflict_is_atomic(
+    repo: ProjectAssetRepo, db: SqlitePool, pid: str, member_id: int
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    folder = repo.create_folder(
+        project_id=pid, actor_user_id=member_id, parent_node_id=root, name="A", name_key="a"
+    )
+    assert folder.row is not None
+    x = _commit_file(repo, pid, member_id, folder.row.node_id, name="x.txt")
+    assert x.node is not None
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=member_id, node_id=folder.row.node_id).outcome
+        == "trashed"
+    )
+    # A fresh active folder takes the released name.
+    replacement = repo.create_folder(
+        project_id=pid, actor_user_id=member_id, parent_node_id=root, name="a", name_key="a"
+    )
+    assert replacement.outcome == "created" and replacement.row is not None
+
+    result = repo.restore_trashed(
+        project_id=pid, actor_user_id=member_id, node_id=folder.row.node_id
+    )
+
+    assert result.outcome == "name_conflict"
+    # Whole-tree rollback: every row of the trashed tree stays trashed.
+    for node_id in (folder.row.node_id, x.node.node_id):
+        row = _trash_row(db, pid, node_id)
+        assert row["deleted_at"] is not None, node_id
+        assert row["trash_root_id"] == folder.row.node_id, node_id
+    assert _trash_row(db, pid, folder.row.node_id)["name_key"] == "\x1f" + folder.row.node_id
+    # The replacement folder is untouched.
+    assert _trash_row(db, pid, replacement.row.node_id)["deleted_at"] is None
+    # File-level conflict behaves identically.
+    f1 = _commit_file(repo, pid, member_id, root, name="dup.txt")
+    assert f1.node is not None
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=member_id, node_id=f1.node.node_id).outcome
+        == "trashed"
+    )
+    f2 = _commit_file(repo, pid, member_id, root, name="DUP.txt")
+    assert f2.outcome == "committed"
+    assert (
+        repo.restore_trashed(
+            project_id=pid, actor_user_id=member_id, node_id=f1.node.node_id
+        ).outcome
+        == "name_conflict"
+    )
+    assert _trash_row(db, pid, f1.node.node_id)["deleted_at"] is not None
+    assert _trash_row(db, pid, f2.node.node_id)["deleted_at"] is None
+
+
+def test_restore_unique_constraint_is_final_conflict_guard(
+    repo: ProjectAssetRepo,
+    db: SqlitePool,
+    pid: str,
+    member_id: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Even when the pre-check is bypassed (race), the parent UNIQUE decides
+    and the failure maps to the same name_conflict outcome with a full
+    rollback."""
+    root = repo.ensure_root(pid)
+    assert root is not None
+    first = _commit_file(repo, pid, member_id, root, name="race.txt")
+    assert first.node is not None
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=member_id, node_id=first.node.node_id).outcome
+        == "trashed"
+    )
+    second = _commit_file(repo, pid, member_id, root, name="race.txt")
+    assert second.outcome == "committed" and second.node is not None
+    monkeypatch.setattr(repo, "_restore_name_available", lambda *args, **kwargs: True)
+
+    result = repo.restore_trashed(
+        project_id=pid, actor_user_id=member_id, node_id=first.node.node_id
+    )
+
+    assert result.outcome == "name_conflict"
+    row = _trash_row(db, pid, first.node.node_id)
+    assert row["deleted_at"] is not None
+    assert row["name_key"] == "\x1f" + first.node.node_id
+    assert _trash_row(db, pid, second.node.node_id)["deleted_at"] is None
+
+
+def test_restore_parent_in_trash_is_conflict(
+    repo: ProjectAssetRepo, db: SqlitePool, pid: str, member_id: int, owner_id: int
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    outer = repo.create_folder(
+        project_id=pid, actor_user_id=member_id, parent_node_id=root, name="Outer", name_key="outer"
+    )
+    assert outer.row is not None
+    inner = repo.create_folder(
+        project_id=pid,
+        actor_user_id=member_id,
+        parent_node_id=outer.row.node_id,
+        name="Inner",
+        name_key="inner",
+    )
+    assert inner.row is not None
+    # Inner is trashed first (independent root), then its parent Outer.
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=owner_id, node_id=inner.row.node_id).outcome
+        == "trashed"
+    )
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=owner_id, node_id=outer.row.node_id).outcome
+        == "trashed"
+    )
+
+    blocked = repo.restore_trashed(
+        project_id=pid, actor_user_id=owner_id, node_id=inner.row.node_id
+    )
+    assert blocked.outcome == "parent_in_trash"
+    # Inner stays fully trashed after the refused restore.
+    assert _trash_row(db, pid, inner.row.node_id)["deleted_at"] is not None
+
+    assert (
+        repo.restore_trashed(
+            project_id=pid, actor_user_id=owner_id, node_id=outer.row.node_id
+        ).outcome
+        == "restored"
+    )
+    # Inner is still an independent trash root; now its parent is active.
+    assert _trash_row(db, pid, inner.row.node_id)["trash_root_id"] == inner.row.node_id
+    assert (
+        repo.restore_trashed(
+            project_id=pid, actor_user_id=owner_id, node_id=inner.row.node_id
+        ).outcome
+        == "restored"
+    )
+    assert all(
+        _trash_row(db, pid, node_id)["deleted_at"] is None
+        for node_id in (outer.row.node_id, inner.row.node_id)
+    )
+
+
+def test_restore_permissions(
+    repo: ProjectAssetRepo,
+    db: SqlitePool,
+    users: UserRepo,
+    projects: ProjectRepo,
+    pid: str,
+    member_id: int,
+    other_member_id: int,
+    owner_id: int,
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    admin_id = _admin_id(users, projects, pid, name="admin42r")
+    # Member restores their own trash root.
+    mine = _commit_file(repo, pid, member_id, root, name="mine.txt")
+    assert mine.node is not None
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=member_id, node_id=mine.node.node_id).outcome
+        == "trashed"
+    )
+    assert (
+        repo.restore_trashed(
+            project_id=pid, actor_user_id=member_id, node_id=mine.node.node_id
+        ).outcome
+        == "restored"
+    )
+    # Owner trashes; a plain member may not restore someone else's root.
+    theirs = _commit_file(repo, pid, member_id, root, name="byowner.txt")
+    assert theirs.node is not None
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=owner_id, node_id=theirs.node.node_id).outcome
+        == "trashed"
+    )
+    assert (
+        repo.restore_trashed(
+            project_id=pid, actor_user_id=member_id, node_id=theirs.node.node_id
+        ).outcome
+        == "forbidden"
+    )
+    assert (
+        repo.restore_trashed(
+            project_id=pid, actor_user_id=other_member_id, node_id=theirs.node.node_id
+        ).outcome
+        == "forbidden"
+    )
+    # Admin and owner manage every trash root.
+    assert (
+        repo.restore_trashed(
+            project_id=pid, actor_user_id=admin_id, node_id=theirs.node.node_id
+        ).outcome
+        == "restored"
+    )
+    # NULL deleted_by (deleted user) → owner/admin only.
+    ghost_file = _commit_file(repo, pid, member_id, root, name="ghost.txt")
+    assert ghost_file.node is not None
+    assert (
+        repo.trash_node(
+            project_id=pid, actor_user_id=member_id, node_id=ghost_file.node.node_id
+        ).outcome
+        == "trashed"
+    )
+    with db.transaction() as conn:
+        conn.execute(
+            "UPDATE project_asset_nodes SET deleted_by = NULL WHERE node_id = ?",
+            (ghost_file.node.node_id,),
+        )
+    assert (
+        repo.restore_trashed(
+            project_id=pid, actor_user_id=member_id, node_id=ghost_file.node.node_id
+        ).outcome
+        == "forbidden"
+    )
+    assert (
+        repo.restore_trashed(
+            project_id=pid, actor_user_id=owner_id, node_id=ghost_file.node.node_id
+        ).outcome
+        == "restored"
+    )
+    # Archived project → archived sentinel for both operations.
+    arch = _commit_file(repo, pid, member_id, root, name="arch.txt")
+    assert arch.node is not None
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=owner_id, node_id=arch.node.node_id).outcome
+        == "trashed"
+    )
+    _archive(db, pid)
+    assert (
+        repo.restore_trashed(
+            project_id=pid, actor_user_id=owner_id, node_id=arch.node.node_id
+        ).outcome
+        == "archived"
+    )
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=owner_id, node_id=mine.node.node_id).outcome
+        == "archived"
+    )
+    # The refused restore left the row trashed.
+    assert _trash_row(db, pid, arch.node.node_id)["deleted_at"] is not None
+
+
+# ---------------------------------------------------------------------------
+# 042 repo: list_trash
+# ---------------------------------------------------------------------------
+
+
+def test_list_trash_roots_only_stable_order_and_pagination(
+    repo: ProjectAssetRepo, db: SqlitePool, pid: str, member_id: int, outsider_id: int
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    ids: list[str] = []
+    for name in ("t1.txt", "t2.txt", "t3.txt"):
+        commit = _commit_file(repo, pid, member_id, root, name=name)
+        assert commit.node is not None
+        assert (
+            repo.trash_node(
+                project_id=pid, actor_user_id=member_id, node_id=commit.node.node_id
+            ).outcome
+            == "trashed"
+        )
+        ids.append(commit.node.node_id)
+    # A folder root lists once even though its subtree shares the root id.
+    folder = repo.create_folder(
+        project_id=pid, actor_user_id=member_id, parent_node_id=root, name="F", name_key="f"
+    )
+    assert folder.row is not None
+    inner = _commit_file(repo, pid, member_id, folder.row.node_id, name="in.txt")
+    assert inner.node is not None
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=member_id, node_id=folder.row.node_id).outcome
+        == "trashed"
+    )
+    # Fixed deleted_at values: t1 oldest, t2/t3 newest (tie → node_id DESC).
+    _set_deleted_at(db, pid, ids[0], 100)
+    _set_deleted_at(db, pid, ids[1], 300)
+    _set_deleted_at(db, pid, ids[2], 300)
+
+    listed = repo.list_trash(pid, user_id=member_id, limit=10, offset=0)
+    assert listed is not None
+    rows, total = listed
+    assert total == 4  # three files + one folder root; the subtree child is not a root
+    listed_ids = [r.node_id for r in rows]
+    assert inner.node.node_id not in listed_ids
+    tie = sorted([ids[1], ids[2]], reverse=True)
+    # deleted_at DESC puts the folder (trashed last, newest ts) first.
+    assert listed_ids[0] == folder.row.node_id
+    assert listed_ids[1:3] == tie
+    assert listed_ids[3] == ids[0]
+
+    page = repo.list_trash(pid, user_id=member_id, limit=2, offset=0)
+    assert page is not None
+    assert [r.node_id for r in page[0]] == listed_ids[:2] and page[1] == 4
+    page2 = repo.list_trash(pid, user_id=member_id, limit=2, offset=2)
+    assert page2 is not None
+    assert [r.node_id for r in page2[0]] == listed_ids[2:] and page2[1] == 4
+    # Non-members get the None sentinel.
+    assert repo.list_trash(pid, user_id=outsider_id, limit=10, offset=0) is None
+    assert repo.list_trash("ghost-project", user_id=member_id, limit=10, offset=0) is None
+
+
+def test_list_trash_original_path_deleted_by_name_can_restore(
+    repo: ProjectAssetRepo,
+    db: SqlitePool,
+    users: UserRepo,
+    projects: ProjectRepo,
+    pid: str,
+    member_id: int,
+    owner_id: int,
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    folder = repo.create_folder(
+        project_id=pid, actor_user_id=member_id, parent_node_id=root, name="资料", name_key="资料"
+    )
+    assert folder.row is not None
+    sub = repo.create_folder(
+        project_id=pid,
+        actor_user_id=member_id,
+        parent_node_id=folder.row.node_id,
+        name="2026",
+        name_key="2026",
+    )
+    assert sub.row is not None
+    deep = _commit_file(repo, pid, member_id, sub.row.node_id, name="报告.txt")
+    top = _commit_file(repo, pid, member_id, root, name="top.txt")
+    assert deep.node is not None and top.node is not None
+    # member trashes their own deep file; owner trashes the top-level file.
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=member_id, node_id=deep.node.node_id).outcome
+        == "trashed"
+    )
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=owner_id, node_id=top.node.node_id).outcome
+        == "trashed"
+    )
+
+    listed = repo.list_trash(pid, user_id=owner_id, limit=10, offset=0)
+    assert listed is not None
+    rows = {r.node_id: r for r in listed[0]}
+    deep_row = rows[deep.node.node_id]
+    # original_path is relative to the hidden root and includes the item name;
+    # ancestors contribute their display names even when they are folders.
+    assert deep_row.original_path == "资料/2026/报告.txt"
+    assert deep_row.kind == "file" and deep_row.name == "报告.txt"
+    assert deep_row.parent_node_id == sub.row.node_id
+    assert isinstance(deep_row.deleted_at, int) and deep_row.deleted_at > 0
+    top_row = rows[top.node.node_id]
+    assert top_row.original_path == "top.txt"
+    # deleted_by_name falls back to the username while no display name exists.
+    assert deep_row.deleted_by == member_id
+    assert deep_row.deleted_by_name == "member"
+    assert top_row.deleted_by_name == "owner"
+    # can_restore is role/deleter scoped: the owner may restore everything.
+    assert deep_row.can_restore is True and top_row.can_restore is True
+    member_view = repo.list_trash(pid, user_id=member_id, limit=10, offset=0)
+    assert member_view is not None
+    member_rows = {r.node_id: r for r in member_view[0]}
+    assert member_rows[deep.node.node_id].can_restore is True
+    assert member_rows[top.node.node_id].can_restore is False
+
+    # A display name wins over the username; emails never appear.
+    users.update_sso_profile(member_id, display_name="熊宝队员")
+    listed = repo.list_trash(pid, user_id=owner_id, limit=10, offset=0)
+    assert listed is not None
+    rows = {r.node_id: r for r in listed[0]}
+    assert rows[deep.node.node_id].deleted_by_name == "熊宝队员"
+
+    # A deleted deleter: deleted_by goes NULL and the display name is None.
+    ghost = _commit_file(repo, pid, member_id, root, name="ghost.txt")
+    assert ghost.node is not None
+    leaver = users.create(username="leaver42", password_hash="h", role="user")
+    projects.add_member(pid, leaver, role="member")
+    leaver_file = _commit_file(repo, pid, leaver, root, name="leaver.txt")
+    assert leaver_file.node is not None
+    assert (
+        repo.trash_node(
+            project_id=pid, actor_user_id=leaver, node_id=leaver_file.node.node_id
+        ).outcome
+        == "trashed"
+    )
+    with db.transaction() as conn:
+        conn.execute("DELETE FROM users WHERE id = ?", (leaver,))
+    listed = repo.list_trash(pid, user_id=owner_id, limit=10, offset=0)
+    assert listed is not None
+    rows = {r.node_id: r for r in listed[0]}
+    assert rows[leaver_file.node.node_id].deleted_by is None
+    assert rows[leaver_file.node.node_id].deleted_by_name is None
+    # A member can never restore the NULL-deleter root; the owner can.
+    member_view = repo.list_trash(pid, user_id=member_id, limit=10, offset=0)
+    assert member_view is not None
+    assert {r.node_id: r for r in member_view[0]}[leaver_file.node.node_id].can_restore is False
+    assert ghost
+
+
+def test_list_trash_read_survives_archive(
+    repo: ProjectAssetRepo, db: SqlitePool, pid: str, member_id: int
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    commit = _commit_file(repo, pid, member_id, root, name="arch.txt")
+    assert commit.node is not None
+    assert (
+        repo.trash_node(
+            project_id=pid, actor_user_id=member_id, node_id=commit.node.node_id
+        ).outcome
+        == "trashed"
+    )
+    _archive(db, pid)
+    listed = repo.list_trash(pid, user_id=member_id, limit=10, offset=0)
+    assert listed is not None
+    assert listed[1] == 1 and listed[0][0].node_id == commit.node.node_id
+
+
+# ---------------------------------------------------------------------------
+# 042 repo: every ordinary entrance filters trashed nodes
+# ---------------------------------------------------------------------------
+
+
+def test_all_read_and_write_paths_reject_trashed_nodes(
+    repo: ProjectAssetRepo, db: SqlitePool, pid: str, member_id: int, owner_id: int
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    first = _commit_file(repo, pid, member_id, root, name="a.txt", size_bytes=5)
+    assert first.node is not None and first.version is not None
+    node_id = first.node.node_id
+    v1 = first.version.version_id
+    second = _commit_new_version(repo, pid, member_id, node_id, size_bytes=6)
+    assert second.outcome == "committed" and second.version is not None
+    v2 = second.version.version_id
+    # Sanity: every entrance works before the trash.
+    assert repo.get_node(pid, node_id) is not None
+    assert repo.get_download(pid, user_id=member_id, node_id=node_id) is not None
+    assert repo.list_versions(pid, user_id=member_id, node_id=node_id, limit=10, offset=0)
+    assert (
+        repo.get_version_download(pid, user_id=member_id, node_id=node_id, version_id=v1)
+        is not None
+    )
+    assert repo.get_node_version(pid, user_id=member_id, node_id=node_id, version_id=v1) is not None
+
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=owner_id, node_id=node_id).outcome
+        == "trashed"
+    )
+
+    assert repo.get_node(pid, node_id) is None
+    assert repo.get_download(pid, user_id=member_id, node_id=node_id) is None
+    assert repo.list_versions(pid, user_id=member_id, node_id=node_id, limit=10, offset=0) is None
+    assert repo.get_version_download(pid, user_id=member_id, node_id=node_id, version_id=v1) is None
+    assert repo.get_version_download(pid, user_id=member_id, node_id=node_id, version_id=v2) is None
+    assert repo.get_node_version(pid, user_id=member_id, node_id=node_id, version_id=v1) is None
+    assert (
+        repo.commit_new_version(
+            project_id=pid,
+            actor_user_id=member_id,
+            node_id=node_id,
+            media_type=None,
+            version_id=repo.new_version_id(),
+            object_key=make_object_key(pid, new_ulid()),
+            size_bytes=1,
+            sha256="0" * 64,
+        ).outcome
+        == "node_missing"
+    )
+    assert (
+        repo.restore_version(
+            project_id=pid, actor_user_id=member_id, node_id=node_id, version_id=v1
+        ).outcome
+        == "node_missing"
+    )
+    listed = repo.list_nodes(
+        pid, user_id=member_id, parent_node_id=root, kind=None, name_like=None, limit=50, offset=0
+    )
+    assert listed is not None
+    assert listed[1] == 0 and listed[0] == []
+    searched = repo.list_nodes(
+        pid,
+        user_id=member_id,
+        parent_node_id=root,
+        kind=None,
+        name_like="%a.txt%",
+        limit=50,
+        offset=0,
+    )
+    assert searched is not None and searched[1] == 0
+
+    # A trashed FOLDER also gates every child-creating entrance.
+    folder = repo.create_folder(
+        project_id=pid, actor_user_id=member_id, parent_node_id=root, name="F", name_key="f"
+    )
+    assert folder.row is not None
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=owner_id, node_id=folder.row.node_id).outcome
+        == "trashed"
+    )
+    assert (
+        repo.create_folder(
+            project_id=pid,
+            actor_user_id=member_id,
+            parent_node_id=folder.row.node_id,
+            name="sub",
+            name_key="sub",
+        ).outcome
+        == "parent_missing"
+    )
+    assert (
+        _commit_file(repo, pid, member_id, folder.row.node_id, name="late.txt").outcome
+        == "parent_missing"
+    )
+
+
+def test_usage_splits_active_and_trash_current_versions(
+    repo: ProjectAssetRepo, db: SqlitePool, pid: str, member_id: int, owner_id: int
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    keep = _commit_file(repo, pid, member_id, root, name="keep.txt", size_bytes=7)
+    gone = _commit_file(repo, pid, member_id, root, name="gone.txt", size_bytes=3)
+    assert keep.node is not None and gone.node is not None
+    # A historical version must never count on either side.
+    _seed_version(db, project_id=pid, node_id=keep.node.node_id, size_bytes=999, is_current=0)
+    assert repo.usage(pid, user_id=member_id) == (2, 10, 0, 0)
+
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=owner_id, node_id=gone.node.node_id).outcome
+        == "trashed"
+    )
+    assert repo.usage(pid, user_id=member_id) == (1, 7, 1, 3)
+
+    assert (
+        repo.restore_trashed(
+            project_id=pid, actor_user_id=owner_id, node_id=gone.node.node_id
+        ).outcome
+        == "restored"
+    )
+    assert repo.usage(pid, user_id=member_id) == (2, 10, 0, 0)
+    # Folders never count on either side.
+    folder = repo.create_folder(
+        project_id=pid, actor_user_id=member_id, parent_node_id=root, name="F", name_key="f"
+    )
+    assert folder.row is not None
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=member_id, node_id=folder.row.node_id).outcome
+        == "trashed"
+    )
+    assert repo.usage(pid, user_id=member_id) == (2, 10, 0, 0)
+    assert repo.usage(pid, user_id=999999) is None
+    assert repo.usage("ghost-project", user_id=member_id) is None
+
+
+def test_all_object_keys_retains_trashed_versions(
+    repo: ProjectAssetRepo, pid: str, member_id: int, owner_id: int
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    commit = _commit_file(repo, pid, member_id, root, name="keepbin.dat", size_bytes=4)
+    assert commit.node is not None and commit.version is not None
+    object_key = commit.version.object_key
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=owner_id, node_id=commit.node.node_id).outcome
+        == "trashed"
+    )
+    # The orphan cleaner's keep-set must still cover trashed objects.
+    assert object_key in repo.all_object_keys()
+
+
+# ---------------------------------------------------------------------------
+# 042 service: trash / list / restore
+# ---------------------------------------------------------------------------
+
+
+def test_service_trash_blocks_every_ordinary_entrance(
+    service: ProjectAssetService,
+    repo: ProjectAssetRepo,
+    pid: str,
+    member_id: int,
+    owner_id: int,
+) -> None:
+    first = _upload(service, pid, member_id, name="报告.txt", data=b"v1")
+    node_id = first.node.node_id
+    v1 = first.version.version_id
+    _upload_new_version(service, pid, member_id, node_id, data=b"v2-long")
+
+    service.trash_asset(pid, user_id=owner_id, node_id=node_id)
+
+    for op in (
+        lambda: service.prepare_download(pid, user_id=member_id, node_id=node_id),
+        lambda: service.list_versions(pid, user_id=member_id, node_id=node_id),
+        lambda: service.prepare_version_download(
+            pid, user_id=member_id, node_id=node_id, version_id=v1
+        ),
+        lambda: service.restore_version(pid, user_id=member_id, node_id=node_id, version_id=v1),
+        lambda: _upload_new_version(service, pid, member_id, node_id, data=b"late"),
+    ):
+        with pytest.raises(OctopError) as excinfo:
+            op()
+        assert excinfo.value.code == ErrorCode.NOT_FOUND
+    page = service.list_assets(pid, user_id=member_id)
+    assert page.total == 0 and page.items == []
+    assert service.list_assets(pid, user_id=member_id, q="报告").total == 0
+
+    # A trashed folder gates every child-creating and listing entrance too.
+    folder = service.create_folder(pid, user_id=member_id, name="资料")
+    _upload(service, pid, member_id, name="in.txt", data=b"x", parent_id=folder.node_id)
+    service.trash_asset(pid, user_id=owner_id, node_id=folder.node_id)
+    for op in (
+        lambda: service.list_assets(pid, user_id=member_id, parent_id=folder.node_id),
+        lambda: service.create_folder(pid, user_id=member_id, name="sub", parent_id=folder.node_id),
+        lambda: _upload(service, pid, member_id, name="in2.txt", parent_id=folder.node_id),
+    ):
+        with pytest.raises(OctopError) as excinfo:
+            op()
+        assert excinfo.value.code == ErrorCode.NOT_FOUND
+    assert repo.get_root(pid) is not None
+
+
+def test_service_trash_restore_roundtrip_preserves_bytes(
+    service: ProjectAssetService,
+    storage: ProjectAssetStorage,
+    pid: str,
+    member_id: int,
+    owner_id: int,
+) -> None:
+    data = b"payload-042"
+    sha = hashlib.sha256(data).hexdigest()
+    uploaded = _upload(service, pid, member_id, name="恢复我.txt", data=data)
+    node_id = uploaded.node.node_id
+    objects_before = _files_under(storage.root)
+    assert objects_before
+
+    service.trash_asset(pid, user_id=owner_id, node_id=node_id)
+
+    # Object bytes are retained verbatim while the node sits in the trash.
+    assert _files_under(storage.root) == objects_before
+    usage = service.get_usage(pid, user_id=member_id)
+    assert (usage.file_count, usage.total_bytes) == (0, 0)
+    assert (usage.trash_file_count, usage.trash_total_bytes) == (1, len(data))
+
+    restored = service.restore_trashed_asset(pid, user_id=owner_id, node_id=node_id)
+    assert restored.node_id == node_id
+    assert restored.name == "恢复我.txt"
+    assert restored.kind == "file"
+    assert restored.size_bytes == len(data)
+
+    view = service.prepare_download(pid, user_id=member_id, node_id=node_id)
+    assert view.filename == "恢复我.txt"
+    assert view.path.read_bytes() == data
+    assert _files_under(storage.root) == objects_before
+    usage = service.get_usage(pid, user_id=member_id)
+    assert (
+        usage.file_count,
+        usage.total_bytes,
+        usage.trash_file_count,
+        usage.trash_total_bytes,
+    ) == (
+        1,
+        len(data),
+        0,
+        0,
+    )
+    versions = service.list_versions(pid, user_id=member_id, node_id=node_id)
+    assert versions.total == 1
+    assert versions.items[0].sha256 == sha
+    assert versions.items[0].is_current is True
+
+
+def test_service_trash_and_restore_gates(
+    service: ProjectAssetService,
+    repo: ProjectAssetRepo,
+    db: SqlitePool,
+    projects: ProjectRepo,
+    pid: str,
+    member_id: int,
+    other_member_id: int,
+    owner_id: int,
+    outsider_id: int,
+) -> None:
+    uploaded = _upload(service, pid, member_id, name="守门.txt", data=b"x")
+    node_id = uploaded.node.node_id
+
+    def _assert_not_found(op: Any) -> None:
+        with pytest.raises(OctopError) as excinfo:
+            op()
+        assert excinfo.value.code == ErrorCode.NOT_FOUND
+
+    # Outsiders: uniform 404 on all three trash entrances.
+    _assert_not_found(lambda: service.trash_asset(pid, user_id=outsider_id, node_id=node_id))
+    _assert_not_found(lambda: service.list_trash(pid, user_id=outsider_id))
+    _assert_not_found(
+        lambda: service.restore_trashed_asset(pid, user_id=outsider_id, node_id=node_id)
+    )
+    # Cross-project node ids never resolve.
+    other = projects.create_with_owner(creator_user_id=owner_id, name="别的项目42c")
+    projects.add_member(other.project_id, member_id, role="member")
+    other_upload = _upload(service, other.project_id, member_id, name="别处.txt")
+    _assert_not_found(
+        lambda: service.trash_asset(pid, user_id=member_id, node_id=other_upload.node.node_id)
+    )
+    _assert_not_found(
+        lambda: service.restore_trashed_asset(
+            pid, user_id=member_id, node_id=other_upload.node.node_id
+        )
+    )
+    # The hidden root can never enter the trash.
+    root = repo.get_root(pid)
+    assert root is not None
+    _assert_not_found(lambda: service.trash_asset(pid, user_id=owner_id, node_id=root))
+    _assert_not_found(lambda: service.restore_trashed_asset(pid, user_id=owner_id, node_id=root))
+    # Revoked members lose every trash entrance (uniform 404).
+    removed = projects.remove_member(
+        project_id=pid, user_id=other_member_id, actor_user_id=owner_id
+    )
+    assert removed.outcome == "removed"
+    _assert_not_found(lambda: service.trash_asset(pid, user_id=other_member_id, node_id=node_id))
+    _assert_not_found(lambda: service.list_trash(pid, user_id=other_member_id))
+    _assert_not_found(
+        lambda: service.restore_trashed_asset(pid, user_id=other_member_id, node_id=node_id)
+    )
+    # A plain member never manages other members' nodes or trash roots.
+    owner_file = _upload(service, pid, owner_id, name="老板.txt", data=b"y")
+    with pytest.raises(OctopError) as excinfo:
+        service.trash_asset(pid, user_id=member_id, node_id=owner_file.node.node_id)
+    assert excinfo.value.code == ErrorCode.FORBIDDEN
+    service.trash_asset(pid, user_id=owner_id, node_id=owner_file.node.node_id)
+    with pytest.raises(OctopError) as excinfo:
+        service.restore_trashed_asset(pid, user_id=member_id, node_id=owner_file.node.node_id)
+    assert excinfo.value.code == ErrorCode.FORBIDDEN
+    # The owner restores a member-deleted root; the deleter restores their own.
+    assert (
+        service.restore_trashed_asset(
+            pid, user_id=owner_id, node_id=owner_file.node.node_id
+        ).node_id
+        == owner_file.node.node_id
+    )
+    # Archived projects: trash writes refuse with 403, the trash read stays.
+    service.trash_asset(pid, user_id=owner_id, node_id=node_id)
+    _archive(db, pid)
+    with pytest.raises(OctopError) as excinfo:
+        service.trash_asset(pid, user_id=owner_id, node_id=owner_file.node.node_id)
+    assert excinfo.value.code == ErrorCode.FORBIDDEN
+    with pytest.raises(OctopError) as excinfo:
+        service.restore_trashed_asset(pid, user_id=owner_id, node_id=node_id)
+    assert excinfo.value.code == ErrorCode.FORBIDDEN
+    page = service.list_trash(pid, user_id=owner_id)
+    assert page.total == 1 and page.items[0].node_id == node_id
+
+
+def test_service_list_trash_page_shape_and_validation(
+    service: ProjectAssetService, pid: str, member_id: int, owner_id: int
+) -> None:
+    for i in range(3):
+        uploaded = _upload(service, pid, member_id, name=f"t{i}.txt", data=b"x")
+        service.trash_asset(pid, user_id=owner_id, node_id=uploaded.node.node_id)
+
+    page = service.list_trash(pid, user_id=owner_id, limit=2, offset=0)
+    assert page.total == 3 and page.limit == 2 and page.offset == 0
+    assert page.has_more is True
+    assert len(page.items) == 2
+    item = page.items[0]
+    assert item.kind == "file"
+    assert item.name.endswith(".txt")
+    assert item.original_path == item.name  # root-level file: just the name
+    assert item.parent_node_id  # the hidden root id, exposed like list rows
+    assert isinstance(item.deleted_at, int) and item.deleted_at > 0
+    assert item.deleted_by_name == "owner"
+    assert item.can_restore is True
+
+    page2 = service.list_trash(pid, user_id=owner_id, limit=2, offset=2)
+    assert page2.has_more is False and len(page2.items) == 1 and page2.total == 3
+    member_page = service.list_trash(pid, user_id=member_id)
+    assert member_page.total == 3
+    assert member_page.limit == 20 and member_page.offset == 0
+    assert all(i.can_restore is False for i in member_page.items)  # owner deleted them
+    with pytest.raises(ValueError):
+        service.list_trash(pid, user_id=owner_id, limit=0)
+    with pytest.raises(ValueError):
+        service.list_trash(pid, user_id=owner_id, limit=101)
+    with pytest.raises(ValueError):
+        service.list_trash(pid, user_id=owner_id, offset=-1)
+
+
+def test_service_restore_conflict_error_codes(
+    service: ProjectAssetService, pid: str, member_id: int, owner_id: int
+) -> None:
+    uploaded = _upload(service, pid, member_id, name="冲突.txt", data=b"x")
+    service.trash_asset(pid, user_id=owner_id, node_id=uploaded.node.node_id)
+    _upload(service, pid, member_id, name="冲突.txt", data=b"y")
+    with pytest.raises(OctopError) as excinfo:
+        service.restore_trashed_asset(pid, user_id=owner_id, node_id=uploaded.node.node_id)
+    assert excinfo.value.code == ErrorCode.PROJECT_ASSET_NAME_CONFLICT
+
+    folder = service.create_folder(pid, user_id=member_id, name="父文件夹")
+    child = _upload(service, pid, member_id, name="子文件.txt", parent_id=folder.node_id)
+    service.trash_asset(pid, user_id=owner_id, node_id=child.node.node_id)
+    service.trash_asset(pid, user_id=owner_id, node_id=folder.node_id)
+    with pytest.raises(OctopError) as excinfo:
+        service.restore_trashed_asset(pid, user_id=owner_id, node_id=child.node.node_id)
+    assert excinfo.value.code == ErrorCode.PROJECT_ASSET_PARENT_IN_TRASH
+    # Restoring the parent first unblocks the child root.
+    service.restore_trashed_asset(pid, user_id=owner_id, node_id=folder.node_id)
+    restored = service.restore_trashed_asset(pid, user_id=owner_id, node_id=child.node.node_id)
+    assert restored.node_id == child.node.node_id
+
+
+def test_trash_temp_name_key_is_not_user_constructible() -> None:
+    """The ``\\x1f`` + node_id temp key can never collide with a legal name."""
+    with pytest.raises(ValueError):
+        validate_asset_name("\x1f01ARZ3NDEKTSV4RRFFQ69G5FAV")
+    with pytest.raises(ValueError):
+        validate_asset_name("a\x1fb")
+
+
+# ---------------------------------------------------------------------------
+# 042 concurrency: restore races and trash/upload serialization
+# ---------------------------------------------------------------------------
+
+
+def test_concurrent_restores_leave_exactly_one_winner(
+    service: ProjectAssetService,
+    repo: ProjectAssetRepo,
+    db: SqlitePool,
+    pid: str,
+    member_id: int,
+    owner_id: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    uploaded = _upload(service, pid, member_id, name="race-restore.txt", data=b"v1")
+    node_id = uploaded.node.node_id
+    service.trash_asset(pid, user_id=member_id, node_id=node_id)
+    barrier = Barrier(2, timeout=15)
+    original = repo.restore_trashed
+
+    def synced(**kwargs: Any) -> Any:
+        barrier.wait()
+        return original(**kwargs)
+
+    monkeypatch.setattr(repo, "restore_trashed", synced)
+
+    def side(user_id: int) -> tuple[str, Any]:
+        try:
+            return (
+                "ok",
+                service.restore_trashed_asset(pid, user_id=user_id, node_id=node_id),
+            )
+        except OctopError as exc:
+            return ("err", exc.code)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(side, member_id), executor.submit(side, owner_id)]
+        results = [f.result(timeout=30) for f in futures]
+    oks = [r for r in results if r[0] == "ok"]
+    errs = [r for r in results if r[0] == "err"]
+    assert len(oks) == 1
+    assert len(errs) == 1 and errs[0][1] == ErrorCode.NOT_FOUND
+    row = _trash_row(db, pid, node_id)
+    assert row["deleted_at"] is None
+    assert row["name_key"] == "race-restore.txt"
+    page = service.list_assets(pid, user_id=owner_id)
+    assert page.total == 1 and page.items[0].node_id == node_id
+
+
+def test_concurrent_trash_and_same_name_upload_serialize(
+    service: ProjectAssetService,
+    repo: ProjectAssetRepo,
+    db: SqlitePool,
+    pid: str,
+    member_id: int,
+    owner_id: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = _upload(service, pid, member_id, name="race-name.txt", data=b"v1")
+    old_id = first.node.node_id
+    barrier = Barrier(2, timeout=15)
+    original_trash = repo.trash_node
+    original_commit = repo.commit_file
+
+    def synced_trash(**kwargs: Any) -> Any:
+        barrier.wait()
+        return original_trash(**kwargs)
+
+    def synced_commit(**kwargs: Any) -> Any:
+        barrier.wait()
+        return original_commit(**kwargs)
+
+    monkeypatch.setattr(repo, "trash_node", synced_trash)
+    monkeypatch.setattr(repo, "commit_file", synced_commit)
+
+    def do_trash() -> tuple[str, Any]:
+        try:
+            service.trash_asset(pid, user_id=owner_id, node_id=old_id)
+            return ("ok", None)
+        except OctopError as exc:
+            return ("err", exc.code)
+
+    def do_upload() -> tuple[str, Any]:
+        try:
+            return ("ok", _upload(service, pid, member_id, name="race-name.txt", data=b"v2"))
+        except OctopError as exc:
+            return ("err", exc.code)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        trash_future = executor.submit(do_trash)
+        upload_future = executor.submit(do_upload)
+        trash_result = trash_future.result(timeout=30)
+        upload_result = upload_future.result(timeout=30)
+
+    # Trashing the old node always wins in the end; the upload either hit the
+    # old active row (409) or the freed name (a brand-new node).
+    assert trash_result[0] == "ok"
+    assert _trash_row(db, pid, old_id)["deleted_at"] is not None
+    page = service.list_assets(pid, user_id=owner_id)
+    if upload_result[0] == "ok":
+        assert page.total == 1
+        assert page.items[0].name == "race-name.txt"
+        assert page.items[0].node_id != old_id
+    else:
+        assert upload_result[1] == ErrorCode.PROJECT_ASSET_NAME_CONFLICT
+        assert page.total == 0
+
+
+# ---------------------------------------------------------------------------
+# 042 repo: dual-dialect trash/restore lock order (static; no live PostgreSQL)
+# ---------------------------------------------------------------------------
+
+
+class _TrashConn:
+    """Fake connection answering trash/restore SELECTs with fixed rows."""
+
+    def __init__(
+        self,
+        *,
+        node_row: dict[str, Any],
+        parent_row: dict[str, Any] | None = None,
+        version_row: dict[str, Any] | None = None,
+        role: str = "owner",
+        conflict_row: dict[str, Any] | None = None,
+    ) -> None:
+        self.statements: list[str] = []
+        self._node_row = node_row
+        self._parent_row = parent_row
+        self._version_row = version_row
+        self._role = role
+        self._conflict_row = conflict_row
+        self._restored = False
+
+    def execute(self, sql: str, params: Any = None) -> _SwitchCursor:
+        self.statements.append(sql)
+        if "FROM project_members" in sql:
+            return _SwitchCursor({"role": self._role})
+        if "FROM project_spaces" in sql:
+            return _SwitchCursor({"archived": 0})
+        if sql.lstrip().startswith("SELECT node_id, created_by"):
+            return _SwitchCursor(None)  # no active descendants
+        if sql.lstrip().startswith("SELECT 1 FROM project_asset_nodes"):
+            return _SwitchCursor(self._conflict_row)
+        if "FROM project_asset_versions" in sql:
+            return _SwitchCursor(self._version_row)
+        if "FROM project_asset_nodes" in sql:
+            node_id = params[1] if params and len(params) > 1 else None
+            if node_id == self._node_row["node_id"]:
+                return _SwitchCursor(self._current_node_row())
+            return _SwitchCursor(self._parent_row)
+        if "original_name_key = NULL" in sql:
+            self._restored = True
+        return _SwitchCursor(None)
+
+    def _current_node_row(self) -> dict[str, Any] | None:
+        if not self._restored:
+            return self._node_row
+        return {
+            **self._node_row,
+            "deleted_at": None,
+            "deleted_by": None,
+            "trash_root_id": None,
+            "original_name_key": None,
+            "name_key": self._node_row["original_name_key"],
+        }
+
+
+_FAKE_TRASH_PARENT = new_ulid()
+
+
+def test_postgres_trash_lock_order_member_then_node_for_update() -> None:
+    """PG trash: member row FOR SHARE → target node FOR UPDATE → archived →
+    descendant sweep → one guarded mark UPDATE → root rename.
+
+    NOTE: static dual-dialect assertion only — no live PostgreSQL was run.
+    """
+    conn = _TrashConn(node_row={**_FAKE_NODE_ROW, "parent_node_id": _FAKE_TRASH_PARENT})
+    repo = ProjectAssetRepo(cast(Any, _SwitchPool("postgresql", conn)))
+    result = repo.trash_node(project_id=_FAKE_PID, actor_user_id=7, node_id=_FAKE_NODE)
+    assert result.outcome == "trashed"
+    stmts = conn.statements
+    i_member = _first_index(stmts, "FROM project_members")
+    i_node = _first_index(stmts, "FROM project_asset_nodes")
+    i_archived = _first_index(stmts, "FROM project_spaces")
+    i_desc = _first_index(stmts, "SELECT node_id, created_by")
+    i_mark = _first_index(stmts, "SET deleted_at = ?")
+    i_rename = _first_index(stmts, "SET original_name_key = name_key")
+    assert stmts[i_member].endswith("FOR SHARE")
+    assert stmts[i_node].endswith("FOR UPDATE")
+    # Lock each descendant before enumerating its children. Otherwise an
+    # upload can attach a new child after the traversal captured its IDs.
+    assert stmts[i_desc].endswith("FOR UPDATE")
+    assert i_member < i_node < i_archived < i_desc < i_mark < i_rename
+    # The mark UPDATE stays guarded so a concurrent racer cannot re-trash.
+    assert "deleted_at IS NULL" in stmts[i_mark]
+
+
+def test_postgres_asset_creation_locks_and_rechecks_explicit_parent() -> None:
+    """A create under a concurrently trashed folder must wait, then reject."""
+    parent_id = _FAKE_TRASH_PARENT
+    conn = _TrashConn(node_row={**_FAKE_NODE_ROW, "node_id": parent_id, "kind": "folder"})
+    repo = ProjectAssetRepo(cast(Any, _SwitchPool("postgresql", conn)))
+    assert repo._resolve_parent_locked(conn, _FAKE_PID, parent_id) == parent_id
+    assert conn.statements[-1].endswith("FOR UPDATE")
+    assert "deleted_at IS NULL" in conn.statements[-1]
+
+
+def test_postgres_restore_lock_order_parent_check_then_updates() -> None:
+    """PG restore: member → trash-root node FOR UPDATE → archived → parent
+    FOR UPDATE → name pre-check → root rename back → subtree clear."""
+    node_row = {
+        **_FAKE_NODE_ROW,
+        "parent_node_id": _FAKE_TRASH_PARENT,
+        "deleted_at": 123,
+        "deleted_by": 7,
+        "trash_root_id": _FAKE_NODE,
+        "original_name_key": "a.txt",
+        "name_key": "\x1f" + _FAKE_NODE,
+    }
+    parent_row = {
+        **_FAKE_NODE_ROW,
+        "node_id": _FAKE_TRASH_PARENT,
+        "kind": "folder",
+        "name": "F",
+        "name_key": "f",
+    }
+    conn = _TrashConn(
+        node_row=node_row,
+        parent_row=parent_row,
+        version_row={"size_bytes": 5, "media_type": "text/plain"},
+    )
+    repo = ProjectAssetRepo(cast(Any, _SwitchPool("postgresql", conn)))
+    result = repo.restore_trashed(project_id=_FAKE_PID, actor_user_id=7, node_id=_FAKE_NODE)
+    assert result.outcome == "restored"
+    stmts = conn.statements
+    i_member = _first_index(stmts, "FROM project_members")
+    i_node = _first_index(stmts, "FROM project_asset_nodes")
+    i_archived = _first_index(stmts, "FROM project_spaces")
+    i_parent = next(
+        i for i, s in enumerate(stmts) if "FROM project_asset_nodes" in s and i > i_node
+    )
+    i_conflict = _first_index(stmts, "SELECT 1 FROM project_asset_nodes")
+    i_root = _first_index(stmts, "original_name_key = NULL")
+    i_subtree = _first_index(stmts, "trash_root_id = ?")
+    assert stmts[i_member].endswith("FOR SHARE")
+    assert stmts[i_node].endswith("FOR UPDATE")
+    assert stmts[i_parent].endswith("FOR UPDATE")
+    assert i_member < i_node < i_archived < i_parent < i_conflict < i_root < i_subtree
+
+
+def test_sqlite_trash_restore_use_no_row_lock_clauses() -> None:
+    """SQLite serializes via BEGIN IMMEDIATE — no FOR SHARE/FOR UPDATE text."""
+    trash_conn = _TrashConn(node_row={**_FAKE_NODE_ROW, "parent_node_id": _FAKE_TRASH_PARENT})
+    trash_repo = ProjectAssetRepo(cast(Any, _SwitchPool("sqlite", trash_conn)))
+    assert (
+        trash_repo.trash_node(project_id=_FAKE_PID, actor_user_id=7, node_id=_FAKE_NODE).outcome
+        == "trashed"
+    )
+    restore_conn = _TrashConn(
+        node_row={
+            **_FAKE_NODE_ROW,
+            "parent_node_id": _FAKE_TRASH_PARENT,
+            "deleted_at": 123,
+            "deleted_by": 7,
+            "trash_root_id": _FAKE_NODE,
+            "original_name_key": "a.txt",
+            "name_key": "\x1f" + _FAKE_NODE,
+        },
+        parent_row={
+            **_FAKE_NODE_ROW,
+            "node_id": _FAKE_TRASH_PARENT,
+            "kind": "folder",
+            "name": "F",
+            "name_key": "f",
+        },
+        version_row={"size_bytes": 5, "media_type": "text/plain"},
+    )
+    restore_repo = ProjectAssetRepo(cast(Any, _SwitchPool("sqlite", restore_conn)))
+    assert (
+        restore_repo.restore_trashed(
+            project_id=_FAKE_PID, actor_user_id=7, node_id=_FAKE_NODE
+        ).outcome
+        == "restored"
+    )
+    for conn in (trash_conn, restore_conn):
+        assert conn.statements
+        assert all("FOR SHARE" not in stmt and "FOR UPDATE" not in stmt for stmt in conn.statements)

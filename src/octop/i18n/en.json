@@ -450,6 +450,7 @@
     "PROJECT_ASSET_NAME_CONFLICT": "An asset with this name already exists in the same folder.",
     "PROJECT_ASSET_INVALID": "The asset name or target folder is invalid. Check the name and try again.",
     "PROJECT_ASSET_TOO_LARGE": "The file exceeds the {max_mb} MB upload limit.",
+    "PROJECT_ASSET_PARENT_IN_TRASH": "The original folder is still in the trash. Restore that folder first.",
     "PROJECT_EXPERTS_CHANGED": "The project expert list changed after you confirmed it. Refresh the project and confirm again.",
     "PROJECT_EXPERT_INVALID": "The selected experts are not all available in this project. Refresh the expert list and try again.",
     "PROJECT_EXPERT_UNAVAILABLE": "The selected expert is no longer available in this project. Refresh the expert list and choose again."

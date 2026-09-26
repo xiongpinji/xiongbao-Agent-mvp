@@ -22,6 +22,12 @@ Owns everything between the router and the repo/storage engines:
   and check the private object on disk BEFORE switching. Restoring the
   already-current version is an idempotent success, but only after the
   membership/archived gates — archived projects answer 403 even then.
+* **Trash (042)** — delete soft-trashes the target plus its whole active
+  subtree in one locked transaction; every ordinary entrance filters trashed
+  nodes before paging, aggregating and object reads. Restore acts on a trash
+  root only and re-checks permission, parent liveness and the name slot with
+  whole-tree rollback. Neither side ever mutates versions or object bytes;
+  trashed reads (the trash listing) survive archival, trashed writes do not.
 * **Cleaner** — the first asset operation after a restart runs the restricted
   orphan reclaim exactly once per process; its failure never blocks traffic.
 * **Archived projects** — reads and downloads keep working; writes answer 403.
@@ -60,6 +66,9 @@ ASSET_NAME_MAX_LENGTH = 120
 #: Version-listing default page size (contract: default 50, range 1–100).
 DEFAULT_VERSION_PAGE_LIMIT = 50
 
+#: Trash-listing default page size (042 contract: default 20, range 1–100).
+DEFAULT_TRASH_PAGE_LIMIT = 20
+
 ASSET_KINDS: tuple[str, ...] = ("file", "folder")
 
 # Path separators, Windows-reserved metacharacters, and control characters
@@ -78,6 +87,10 @@ def validate_asset_name(raw: object) -> str:
     """NFC-normalize, trim, and enforce the naming rules; raise ValueError."""
     if not isinstance(raw, str):
         raise ValueError("name must be a string")
+    # Check the untrimmed input too: ``str.strip()`` removes ASCII U+001F,
+    # which is reserved as the server-only trash name-key prefix.
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in raw):
+        raise ValueError("name contains forbidden characters")
     name = unicodedata.normalize("NFC", raw).strip()
     if not name:
         raise ValueError("name must not be empty")
@@ -181,8 +194,47 @@ class AssetVersionPageView:
 
 @dataclass(frozen=True)
 class AssetUsageView:
+    """Current-version tallies split by trash state (042).
+
+    Both pairs count committed CURRENT file versions only — no quota claim
+    and no physical-disk claim (historical versions never contribute to
+    either side).
+    """
+
     file_count: int
     total_bytes: int
+    trash_file_count: int
+    trash_total_bytes: int
+
+
+@dataclass(frozen=True)
+class AssetTrashItemView:
+    """One trash root's safe display row (042 frozen UI DTO).
+
+    Exactly these fields — never object keys, host paths or emails.
+    ``original_path`` is hidden-root-relative and includes the item's own
+    display name; ``deleted_by_name`` is display name → username → ``None``;
+    ``can_restore`` is a server-computed viewer hint that every mutation
+    rechecks independently.
+    """
+
+    node_id: str
+    parent_node_id: str | None
+    kind: str
+    name: str
+    original_path: str
+    deleted_at: int
+    deleted_by_name: str | None
+    can_restore: bool
+
+
+@dataclass(frozen=True)
+class AssetTrashPageView:
+    items: list[AssetTrashItemView]
+    total: int
+    limit: int
+    offset: int
+    has_more: bool
 
 
 @dataclass(frozen=True)
@@ -287,6 +339,32 @@ class ProjectAssetService:
         if outcome in ("node_missing", "version_missing"):
             raise self._asset_not_found()
         raise OctopError(ErrorCode.INTERNAL_ERROR, f"unexpected version outcome: {outcome}")
+
+    def _raise_for_trash_outcome(self, outcome: str) -> NoReturn:
+        """Map the repo's trash/restore sentinels (042).
+
+        Unknown, foreign, active, non-root and repeated targets stay
+        indistinguishable — all answer the uniform asset 404. ``forbidden``
+        (subtree not fully owned / root not deleted by this member) answers
+        403; a still-trashed original parent answers the stable 409 code so
+        the UI can offer "restore the folder first".
+        """
+        if outcome == "not_member":
+            raise self._project_not_found()
+        if outcome == "archived":
+            raise self._archived_error()
+        if outcome == "node_missing":
+            raise self._asset_not_found()
+        if outcome == "forbidden":
+            raise OctopError(ErrorCode.FORBIDDEN, "no permission to manage this asset")
+        if outcome == "name_conflict":
+            raise self._conflict()
+        if outcome == "parent_in_trash":
+            raise OctopError(
+                ErrorCode.PROJECT_ASSET_PARENT_IN_TRASH,
+                "the original parent folder is still in the trash",
+            )
+        raise OctopError(ErrorCode.INTERNAL_ERROR, f"unexpected trash outcome: {outcome}")
 
     def _uploaded_view(self, node: Any, version: Any) -> UploadedAssetView:
         """Safe node+version DTO shared by upload and version-switch routes.
@@ -448,8 +526,13 @@ class ProjectAssetService:
         usage = self._repo.usage(project_id, user_id=user_id)
         if usage is None:
             raise self._project_not_found()
-        file_count, total_bytes = usage
-        return AssetUsageView(file_count=file_count, total_bytes=total_bytes)
+        file_count, total_bytes, trash_file_count, trash_total_bytes = usage
+        return AssetUsageView(
+            file_count=file_count,
+            total_bytes=total_bytes,
+            trash_file_count=trash_file_count,
+            trash_total_bytes=trash_total_bytes,
+        )
 
     def prepare_download(self, project_id: str, *, user_id: int, node_id: str) -> AssetDownloadView:
         self._require_membership(project_id, user_id)
@@ -754,3 +837,100 @@ class ProjectAssetService:
         if commit.outcome != "committed" or commit.node is None or commit.version is None:
             self._raise_for_version_outcome(commit.outcome)
         return self._uploaded_view(commit.node, commit.version)
+
+    # ------------------------------------------------------------ trash (042)
+
+    def trash_asset(self, project_id: str, *, user_id: int, node_id: str) -> None:
+        """Move one node plus its whole active subtree into the trash.
+
+        A live-project write: outsiders and revoked members answer the
+        uniform project 404, archived projects 403. The repo re-checks
+        membership, archival and subtree ownership inside one locked
+        transaction (members only own fully self-created subtrees;
+        owner/admin manage everything). Versions and object bytes are
+        retained verbatim so restore returns identical content.
+        """
+        self._require_writable(project_id, user_id)
+        self._ensure_reclaim()
+        result = self._repo.trash_node(
+            project_id=project_id, actor_user_id=user_id, node_id=node_id
+        )
+        if result.outcome != "trashed":
+            self._raise_for_trash_outcome(result.outcome)
+
+    def restore_trashed_asset(
+        self, project_id: str, *, user_id: int, node_id: str
+    ) -> AssetNodeView:
+        """Restore one trash root with its whole same-root subtree.
+
+        Only roots restore: active nodes, unknown/foreign ids, the hidden
+        root, trashed descendants and repeated restores all answer the
+        uniform asset 404. A still-trashed (or vanished) original parent
+        answers ``PROJECT_ASSET_PARENT_IN_TRASH`` (409); a same-name active
+        occupant answers ``PROJECT_ASSET_NAME_CONFLICT`` (409) with the whole
+        tree rolled back. The response is the existing safe node shape; the
+        file size/media come from the untouched CURRENT version.
+        """
+        self._require_writable(project_id, user_id)
+        self._ensure_reclaim()
+        result = self._repo.restore_trashed(
+            project_id=project_id, actor_user_id=user_id, node_id=node_id
+        )
+        if result.outcome != "restored" or result.node is None:
+            self._raise_for_trash_outcome(result.outcome)
+        node = result.node
+        return AssetNodeView(
+            node_id=node.node_id,
+            parent_node_id=node.parent_node_id,
+            kind=node.kind,
+            name=node.name,
+            size_bytes=result.size_bytes,
+            media_type=result.media_type,
+            created_at=node.created_at,
+            updated_at=node.updated_at,
+        )
+
+    def list_trash(
+        self,
+        project_id: str,
+        *,
+        user_id: int,
+        limit: int = DEFAULT_TRASH_PAGE_LIMIT,
+        offset: int = 0,
+    ) -> AssetTrashPageView:
+        """One page of trash roots, newest first (042).
+
+        A membership-gated READ: it keeps working on archived projects.
+        Rows carry safe display fields only; ``can_restore`` is a viewer
+        hint — :meth:`restore_trashed_asset` rechecks independently.
+        """
+        if limit < 1 or limit > MAX_PAGE_LIMIT:
+            raise ValueError(f"limit must be between 1 and {MAX_PAGE_LIMIT}")
+        if offset < 0:
+            raise ValueError("offset must be >= 0")
+        self._require_membership(project_id, user_id)
+        self._ensure_reclaim()
+        listed = self._repo.list_trash(project_id, user_id=user_id, limit=limit, offset=offset)
+        if listed is None:
+            raise self._project_not_found()
+        rows, total = listed
+        items = [
+            AssetTrashItemView(
+                node_id=row.node_id,
+                parent_node_id=row.parent_node_id,
+                kind=row.kind,
+                name=row.name,
+                original_path=row.original_path,
+                deleted_at=row.deleted_at,
+                deleted_by_name=row.deleted_by_name,
+                can_restore=row.can_restore,
+            )
+            for row in rows
+        ]
+        return AssetTrashPageView(
+            items=items,
+            total=total,
+            limit=limit,
+            offset=offset,
+            has_more=offset + len(rows) < total,
+        )

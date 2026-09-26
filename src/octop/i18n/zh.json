@@ -450,6 +450,7 @@
     "PROJECT_ASSET_NAME_CONFLICT": "同一文件夹下已存在同名资产，请换一个名称。",
     "PROJECT_ASSET_INVALID": "资产名称或目标文件夹无效，请检查后重试。",
     "PROJECT_ASSET_TOO_LARGE": "文件超过 {max_mb} MB 上传上限。",
+    "PROJECT_ASSET_PARENT_IN_TRASH": "原文件夹仍在回收站中，请先恢复该文件夹。",
     "PROJECT_EXPERTS_CHANGED": "项目专家名单在确认后已变更，请刷新项目详情并重新确认。",
     "PROJECT_EXPERT_INVALID": "所选专家并非全部可用，请刷新专家名单后重试。",
     "PROJECT_EXPERT_UNAVAILABLE": "所选专家在当前项目中已不可用，请刷新专家名单后重新选择。"
