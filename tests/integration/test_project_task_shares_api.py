@@ -35,6 +35,9 @@ _SUMMARY_KEYS = {
     "created_at",
     "access",
     "can_read_text",
+    "mode",
+    "chat_agent_id",
+    "source_expert_id",
 }
 _SHARE_KEYS = {"user_id", "role", "granted_at", "can_read_text"}
 
@@ -296,6 +299,10 @@ async def test_scope_own_shared_all_and_invalid_scope(env_with_provider: Any) ->
     assert r.status_code == 200, r.text
     assert [i["thread_id"] for i in r.json()["items"]] == [t_r]
     assert all(i["access"] == "owner" for i in r.json()["items"])
+    # An own manual/chat card keeps its chat binding and no source expert.
+    assert all(i["mode"] == "chat" for i in r.json()["items"])
+    assert r.json()["items"][0]["chat_agent_id"] == ctx["recipient_agent"]
+    assert r.json()["items"][0]["source_expert_id"] is None
     assert t_o not in r.text
 
     r = await client.get(base, headers=ctx["recipient_auth"], params={"scope": "own"})
@@ -308,6 +315,9 @@ async def test_scope_own_shared_all_and_invalid_scope(env_with_provider: Any) ->
     assert items[0]["access"] == "reader"
     assert items[0]["title"] == "OWNER-CARD"
     assert all(set(i) == _SUMMARY_KEYS for i in items)
+    # The shared reader card carries the mode but redacts the private binding.
+    assert items[0]["mode"] == "chat"
+    assert items[0]["chat_agent_id"] is None and items[0]["source_expert_id"] is None
 
     r = await client.get(base, headers=ctx["recipient_auth"], params={"scope": "all"})
     assert r.status_code == 200, r.text
@@ -390,6 +400,10 @@ async def test_detail_access_reader_and_immediate_404_after_revoke(
 
     r = await client.get(url, headers=ctx["owner_auth"])
     assert r.status_code == 200 and r.json()["access"] == "owner"
+    assert set(r.json()) == _SUMMARY_KEYS
+    assert r.json()["mode"] == "chat"
+    assert r.json()["chat_agent_id"] == ctx["owner_agent"]
+    assert r.json()["source_expert_id"] is None
     # Before any grant: bystander and recipient are uniform 404s.
     for auth in (ctx["bystander_auth"], ctx["recipient_auth"], ctx["outsider_auth"]):
         r = await client.get(url, headers=auth)
@@ -405,6 +419,9 @@ async def test_detail_access_reader_and_immediate_404_after_revoke(
     assert body["access"] == "reader"
     assert body["title"] == "OWNER-CARD"
     assert body["owner_user_id"] == ctx["owner_uid"]
+    # A reader never sees the owner's private runtime/source binding.
+    assert body["mode"] == "chat"
+    assert body["chat_agent_id"] is None and body["source_expert_id"] is None
     # Bystander is still locked out while the grant is active.
     r = await client.get(url, headers=ctx["bystander_auth"])
     assert r.status_code == 404 and "OWNER-CARD" not in r.text
