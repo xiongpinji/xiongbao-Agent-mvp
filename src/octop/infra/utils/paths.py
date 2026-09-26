@@ -96,6 +96,38 @@ class PathLayout:
             os.chmod(out, 0o700)
         return out
 
+    @property
+    def project_task_files_dir(self) -> Path:
+        """Managed roots for internal project-task file runtimes (030A).
+
+        ``~/.octop/project-task-files/`` — deliberately outside ``agents_dir``:
+        these directories are task-private filesystems for ``runtime_kind =
+        'project_task_files'`` agents, reachable only through the six-tool
+        boundary, never served statically and never a user-managed folder.
+        """
+        return self.root / "project-task-files"
+
+    def project_task_file_runtime_dir(self, agent_id: str) -> Path:
+        """Deterministic private root for one internal runtime agent.
+
+        Derived from the trusted layout plus the internal (random, unguessable)
+        agent id only — never from persisted config. Unsafe ids (empty, ``.``,
+        ``..`` or anything containing ``/`` or ``\\``) are rejected with
+        :class:`ValueError` so a crafted runtime id can never escape the
+        managed parent directory.
+        """
+        if not agent_id or agent_id in {".", ".."} or "/" in agent_id or "\\" in agent_id:
+            raise ValueError(f"unsafe project-task runtime id: {agent_id!r}")
+        return self.project_task_files_dir / agent_id
+
+    def ensure_project_task_file_runtime_dir(self, agent_id: str) -> Path:
+        """Create the private runtime root with 0700 on POSIX and return it."""
+        out = self.project_task_file_runtime_dir(agent_id)
+        out.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if os.name == "posix":
+            os.chmod(out, 0o700)
+        return out
+
     def agent_workspace(self, agent_id: str) -> Path:
         """Global agent workspace: ~/.octop/agents/<agent_id>/"""
         return self.agents_dir / agent_id

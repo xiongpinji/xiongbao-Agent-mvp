@@ -282,6 +282,31 @@ class AgentRepo:
             )
         return agent_id
 
+    def list_unreferenced_project_task_runtimes(
+        self, *, created_before: int, limit: int
+    ) -> list[AgentRow]:
+        """Internal runtimes with no thread reference older than *created_before*.
+
+        Narrow recovery query for the bounded boot cleanup (030A B2): selects
+        only DB-marked ``project_task_files`` rows whose ``created_at`` is
+        strictly older than the cutoff and that have NO ``threads`` reference —
+        a runtime with even one private thread is never selectable, even when
+        every project link was detached. Standard rows are never selectable at
+        any age. Oldest first, capped by *limit*; the caller re-checks both
+        conditions per row before deleting anything.
+        """
+        sql = (
+            "SELECT * FROM agents a "
+            "WHERE a.runtime_kind = ? AND a.created_at < ? "
+            "AND NOT EXISTS (SELECT 1 FROM threads t WHERE t.agent_id = a.agent_id) "
+            "ORDER BY a.created_at ASC, a.id ASC LIMIT ?"
+        )
+        with self._db.connect() as conn:
+            rows = conn.execute(
+                sql, (RUNTIME_KIND_PROJECT_TASK_FILES, created_before, limit)
+            ).fetchall()
+        return map_rows(rows, AgentRow)
+
     def get(self, agent_id: str) -> AgentRow | None:
         with self._db.connect() as conn:
             r = conn.execute("SELECT * FROM agents WHERE agent_id = ?", (agent_id,)).fetchone()

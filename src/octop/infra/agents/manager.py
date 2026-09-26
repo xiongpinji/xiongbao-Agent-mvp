@@ -13,7 +13,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 from harness_agent import HarnessAgent, HarnessAgentConfig, HarnessAgentManager
 from harness_agent.registry import AgentEntry
@@ -38,6 +38,13 @@ from octop.infra.agents.profile import (
     overlay_skill_package_ids,
     parse_config_json,
     strip_profile_config,
+)
+from octop.infra.agents.project_task_file_boundary import (
+    PROJECT_TASK_FILE_TOOLS,
+    ProjectTaskFileToolBoundaryMiddleware,
+    apply_project_task_file_boundary,
+    project_task_file_backend_spec,
+    project_task_file_tools_disabled,
 )
 from octop.infra.agents.providers import ProviderStore, sync_providers_to_harness
 from octop.infra.agents.runtime_limits import (
@@ -70,6 +77,7 @@ from octop.infra.connectors.builder import (
     inject_missing_gateway_tools,
 )
 from octop.infra.connectors.service import ConnectorService
+from octop.infra.db.repos.agents import RUNTIME_KIND_PROJECT_TASK_FILES
 from octop.infra.db.repos.audit import ACTOR_SYSTEM
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.skills.presentation import apply_skill_presentation, localize_skill_summary
@@ -100,6 +108,17 @@ _PROVIDER_RELOAD_CONCURRENCY = 6
 # must be a valid bare SQL identifier: start with a letter, only [A-Za-z0-9_].
 _MEMORY_NS_PREFIX = "agent_"
 
+# 030A internal project-task file runtimes. Same SQL-identifier rule; the id
+# prefix is alphanumeric (Crockford base32) so it doubles as a safe directory
+# name under ``PathLayout.project_task_files_dir``.
+_PROJECT_TASK_MEMORY_NS_PREFIX = "ptask_"
+_PROJECT_TASK_ID_PREFIX = "ptf"
+# Bounded boot recovery: max stale runtimes inspected/removed per boot, and the
+# age grace before an unreferenced internal runtime counts as stale (contract:
+# created >24h ago with no thread reference; never scan ordinary agents).
+_PROJECT_TASK_BOOT_CLEANUP_LIMIT = 32
+_PROJECT_TASK_STALE_SECONDS = 24 * 60 * 60
+
 _AGENT_STATES_NEEDING_MODEL_RELOAD = frozenset({"failed", "created"})
 
 _HARNESS_AGENT_CONFIG_FIELDS = frozenset(item.name for item in fields(HarnessAgentConfig))
@@ -107,6 +126,21 @@ _HARNESS_AGENT_CONFIG_FIELDS = frozenset(item.name for item in fields(HarnessAge
 
 def _memory_namespace(agent_id: str) -> str:
     return f"{_MEMORY_NS_PREFIX}{agent_id}"
+
+
+def _is_project_task_runtime(row: AgentRow | None) -> bool:
+    """True for DB-marked internal ``project_task_files`` runtime rows (030A).
+
+    The ``runtime_kind`` column is trusted DB state writable only through
+    :meth:`AgentRepo.create_project_task_runtime_with_quota`; user-facing
+    create/update never touch it, so this marker alone selects every strict
+    branch below.
+    """
+    return row is not None and row.runtime_kind == RUNTIME_KIND_PROJECT_TASK_FILES
+
+
+def _project_task_memory_namespace(agent_id: str) -> str:
+    return f"{_PROJECT_TASK_MEMORY_NS_PREFIX}{agent_id}"
 
 
 def skills_disabled_set(cfg: dict[str, Any]) -> set[str]:
@@ -482,9 +516,27 @@ class AgentManager:
             self._install_team_host_dispatch()
             self._harness_manager.set_security_policy(self._security.harness_policy())
 
+        # 030A recovery: a crash between runtime registration and compensation
+        # can leave internal project-task rows + private dirs with no thread
+        # reference. Bounded scan (internal marker only, >24h old, never rows
+        # with threads, never ordinary agents or user folders).
+        try:
+            removed = await self.cleanup_stale_project_task_runtimes()
+            if removed:
+                logger.info("boot cleanup removed %d stale project-task file runtime(s)", removed)
+        except Exception:
+            logger.exception("boot cleanup of stale project-task runtimes failed")
+
         rows = self._repos.agent_repo.list_all(include_disabled=False)
         for row in rows:
             if row.last_state == "stopped":
+                continue
+            # An internal row without a private thread is an unfinished or
+            # failed create, not a resumable task. The stale scan handles old
+            # rows; young retry markers must stay dormant on restart.
+            if _is_project_task_runtime(row) and not self._repos.thread_repo.list_by_agent(
+                agent_id=row.agent_id, limit=1
+            ):
                 continue
             await self._start_agent(row)
 
@@ -726,6 +778,380 @@ class AgentManager:
             self._repos.agent_repo.delete(agent_id)
         except Exception:
             logger.exception("abort team create: db delete failed for %s", agent_id)
+
+    # ------------------------------------------------------------------
+    # Internal project-task file runtimes (030A B2)
+    # ------------------------------------------------------------------
+
+    async def create_project_task_file_runtime(
+        self, *, owner_user_id: int, source_expert: AgentRow
+    ) -> AgentRow:
+        """Create, register and synchronously start one internal runtime (030A B2).
+
+        Dedicated path for ``mode="files"`` project tasks — never
+        :meth:`create`, never ``defer_bootstrap``. B3 validates the project
+        ACL before calling; this method still rejects source rows that are
+        themselves internal, disabled, teams, missing a usable pinned model,
+        or neither owned by nor shared to *owner_user_id* (defense in depth).
+
+        Order matters: validate → allocate identity → B1 quota insert →
+        private directory → synchronous start → strict verification. Only the
+        source model ref, persona prompt and safe display image are persisted;
+        no source ``config_json``, backend, workspace bytes, skills, packages,
+        MCP, ACP, connector ids, OAuth, browser profiles or user-managed
+        folders ever cross over. Any failure after the insert — a partially
+        created private root, a failed start or a failed strict verification —
+        runs the dedicated compensation before :class:`OctopError` is raised:
+        a failed create never leaves a task-capable agent behind, and a silent
+        ``None`` start is a failure. When cleanup cannot be proven complete
+        (harness removal uncertain, private directory not removable) the DB
+        row is kept and marked ``failed`` so the bounded boot cleanup or
+        :meth:`cleanup_unlinked_project_task_runtime` can retry — never an
+        untracked orphan.
+
+        ``ProjectTaskFilesQuotaError`` from the B1 insert propagates as-is for
+        B3 to map onto its API error codes.
+        """
+        model_ref = self._validate_project_task_source(owner_user_id, source_expert)
+        if self._harness_manager is None:
+            raise OctopError(
+                ErrorCode.AGENT_FAILED,
+                "agent runtime manager is not booted",
+            )
+        agent_id, name = self._allocate_project_task_identity(owner_user_id)
+        self._repos.agent_repo.create_project_task_runtime_with_quota(
+            user_id=owner_user_id,
+            agent_id=agent_id,
+            name=name,
+            default_model=model_ref,
+            system_prompt=source_expert.system_prompt,
+            icon_name=source_expert.icon_name,
+            color=source_expert.color,
+        )
+        row = self._repos.agent_repo.get(agent_id)
+        if row is None:  # pragma: no cover - the quota insert just succeeded
+            raise OctopError(ErrorCode.AGENT_FAILED, "internal runtime row vanished")
+        try:
+            await asyncio.to_thread(self._paths.ensure_project_task_file_runtime_dir, agent_id)
+        except OSError:
+            logger.exception("project-task runtime %s: private root creation failed", agent_id)
+            # Best-effort compensation through the single dedicated path: a
+            # partially created private root must not be orphaned, and when
+            # even that removal fails the row is KEPT marked ``failed`` for
+            # the bounded retry instead of silently dropping the marker.
+            await self._compensate_project_task_runtime(agent_id)
+            raise OctopError(
+                ErrorCode.AGENT_FAILED,
+                "could not create the task-private directory",
+            ) from None
+        verified = False
+        async with self._lock:
+            try:
+                started = await self._start_agent(row, init_workspace=False)
+                verified = started is not None and self._verify_project_task_runtime(row)
+            except Exception:
+                logger.exception("project-task runtime %s: start failed", agent_id)
+                verified = False
+            if not verified:
+                await self._compensate_project_task_runtime(agent_id)
+                raise OctopError(
+                    ErrorCode.AGENT_FAILED,
+                    "controlled file task runtime failed strict startup verification",
+                )
+            try:
+                self._repos.audit_repo.write(
+                    actor=ACTOR_SYSTEM,
+                    action="agent.create_project_task_runtime",
+                    target=agent_id,
+                    payload=name,
+                )
+                fresh = self._repos.agent_repo.get(agent_id)
+                if fresh is None:
+                    raise RuntimeError("internal runtime row vanished after startup")
+            except Exception as exc:
+                logger.exception("project-task runtime %s: finalization failed", agent_id)
+                await self._compensate_project_task_runtime(agent_id)
+                raise OctopError(
+                    ErrorCode.AGENT_FAILED,
+                    "controlled file task runtime failed finalization",
+                ) from exc
+            return fresh
+
+    def _validate_project_task_source(self, owner_user_id: int, source: AgentRow) -> str:
+        """Reject unusable source rows; return the usable pinned model ref."""
+        from octop.infra.agents.teams import is_team_agent  # noqa: PLC0415
+
+        def _forbidden() -> NoReturn:
+            raise OctopError(
+                ErrorCode.FORBIDDEN,
+                "source agent is not usable for a controlled file task",
+            )
+
+        if _is_project_task_runtime(source):
+            _forbidden()
+        if self._repos.user_repo.get(owner_user_id) is None:
+            _forbidden()
+        if source.user_id != owner_user_id and not bool(source.is_shared):
+            _forbidden()
+        if not source.enabled:
+            _forbidden()
+        if is_team_agent(source):
+            _forbidden()
+        model_ref = (source.default_model or "").strip()
+        if not model_ref or model_ref.lower() == "auto":
+            _forbidden()
+        if not self._providers.is_model_ref_usable(model_ref):
+            _forbidden()
+        return model_ref
+
+    def _allocate_project_task_identity(self, owner_user_id: int) -> tuple[str, str]:
+        """Fresh unguessable id + random display name (no project id / task title)."""
+        taken_names = {row.name for row in self._repos.agent_repo.list_by_user(owner_user_id)}
+        for _ in range(16):
+            agent_id = f"{_PROJECT_TASK_ID_PREFIX}{new_short_id(16)}"
+            name = f"task-file-{new_short_id(6).lower()}"
+            if self._repos.agent_repo.get(agent_id) is not None:
+                continue
+            if name in taken_names:
+                continue
+            return agent_id, name
+        raise OctopError(
+            ErrorCode.AGENT_FAILED,
+            "could not allocate an internal project-task runtime identity",
+        )
+
+    def _build_project_task_file_config(self, row: AgentRow) -> HarnessAgentConfig:
+        """Strict private config for an internal ``project_task_files`` runtime.
+
+        Built on an early branch BEFORE the standard path loads env files or
+        personal services: no cron/knowledge/mobile/plugin tools, no MCP or
+        ACP, no connectors, no browser or media config, no external skill
+        dirs. Fixed virtual ``FilesystemBackend`` pinned to the managed root,
+        bootstrap disabled so the persisted source prompt is immediately
+        active, memory confined to the task-only namespace, safe quota /
+        project-instruction middleware, NO HITL interrupt gates (the runtime
+        is autonomous; the boundary veto is the guard), and
+        ``apply_project_task_file_boundary`` LAST so the six-tool allowlist +
+        forged-call veto survive any host middleware.
+        """
+        from octop.infra.agents.middleware.project_instructions import (  # noqa: PLC0415
+            ProjectInstructionsMiddleware,
+        )
+        from octop.infra.agents.middleware.token_quota import (  # noqa: PLC0415
+            TokenQuotaMiddleware,
+        )
+
+        root = self._paths.ensure_project_task_file_runtime_dir(row.agent_id)
+        namespace = _project_task_memory_namespace(row.agent_id)
+        cfg = HarnessAgentConfig(
+            name=namespace,
+            memory_namespace=namespace,
+            workspace_dir=root,
+            # Empty prefix keeps the deepagents backend a bare FilesystemBackend
+            # (no MountedCompositeBackend wrapper) rooted exactly at ``root``.
+            system_files_path="",
+            default_model=(
+                self._providers.resolve_explicit_default_model(row, {})
+                or self.resolve_fallback_model_ref()
+            ),
+            system_prompt=row.system_prompt,
+            backend=project_task_file_backend_spec(root),
+            mcp_server_configs={},
+            tools=None,
+            middleware=[
+                TokenQuotaMiddleware(
+                    policy_repo=self._repos.user_policy_repo,
+                    usage_repo=self._repos.usage_repo,
+                ),
+                ProjectInstructionsMiddleware(),
+            ],
+            bootstrap_enabled=False,
+            default_timezone=self._config.default_timezone,
+            log_dir=str(self.paths.logs_dir),
+            media_generation=None,
+            # M0-proven mode: the allowlist is bound eagerly, not hidden
+            # behind the client-side tool-search meta tool.
+            tool_search_mode="eager",
+        )
+        applied = self._security.harness_policy().apply_to_config(cfg)
+        # Internal runtimes execute autonomously inside the pinned private
+        # virtual root: an operator-enabled HITL policy would gate write_file /
+        # edit_file (both in DEFAULT_HITL_TOOLS) behind approvals that never
+        # arrive, and HITL intercepts in after_model BEFORE the boundary's
+        # wrap_tool_call veto could reject a forged ``execute``. The six-tool
+        # boundary plus the virtual root is the security control here (strictly
+        # re-verified after start), so policy-derived interrupt_on is cleared;
+        # deny-mode filesystem permissions are kept as defense in depth (they
+        # can never generate interrupts: harness rules are allow/deny only).
+        applied = replace(applied, interrupt_on=None)
+        return apply_project_task_file_boundary(applied, root_dir=root)
+
+    def _verify_project_task_runtime(self, row: AgentRow) -> bool:
+        """Strict post-start verification of one internal runtime.
+
+        Every check fails closed: a runtime that is not provably confined to
+        the six-tool boundary on its private virtual root is compensated, never
+        returned to a caller as task-capable.
+        """
+        agent = self._harness_agent_or_none(row.agent_id)
+        if agent is None:
+            return False
+        stored = self._repos.agent_repo.get(row.agent_id)
+        if stored is None or stored.last_state != "running":
+            return False
+        root = self._paths.project_task_file_runtime_dir(row.agent_id)
+        backend = getattr(agent.workspace, "backend", None)
+        backend = getattr(backend, "default", backend)
+        # deepagents is a transitive-only dependency: compare by class name.
+        if type(backend).__name__ != "FilesystemBackend":
+            return False
+        cwd = getattr(backend, "cwd", None)
+        if cwd is None:
+            return False
+        try:
+            if Path(cwd).resolve() != root.resolve():
+                return False
+        except OSError:
+            return False
+        if getattr(backend, "virtual_mode", None) is not True:
+            return False
+        if hasattr(backend, "execute"):
+            return False
+        cfg = agent.config
+        if getattr(cfg, "bootstrap_enabled", True):
+            return False
+        if cfg.system_prompt != row.system_prompt:
+            return False
+        middleware = list(cfg.middleware or [])
+        if not middleware or not isinstance(middleware[-1], ProjectTaskFileToolBoundaryMiddleware):
+            return False
+        disabled = frozenset(cfg.tools_disabled or ())
+        if not project_task_file_tools_disabled().issubset(disabled):
+            return False
+        if not disabled.isdisjoint(PROJECT_TASK_FILE_TOOLS):
+            return False
+        if cfg.mcp_server_configs or cfg.acp_runners or cfg.acp_delegate_enabled:
+            return False
+        if cfg.subagents is not None or cfg.subagents_auto_load or cfg.subagents_path is not None:
+            return False
+        if cfg.skills_dir is not None or cfg.media_generation is not None:
+            return False
+        if cfg.team_enabled or cfg.ask_user_enabled or cfg.todos_enabled or cfg.web_search_tools:
+            return False
+        if cfg.tools is not None:
+            return False
+        # No HITL gates: an interrupt_on entry would pause write_file/edit_file
+        # (or intercept a forged execute before the veto) at runtime.
+        if getattr(cfg, "interrupt_on", None):
+            return False
+        spec = cfg.backend
+        if not isinstance(spec, dict) or spec.get("type") != "filesystem":
+            return False
+        return spec.get("virtual_mode") is True and str(spec.get("root_dir")) == str(root)
+
+    def _mark_project_task_cleanup_incomplete(self, agent_id: str) -> None:
+        """Retain the internal row as a retryable ``failed`` marker (best effort)."""
+        with suppress(Exception):
+            self._repos.agent_repo.set_state(
+                agent_id, "failed", error="project-task runtime cleanup incomplete"
+            )
+
+    async def _compensate_project_task_runtime(self, agent_id: str) -> bool:
+        """Dedicated compensation: remove runtime + private directory + DB row.
+
+        Returns True only when everything is provably gone. If the harness
+        removal raised, the live runtime may still hold the private root; if
+        the private directory resisted removal, task bytes are still on disk.
+        Either way the DB row is KEPT (never deleted, never left ``running``)
+        and marked ``failed`` so the bounded boot cleanup or
+        :meth:`cleanup_unlinked_project_task_runtime` can retry — a failed
+        create must never leave a task-capable agent behind, and cleanup must
+        never claim full removal while removal stays uncertain.
+        """
+        if self._harness_manager is not None:
+            try:
+                await asyncio.to_thread(self._quiesce_harness_memory, agent_id)
+                await self._harness_manager.aremove_agent(agent_id)
+            except Exception:
+                logger.exception(
+                    "project-task compensation: harness removal failed for %s", agent_id
+                )
+                self._mark_project_task_cleanup_incomplete(agent_id)
+                return False
+        root = self._paths.project_task_file_runtime_dir(agent_id)
+        try:
+            if await asyncio.to_thread(root.exists):
+                await asyncio.to_thread(shutil.rmtree, root)
+        except Exception:
+            logger.exception(
+                "project-task compensation: private dir removal failed for %s", agent_id
+            )
+            self._mark_project_task_cleanup_incomplete(agent_id)
+            return False
+        try:
+            self._repos.agent_repo.delete(agent_id)
+        except Exception:
+            logger.exception("project-task compensation: db delete failed for %s", agent_id)
+            self._mark_project_task_cleanup_incomplete(agent_id)
+            return False
+        return True
+
+    async def cleanup_unlinked_project_task_runtime(self, agent_id: str) -> bool:
+        """Narrow cleanup entry for B3's failed project-task transactions.
+
+        Only DB-marked internal runtimes WITHOUT any thread reference may be
+        removed; standard rows and linked runtimes raise FORBIDDEN. Unknown
+        ids are an idempotent no-op (``False``). A runtime keeps its private
+        threads even when every project context/link was detached — deleting
+        those belongs to the thread-owning flows (B4), never here.
+        """
+        async with self._lock:
+            row = self._repos.agent_repo.get(agent_id)
+            if row is None:
+                return False
+            if not _is_project_task_runtime(row):
+                raise OctopError(
+                    ErrorCode.FORBIDDEN,
+                    f"agent {agent_id!r} is not an internal project-task runtime",
+                )
+            if self._repos.thread_repo.list_by_agent(agent_id=agent_id, limit=1):
+                raise OctopError(
+                    ErrorCode.FORBIDDEN,
+                    f"project-task runtime {agent_id!r} still owns private threads",
+                )
+            return await self._compensate_project_task_runtime(agent_id)
+
+    async def cleanup_stale_project_task_runtimes(self) -> int:
+        """Bounded recovery scan for crash-orphaned internal runtimes.
+
+        Selects at most ``_PROJECT_TASK_BOOT_CLEANUP_LIMIT`` DB-marked
+        internal rows created more than ``_PROJECT_TASK_STALE_SECONDS`` ago
+        with no thread reference, then RE-FETCHES every selected row under
+        the lifecycle lock and re-checks internal marker, current age and
+        thread reference immediately before cleanup — a row that changed
+        between the scan query and its turn (re-dated, re-marked or newly
+        threaded) is skipped, never deleted on a stale snapshot. Removes
+        runtime + private directory. Never scans or deletes ordinary agents,
+        never touches user folders, and never deletes a runtime that owns
+        threads. Returns how many runtimes were fully removed.
+        """
+        cutoff = int(time.time()) - _PROJECT_TASK_STALE_SECONDS
+        selected = self._repos.agent_repo.list_unreferenced_project_task_runtimes(
+            created_before=cutoff, limit=_PROJECT_TASK_BOOT_CLEANUP_LIMIT
+        )
+        removed = 0
+        async with self._lock:
+            for candidate in selected:
+                row = self._repos.agent_repo.get(candidate.agent_id)
+                if row is None or not _is_project_task_runtime(row):
+                    continue
+                if row.created_at >= cutoff:
+                    continue
+                if self._repos.thread_repo.list_by_agent(agent_id=row.agent_id, limit=1):
+                    continue
+                if await self._compensate_project_task_runtime(row.agent_id):
+                    removed += 1
+        return removed
 
     def _preserve_internal_layout(
         self,
@@ -1049,14 +1475,23 @@ class AgentManager:
             workspace_dir_from_config,
         )
 
-        cfg = self.get_config(agent_id)
+        row = self._repos.agent_repo.get(agent_id)
+        if _is_project_task_runtime(row):
+            # 030A internal runtime: the private root derives from the trusted
+            # layout plus the DB-marked id ONLY — never from config_json or a
+            # backend spec, and resolving it must never persist config.
+            if persist_if_missing:
+                return self._paths.ensure_project_task_file_runtime_dir(agent_id)
+            return self._paths.project_task_file_runtime_dir(agent_id)
+
+        cfg = self._agent_config_dict(row) if row is not None else {}
         raw = cfg.get("workspace_dir")
         if isinstance(raw, str) and raw.strip():
             return workspace_dir_from_config(cfg, paths=self._paths, agent_id=agent_id)
 
         # Legacy / incomplete row: classic Octop layout only (not scoped create default).
         out = self._paths.ensure_agent_workspace(agent_id)
-        if persist_if_missing and self._repos.agent_repo.get(agent_id) is not None:
+        if persist_if_missing and row is not None:
             new_cfg = dict(cfg)
             new_cfg["workspace_dir"] = str(out.resolve())
             self.persist_harness_config(agent_id, new_cfg)
@@ -1410,6 +1845,10 @@ class AgentManager:
         row = self.get_row(agent_id)
         if row is None or is_team_agent(row):
             return
+        if _is_project_task_runtime(row):
+            # 030A internal runtimes hold no connector OAuth state and must
+            # never gain MCP tools through a reload.
+            return
         uid = self._connector_uid_for(row, connector_user_id=connector_user_id)
         if uid is None:
             logger.warning(
@@ -1601,10 +2040,11 @@ class AgentManager:
             return []
         from octop.infra.agents.teams import is_team_agent
 
-        if is_team_agent(self.get_row(agent_id)):
+        row = self.get_row(agent_id)
+        if row is not None and (is_team_agent(row) or _is_project_task_runtime(row)):
+            # 030A internal runtimes never load connector MCP tools.
             return []
         agent = self.get_agent(agent_id)
-        row = self.get_row(agent_id)
         uid = self._connector_uid_for(row, connector_user_id=connector_user_id) if row else None
         if uid is None and connector_user_id is not None:
             uid = connector_user_id
@@ -2023,7 +2463,8 @@ class AgentManager:
         except OctopError:
             return
         row = self._repos.agent_repo.get(agent_id)
-        if row is None:
+        if row is None or _is_project_task_runtime(row):
+            # 030A: strict runtimes never gain skill dirs or subagent reloads.
             return
         cfg = self.get_config(agent_id)
         backend = self._backend_spec_for_row(row)
@@ -2334,6 +2775,8 @@ class AgentManager:
 
     def sync_skills_disabled(self, agent_id: str, disabled: set[str]) -> None:
         """Push ``skills_disabled`` to the running harness agent (hot update)."""
+        if _is_project_task_runtime(self.get_row(agent_id)):
+            return  # 030A: strict runtime has no skills to enable or disable
         self.get_agent(agent_id).set_skills_disabled(disabled)
 
     def sync_tools_disabled(self, agent_id: str, disabled: set[str]) -> None:
@@ -2342,6 +2785,10 @@ class AgentManager:
         No-op when the agent is not loaded — persisted config still applies on
         the next start via ``_build_harness_config``.
         """
+        if _is_project_task_runtime(self.get_row(agent_id)):
+            # 030A: hot-syncs must never loosen (or rewrite) the strict
+            # six-tool denylist pinned by apply_project_task_file_boundary.
+            return
         try:
             agent = self.get_agent(agent_id)
         except OctopError:
@@ -2377,6 +2824,9 @@ class AgentManager:
         from octop.infra.agents.teams import host_tools_disabled, is_team_agent
         from octop.infra.agents.tool_catalog import effective_tools_disabled
 
+        row = self.get_row(agent_id)
+        if _is_project_task_runtime(row):
+            return  # 030A: strict denylist is fixed at build; never re-derived
         cfg = self.get_config(agent_id)
         global_plugins = (
             self._plugin_manager.global_enabled_map() if self._plugin_manager is not None else {}
@@ -2387,7 +2837,7 @@ class AgentManager:
             registered_plugin_tools=registered,
             global_plugins=global_plugins,
         )
-        if is_team_agent(self.get_row(agent_id)):
+        if row is not None and is_team_agent(row):
             disabled = set(host_tools_disabled(disabled))
         self.sync_tools_disabled(agent_id, disabled)
 
@@ -2453,7 +2903,11 @@ class AgentManager:
                 cfg, metadata, tags, user_display = self._agent_runtime_bundle(row)
                 # Team hosts already have AGENTS/SOUL/MEMORY from seed_team_template.
                 # Never let harness copy builtin skills just to strip them later.
-                seed_workspace = init_workspace and not is_team_agent(row)
+                # 030A internal runtimes get NO default workspace seeding at all:
+                # the private root must stay an empty task-private filesystem.
+                seed_workspace = (
+                    init_workspace and not is_team_agent(row) and not _is_project_task_runtime(row)
+                )
                 entry = await self._harness_manager.acreate_agent(
                     cfg,
                     agent_id=row.agent_id,
@@ -2493,7 +2947,10 @@ class AgentManager:
         from octop.infra.agents.teams import is_team_agent  # noqa: PLC0415
 
         team_host = is_team_agent(row)
-        uid = self._connector_uid_for(row)
+        # 030A internal runtimes: no connector tool injection, no builtin or
+        # plugin skill sync, no bootstrap hook — the strict config is final.
+        internal = _is_project_task_runtime(row)
+        uid = None if internal else self._connector_uid_for(row)
         if uid is not None and not team_host:
             inject_missing_gateway_tools(
                 agent,
@@ -2513,7 +2970,7 @@ class AgentManager:
             len(tool_set),
             sorted(tool_set)[:8],
         )
-        if not team_host:
+        if not team_host and not internal:
             ws = agent.workspace
             try:
                 from octop.infra.agents.builtin_skills import (  # noqa: PLC0415
@@ -2542,7 +2999,8 @@ class AgentManager:
 
         # Patch config when bootstrap finishes, but defer graph recompile until
         # the in-flight turn has fully drained (sync _init_graph mid-stream segfaults).
-        if not team_host and not agent.is_bootstrapped():
+        # Internal runtimes never bootstrap (prompt is active from the start).
+        if not team_host and not internal and not agent.is_bootstrapped():
             agent_id = row.agent_id
 
             def _on_bootstrap_complete() -> None:
@@ -2593,6 +3051,12 @@ class AgentManager:
         cfg: dict[str, Any] | None = None,
         workspace_dir: Path | None = None,
     ) -> Any:
+        if _is_project_task_runtime(row):
+            # 030A: fixed virtual filesystem spec on the managed private root;
+            # any persisted backend/config path on the row is ignored.
+            return project_task_file_backend_spec(
+                self._paths.project_task_file_runtime_dir(row.agent_id)
+            )
         if cfg is None:
             cfg = self._agent_config_dict(row)
         backend_spec = cfg.get("backend")
@@ -2654,6 +3118,16 @@ class AgentManager:
 
         from octop.infra.agents.workspace_dir import system_files_path_from_config  # noqa: PLC0415
         from octop.infra.backend.opensandbox_deps import ensure_opensandbox_deps  # noqa: PLC0415
+
+        if _is_project_task_runtime(row):
+            # 030A: bare virtual FilesystemBackend on the managed private root,
+            # mirroring exactly what the harness builds from the strict config.
+            root = self._paths.project_task_file_runtime_dir(row.agent_id)
+            return BackendWorkspace(
+                resolve_backend(project_task_file_backend_spec(root), workspace_dir=root),
+                root,
+                system_files_path="",
+            )
 
         if cfg is None:
             cfg = self._agent_config_dict(row)
@@ -2815,6 +3289,24 @@ class AgentManager:
     def _agent_runtime_bundle(
         self, row: AgentRow
     ) -> tuple[HarnessAgentConfig, dict[str, Any], list[str], str]:
+        if _is_project_task_runtime(row):
+            # 030A internal runtime: no browser dirs, no peer/profile metadata,
+            # no template tags — the strict config plus a minimal registry entry.
+            cfg = self._build_project_task_file_config(row)
+            user_display = "User"
+            if row.user_id is not None:
+                owner = self._repos.user_repo.get(row.user_id)
+                if owner is not None:
+                    user_display = owner.display_name or owner.username or user_display
+            internal_metadata: dict[str, Any] = {
+                "user_id": row.user_id,
+                "description": None,
+                "display_name": row.name,
+                "icon": None,
+                "template_name": None,
+            }
+            return cfg, internal_metadata, [], user_display
+
         from octop.infra.utils.browser_media import (  # noqa: PLC0415
             agent_outbound_screenshots_dir,
             configure_browser_profiles_dir,
@@ -2937,6 +3429,11 @@ class AgentManager:
 
     def _build_harness_config(self, row: AgentRow) -> HarnessAgentConfig:
         """Convert an AgentRow into a HarnessAgentConfig."""
+        if _is_project_task_runtime(row):
+            # 030A: strict private branch BEFORE any env file, connector,
+            # plugin, cron, knowledge, mobile, media or browser loading.
+            return self._build_project_task_file_config(row)
+
         from harness_agent.middleware.bootstrap import bootstrap_marker_exists  # noqa: PLC0415
 
         from octop.infra.agents.workspace_dir import (  # noqa: PLC0415
