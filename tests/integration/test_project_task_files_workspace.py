@@ -30,6 +30,7 @@ from __future__ import annotations
 import base64
 import os
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -128,6 +129,30 @@ async def test_owner_positive_surface_stays_inside_managed_root(
     )
     assert r.status_code == 200, r.text
     assert isinstance(r.json(), list)
+
+    # Legal markdown globs (including the md shortcut branch) stay functional
+    # on BOTH platforms: the literal wildcard must never be lstat/resolve()d
+    # (Windows would raise WinError 123 on the pattern text).
+    (root / "ok.md").write_text("md", encoding="utf-8")
+    for pattern in ("*.md", "**/*.md"):
+        r = await client.get(
+            f"{base}/glob",
+            params={"pattern": pattern, "from_workspace": "true"},
+            headers=auth,
+        )
+        assert r.status_code == 200, r.text
+        assert any("ok.md" in str(e) for e in r.json())
+
+    # Grep over a single regular file is a supported backend base form.
+    r = await client.get(
+        f"{base}/grep",
+        params={"pattern": "private", "path": "seed.txt", "from_workspace": "true"},
+        headers=auth,
+    )
+    assert r.status_code == 200, r.text
+    matches = r.json()
+    assert matches
+    assert all("seed.txt" in str(m.get("path", "")) for m in matches)
 
     # Media preview of a managed image works for the owner.
     (root / "dot.png").write_bytes(_PNG_1PX)
@@ -400,11 +425,12 @@ async def test_windows_junction_escape_is_refused_on_private_http_routes(
         )
         assert r.status_code == 200, r.text
         assert r.json()["content"] == "private bytes"
-        # ... and a root listing never shows outside entry names or bytes.
+        # ... while a root listing fails closed because its subtree contains
+        # the planted junction (S3), without exposing outside names or bytes.
         r = await client.get(
             f"{base}/tree", params={"path": "/", "from_workspace": "true"}, headers=auth
         )
-        assert r.status_code == 200, r.text
+        _forbidden(r)
         assert "secret.txt" not in r.text
         assert _JUNCTION_SECRET not in r.text
 
@@ -632,3 +658,404 @@ async def test_preview_refuses_host_sources_and_cross_agent_urls(
     r = await client.get(preview, params={"source": "dot.png"}, headers=auth)
     assert r.status_code == 200, r.text
     assert r.content == _PNG_1PX
+
+
+# ---------------------------------------------------------------------------
+# 030A RD-2 / RD-3: full-route planted-reparse-point matrix, running-root and
+# managed-ancestor replacement (A15/A16), bounded-listing 503 (A13).
+#
+# These are CHECK-TIME refusals of STABLE plants over authenticated HTTP —
+# the design's RED/GREEN security gate. Nothing here claims the check→use
+# window (design N1/N2/N3) is closed.
+# ---------------------------------------------------------------------------
+
+_CANARY_HTTP = "HTTP-ROUTE-CANARY-SECRET"
+
+
+def _plant_dir_link(link: Path, target: Path) -> Callable[[], None]:
+    """Plant a real directory reparse point; return the platform cleanup.
+
+    POSIX plants a symlink; Windows plants a real NTFS junction through
+    ``_require_windows_junction`` (fail-loud on environment problems — a
+    silently skipped escape proof is not gate evidence). The cleanup removes
+    ONLY the link and never touches the target tree.
+    """
+    if os.name == "nt":
+        _require_windows_junction(link, target)
+        return link.rmdir
+    link.symlink_to(target, target_is_directory=True)
+    assert link.is_symlink(), f"environment: cannot plant symlink {link}"
+    return link.unlink
+
+
+def _rename_dir_or_fail(src: Path, dst: Path) -> None:
+    """Rename a directory or fail loudly with an environment reason."""
+    try:
+        src.rename(dst)
+    except OSError as exc:
+        pytest.fail(f"environment: cannot rename {src} -> {dst}: {exc}")
+
+
+async def _assert_owner_surface_restored(ctx: dict[str, Any]) -> None:
+    """RD-2 GREEN arm: the full owner listing/read surface serves again.
+
+    Run after the plants are removed, so a refusal above is proven to be
+    caused by the reparse points themselves and not by fixture breakage.
+    """
+    client, rt = ctx["client"], ctx["rt"]
+    auth = ctx["owner_auth"]
+    base = f"/api/agents/{rt}/workspace"
+
+    r = await client.get(
+        f"{base}/tree", params={"path": "/", "from_workspace": "true"}, headers=auth
+    )
+    assert r.status_code == 200, r.text
+    assert any(str(e.get("path", "")).endswith("seed.txt") for e in r.json())
+    assert _CANARY_HTTP not in r.text
+    r = await client.get(
+        f"{base}/file", params={"path": "seed.txt", "from_workspace": "true"}, headers=auth
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["content"] == "private bytes"
+    r = await client.get(
+        f"{base}/download", params={"path": "seed.txt", "from_workspace": "true"}, headers=auth
+    )
+    assert r.status_code == 200, r.text
+    assert r.content == b"private bytes"
+    r = await client.get(
+        f"{base}/glob", params={"pattern": "*", "from_workspace": "true"}, headers=auth
+    )
+    assert r.status_code == 200, r.text
+    assert any("seed.txt" in str(e) for e in r.json())
+    assert _CANARY_HTTP not in r.text
+    (ctx["root"] / "ok.md").write_text("md", encoding="utf-8")
+    for pattern in ("*.md", "**/*.md"):
+        r = await client.get(
+            f"{base}/glob",
+            params={"pattern": pattern, "from_workspace": "true"},
+            headers=auth,
+        )
+        assert r.status_code == 200, r.text
+        assert any("ok.md" in str(e) for e in r.json())
+        assert _CANARY_HTTP not in r.text
+    r = await client.get(
+        f"{base}/grep", params={"pattern": "private", "from_workspace": "true"}, headers=auth
+    )
+    assert r.status_code == 200, r.text
+    assert _CANARY_HTTP not in r.text
+    r = await client.get(
+        f"{base}/grep",
+        params={"pattern": "private", "path": "seed.txt", "from_workspace": "true"},
+        headers=auth,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()
+    assert _CANARY_HTTP not in r.text
+
+
+async def _route_matrix_refusals(
+    ctx: dict[str, Any],
+    *,
+    link: str,
+    outside: Path,
+    file_link: str | None,
+) -> None:
+    """A7/A8: every owner file route refuses the planted link (403 internal).
+
+    Covers the intermediate-component link (``{link}/...``) on every content
+    and write route, the link itself as final component on every route kind,
+    the POSIX-only final-component FILE symlink (*file_link*), the GLM P3 #3
+    overwrite refusal onto an EXISTING outside file, and the root-level
+    listing routes that fail closed while any reparse point lives in the
+    tree (S3) — including the glob ``**/*.md`` shortcut branch. Ends with
+    the anti-over-refusal pin: a clean content route still serves.
+    """
+    client, rt = ctx["client"], ctx["rt"]
+    auth = ctx["owner_auth"]
+    base = f"/api/agents/{rt}/workspace"
+    canary = _CANARY_HTTP.encode()
+
+    # ---- reads through the planted directory link (intermediate component)
+    for route in ("file", "download"):
+        r = await client.get(
+            f"{base}/{route}",
+            params={"path": f"{link}/secret.txt", "from_workspace": "true"},
+            headers=auth,
+        )
+        _forbidden(r)
+        assert canary not in r.content
+    # doc GET checks the editable extension FIRST, so use a .docx-shaped
+    # path: the strict path refusal (403) still precedes any backend I/O.
+    r = await client.get(
+        f"{base}/doc",
+        params={"path": f"{link}/report.docx", "from_workspace": "true"},
+        headers=auth,
+    )
+    _forbidden(r)
+    assert canary not in r.content
+    r = await client.get(
+        f"/api/agents/{rt}/media/preview",
+        params={"source": f"{link}/secret.txt"},
+        headers=auth,
+    )
+    _forbidden(r)
+    assert canary not in r.content
+
+    # ---- writes through the link are refused BEFORE any outside byte (A7)
+    r = await client.put(
+        f"{base}/file",
+        params={"path": f"{link}/pwn.txt", "from_workspace": "true"},
+        headers=auth,
+        json={"content": "pwned"},
+    )
+    _forbidden(r)
+    r = await client.put(
+        f"{base}/doc",
+        params={"path": f"{link}/pwn.docx", "from_workspace": "true"},
+        headers=auth,
+        json={"content": "# pwned"},
+    )
+    _forbidden(r)
+    r = await client.post(
+        f"{base}/upload",
+        params={"path": f"{link}/pwn-up.txt", "from_workspace": "true"},
+        headers=auth,
+        files={"file": ("ignored.txt", b"pwned", "text/plain")},
+    )
+    _forbidden(r)
+    assert not (outside / "pwn.txt").exists()
+    assert not (outside / "pwn.docx").exists()
+    assert not (outside / "pwn-up.txt").exists()
+
+    # ---- GLM P3 #3: overwrite write onto an EXISTING outside file refused
+    r = await client.put(
+        f"{base}/file",
+        params={"path": f"{link}/secret.txt", "from_workspace": "true"},
+        headers=auth,
+        json={"content": "pwned"},
+    )
+    _forbidden(r)
+    assert (outside / "secret.txt").read_text(encoding="utf-8") == _CANARY_HTTP
+
+    # ---- the link as final component: every route kind refuses (A8)
+    for route in ("file", "download", "tree"):
+        r = await client.get(
+            f"{base}/{route}",
+            params={"path": link, "from_workspace": "true"},
+            headers=auth,
+        )
+        _forbidden(r)
+        assert canary not in r.content
+    r = await client.get(f"/api/agents/{rt}/media/preview", params={"source": link}, headers=auth)
+    _forbidden(r)
+    r = await client.get(
+        f"{base}/grep",
+        params={"pattern": "CANARY", "path": link, "from_workspace": "true"},
+        headers=auth,
+    )
+    _forbidden(r)
+    r = await client.get(
+        f"{base}/glob",
+        params={"pattern": "*", "path": link, "from_workspace": "true"},
+        headers=auth,
+    )
+    _forbidden(r)
+
+    if file_link is not None:
+        # POSIX final-component FILE symlink: reads, overwrite write, upload,
+        # preview, listing — all refused, outside bytes unchanged.
+        for route in ("file", "download"):
+            r = await client.get(
+                f"{base}/{route}",
+                params={"path": file_link, "from_workspace": "true"},
+                headers=auth,
+            )
+            _forbidden(r)
+            assert canary not in r.content
+        r = await client.put(
+            f"{base}/file",
+            params={"path": file_link, "from_workspace": "true"},
+            headers=auth,
+            json={"content": "pwned"},
+        )
+        _forbidden(r)
+        r = await client.post(
+            f"{base}/upload",
+            params={"path": file_link, "from_workspace": "true"},
+            headers=auth,
+            files={"file": ("ignored.txt", b"pwned", "text/plain")},
+        )
+        _forbidden(r)
+        r = await client.get(
+            f"/api/agents/{rt}/media/preview", params={"source": file_link}, headers=auth
+        )
+        _forbidden(r)
+        r = await client.get(
+            f"{base}/tree",
+            params={"path": file_link, "from_workspace": "true"},
+            headers=auth,
+        )
+        _forbidden(r)
+        assert (outside / "secret.txt").read_text(encoding="utf-8") == _CANARY_HTTP
+
+    # ---- root-level listing routes fail closed while the plant is live (S3)
+    r = await client.get(
+        f"{base}/tree", params={"path": "/", "from_workspace": "true"}, headers=auth
+    )
+    _forbidden(r)
+    assert "secret.txt" not in r.text
+    for pattern in ("*", "**", "**/*.md", f"{link}/*"):
+        r = await client.get(
+            f"{base}/glob",
+            params={"pattern": pattern, "from_workspace": "true"},
+            headers=auth,
+        )
+        _forbidden(r)
+        assert "secret.txt" not in r.text
+    r = await client.get(
+        f"{base}/grep",
+        params={"pattern": "CANARY", "path": "/", "from_workspace": "true"},
+        headers=auth,
+    )
+    _forbidden(r)
+    assert canary not in r.content
+
+    # ---- anti-over-refusal: a clean content route still serves
+    r = await client.get(
+        f"{base}/file", params={"path": "seed.txt", "from_workspace": "true"}, headers=auth
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["content"] == "private bytes"
+
+
+@pytest.mark.skipif(
+    os.name == "nt", reason="POSIX symlink; Windows junctions covered by the nt-only case below"
+)
+async def test_planted_symlink_full_route_matrix_refuses_and_restores(
+    env_with_provider: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """RD-2 (POSIX arm): every owner route refuses stable planted links.
+
+    Plants a directory symlink (intermediate-component position) and a file
+    symlink (final-component position) inside the managed root, runs the full
+    route matrix, then removes both and proves the whole positive surface
+    serves again — with zero outside bytes served and zero outside side
+    effects at every step.
+    """
+    ctx = await _ws_ctx(env_with_provider, monkeypatch)
+    root = ctx["root"]
+    outside = tmp_path / "rd2-outside"
+    (outside / "nested").mkdir(parents=True)
+    (outside / "secret.txt").write_text(_CANARY_HTTP, encoding="utf-8")
+    (outside / "nested" / "deep.txt").write_text(_CANARY_HTTP, encoding="utf-8")
+
+    link = root / "link"
+    seed_link = root / "seed_link"
+    remove_link = _plant_dir_link(link, outside)
+    seed_link.symlink_to(outside / "secret.txt")
+    try:
+        await _route_matrix_refusals(ctx, link="link", outside=outside, file_link="seed_link")
+    finally:
+        remove_link()
+        seed_link.unlink(missing_ok=True)
+
+    await _assert_owner_surface_restored(ctx)
+
+    # Zero outside side effects: canary bytes intact, nothing created.
+    assert not link.exists()
+    assert not seed_link.exists()
+    assert sorted(p.name for p in outside.iterdir()) == ["nested", "secret.txt"]
+    assert sorted(p.name for p in (outside / "nested").iterdir()) == ["deep.txt"]
+    assert (outside / "secret.txt").read_text(encoding="utf-8") == _CANARY_HTTP
+    assert (outside / "nested" / "deep.txt").read_text(encoding="utf-8") == _CANARY_HTTP
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows junction only")
+async def test_planted_junction_full_route_matrix_refuses_and_restores(
+    env_with_provider: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """RD-2 (Windows arm): the same matrix against a real NTFS junction.
+
+    Junctions cannot target files unprivileged, so the final-component arm
+    is the junction itself (refused on every route kind); the existing
+    outside file is reached — and refused — through it.
+    """
+    ctx = await _ws_ctx(env_with_provider, monkeypatch)
+    root = ctx["root"]
+    outside = tmp_path / "rd2-outside-nt"
+    (outside / "nested").mkdir(parents=True)
+    (outside / "secret.txt").write_text(_CANARY_HTTP, encoding="utf-8")
+    (outside / "nested" / "deep.txt").write_text(_CANARY_HTTP, encoding="utf-8")
+
+    link = root / "link"
+    remove_link = _plant_dir_link(link, outside)
+    try:
+        await _route_matrix_refusals(ctx, link="link", outside=outside, file_link=None)
+    finally:
+        remove_link()
+
+    await _assert_owner_surface_restored(ctx)
+
+    assert not link.exists()
+    assert sorted(p.name for p in outside.iterdir()) == ["nested", "secret.txt"]
+    assert (outside / "secret.txt").read_text(encoding="utf-8") == _CANARY_HTTP
+
+
+async def test_planted_hardlink_in_subtree_refuses_every_listing_route(
+    env_with_provider: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """S7/S3 HTTP arm: a hard link inside the managed tree is never listed.
+
+    The link is planted inside a subdirectory and points at an outside inode
+    (canary); ``tree``/``glob`` never enumerate it, ``grep`` refuses both the
+    link itself (S7 final component) and the directory above it (S3 subtree),
+    and the outside bytes/entry set stay untouched. Removal restores the full
+    owner positive surface.
+    """
+    ctx = await _ws_ctx(env_with_provider, monkeypatch)
+    client, rt, root = ctx["client"], ctx["rt"], ctx["root"]
+    auth = ctx["owner_auth"]
+    base = f"/api/agents/{rt}/workspace"
+    outside = tmp_path / "rd-hardlink-outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text(_CANARY_HTTP, encoding="utf-8")
+    (root / "sub").mkdir()
+    os.link(outside / "secret.txt", root / "sub" / "linked.txt")
+    try:
+        r = await client.get(
+            f"{base}/tree", params={"path": "/", "from_workspace": "true"}, headers=auth
+        )
+        _forbidden(r)
+        assert "linked.txt" not in r.text
+        for pattern in ("*", "**", "**/*.md", "sub/*"):
+            r = await client.get(
+                f"{base}/glob",
+                params={"pattern": pattern, "from_workspace": "true"},
+                headers=auth,
+            )
+            _forbidden(r)
+            assert "linked.txt" not in r.text
+        r = await client.get(
+            f"{base}/grep", params={"pattern": _CANARY_HTTP, "from_workspace": "true"}, headers=auth
+        )
+        _forbidden(r)
+        assert _CANARY_HTTP.encode() not in r.content
+        r = await client.get(
+            f"{base}/grep",
+            params={"pattern": "CANARY", "path": "sub", "from_workspace": "true"},
+            headers=auth,
+        )
+        _forbidden(r)
+        r = await client.get(
+            f"{base}/grep",
+            params={"pattern": "CANARY", "path": "sub/linked.txt", "from_workspace": "true"},
+            headers=auth,
+        )
+        _forbidden(r)
+        assert outside.joinpath("secret.txt").read_text(encoding="utf-8") == _CANARY_HTTP
+        assert sorted(p.name for p in outside.iterdir()) == ["secret.txt"]
+    finally:
+        (root / "sub" / "linked.txt").unlink()
+        (root / "sub").rmdir()
+
+    await _assert_owner_surface_restored(ctx)

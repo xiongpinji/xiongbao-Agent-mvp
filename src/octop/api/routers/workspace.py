@@ -17,6 +17,8 @@ from octop.api.common.agent_workspace import resolve_agent_workspace_dir
 from octop.api.common.content_disposition import content_disposition
 from octop.api.common.workspace import (
     assert_project_task_file_workspace,
+    assert_project_task_listing_base,
+    assert_project_task_search_base,
     coerce_read_content,
     file_info_to_dict,
     project_task_file_io_path,
@@ -82,10 +84,20 @@ async def _file_workspace(
     return ws, root
 
 
-def _io_path(root: Path | None, path: str, *, from_workspace: bool) -> str:
-    """Strict managed-root fragment for internal runtimes; legacy mapping otherwise."""
+def _io_path(
+    root: Path | None,
+    path: str,
+    *,
+    from_workspace: bool,
+    kind: Literal["file", "dir", "any"] = "any",
+) -> str:
+    """Strict managed-root fragment for internal runtimes; legacy mapping otherwise.
+
+    ``kind`` only affects the internal branch (030A S2 final-component proof);
+    the ordinary-agent legacy mapping is untouched.
+    """
     if root is not None:
-        return project_task_file_io_path(root, path, from_workspace=from_workspace)
+        return project_task_file_io_path(root, path, from_workspace=from_workspace, kind=kind)
     return _workspace_io_path(path, from_workspace=from_workspace)
 
 
@@ -105,7 +117,7 @@ def _internal_preview_source(root: Path, source: str) -> str:
             "path escapes the project-task file workspace",
             details={"internal": True},
         )
-    return project_task_file_io_path(root, raw, from_workspace=True)
+    return project_task_file_io_path(root, raw, from_workspace=True, kind="file")
 
 
 def _assert_workspace_mutable(path: str) -> str:
@@ -199,7 +211,10 @@ async def list_tree(
 ) -> list[dict[str, Any]]:
     """Single-level directory listing under ``path`` (agent must be running)."""
     ws, root = await _file_workspace(server, agent_id, user=user, as_user=as_user, owner_only=True)
-    io_path = _io_path(root, path, from_workspace=from_workspace)
+    io_path = _io_path(root, path, from_workspace=from_workspace, kind="dir")
+    if root is not None:
+        # 030A S3: prove the listed subtree reparse-free before dispatch.
+        await assert_project_task_listing_base(root, io_path)
     result = await ws.als(io_path)
     if result is None:
         raise OctopError(ErrorCode.NOT_FOUND, f"cannot list {path!r}")
@@ -232,7 +247,7 @@ async def read_file(
 ) -> dict[str, Any]:
     """Read a UTF-8 text file."""
     ws, root = await _file_workspace(server, agent_id, user=user, as_user=as_user, owner_only=False)
-    content = await ws.aread_text(_io_path(root, path, from_workspace=from_workspace))
+    content = await ws.aread_text(_io_path(root, path, from_workspace=from_workspace, kind="file"))
     if content is None:
         raise OctopError(ErrorCode.NOT_FOUND, f"cannot read {path!r}")
     return {"path": path, "content": coerce_read_content(content)}
@@ -252,7 +267,7 @@ async def write_file(
     ws, root = await _file_workspace(server, agent_id, user=user, as_user=as_user, owner_only=True)
     # Resolve/authorize before building content or touching the backend: a path
     # refusal (403, e.g. symlink escape) must never be remapped to 404.
-    io_path = _io_path(root, path, from_workspace=from_workspace)
+    io_path = _io_path(root, path, from_workspace=from_workspace, kind="file")
     converter = get_doc_converter(path)
     if converter is not None:
         # Editable-document paths are always stored as the binary document
@@ -390,7 +405,7 @@ async def upload_file(
     # strict resolver must reject traversal / host-absolute shapes from it too
     # — and must run before any bytes are buffered or written. The request's
     # own ``from_workspace`` is honored: false is refused, never upgraded.
-    io_target = _io_path(root, target, from_workspace=from_workspace)
+    io_target = _io_path(root, target, from_workspace=from_workspace, kind="file")
     data = await file.read()
     try:
         await ws.aupload_bytes(io_target, data)
@@ -416,7 +431,7 @@ async def download_file(
     sensitive system roots (``/etc``, ``.harness-browser``, Windows system dirs).
     """
     ws, root = await _file_workspace(server, agent_id, user=user, as_user=as_user, owner_only=False)
-    io_path = _io_path(root, path, from_workspace=from_workspace)
+    io_path = _io_path(root, path, from_workspace=from_workspace, kind="file")
     # Internal runtimes never take the host-absolute branch: _io_path already
     # proved the fragment is workspace-relative inside the managed root.
     if (
@@ -456,7 +471,7 @@ async def read_doc(
     """Read an editable document (e.g. ``.docx``) as Markdown for online editing."""
     converter = _ensure_editable_doc(path)
     ws, root = await _file_workspace(server, agent_id, user=user, as_user=as_user, owner_only=False)
-    io_path = _io_path(root, path, from_workspace=from_workspace)
+    io_path = _io_path(root, path, from_workspace=from_workspace, kind="file")
     try:
         blob = await ws.adownload_bytes(io_path)
     except PermissionError as exc:
@@ -490,7 +505,7 @@ async def write_doc(
     # honor the request flag so ``from_workspace=false`` is refused.
     ws, root = await _file_workspace(server, agent_id, user=user, as_user=as_user, owner_only=False)
     if root is not None:
-        rel = project_task_file_io_path(root, path, from_workspace=from_workspace)
+        rel = project_task_file_io_path(root, path, from_workspace=from_workspace, kind="file")
         if rel == ".":
             raise OctopError(ErrorCode.FORBIDDEN, "cannot modify workspace root")
     else:
@@ -577,12 +592,19 @@ async def glob_files(
     ws, managed = await _file_workspace(
         server, agent_id, user=user, as_user=as_user, owner_only=True
     )
-    root = _io_path(managed, path, from_workspace=from_workspace)
+    root = _io_path(managed, path, from_workspace=from_workspace, kind="dir")
     if managed is not None:
         # The glob pattern is a path shape too: refuse traversal / host-absolute
         # patterns via the same strict resolver (globs have no containment proof
-        # inside the backend glob itself).
-        pattern = project_task_file_io_path(managed, pattern, from_workspace=True)
+        # inside the backend glob itself). The literal component walk stops at
+        # the first glob-magic segment (wildcard_tail); the S3 subtree scan
+        # below covers the unprovable wildcard part — and it MUST run before
+        # the md shortcut branch, which lists "." via ws.als and never reaches
+        # ws.aglob (030A S3, design §5.2).
+        pattern = project_task_file_io_path(
+            managed, pattern, from_workspace=True, wildcard_tail=True
+        )
+        await assert_project_task_listing_base(managed, root)
     if pattern in ("**/*.md", "*.md") and root == ".":
         ls_result = await ws.als(".")
         if ls_result is None:
@@ -617,7 +639,15 @@ async def grep_files(
     ws, managed = await _file_workspace(
         server, agent_id, user=user, as_user=as_user, owner_only=True
     )
-    io_path = _io_path(managed, path, from_workspace=from_workspace)
+    io_path = _io_path(managed, path, from_workspace=from_workspace, kind="any")
+    if managed is not None:
+        # 030A S2/S3: the installed backend greps either a single regular file
+        # or a directory. The file form gets the S2 type proof (reparse points,
+        # FIFOs/sockets/devices and hard links refuse); the directory form also
+        # gets the bounded subtree scan because the backend reads every
+        # candidate file beneath it. The pattern is literal search text, never
+        # a path.
+        await assert_project_task_search_base(managed, io_path)
     result = await ws.agrep(pattern, io_path)
     if result is None:
         raise OctopError(ErrorCode.NOT_FOUND, "grep failed")

@@ -87,6 +87,10 @@ from octop.infra.skills.workspace_catalog import (
     repair_workspace_skill_manifests,
 )
 from octop.infra.utils.locale import Locale
+from octop.infra.utils.safe_dirs import (
+    UnsupportedPlatformError,
+    assert_plain_directory_chain,
+)
 from octop.infra.utils.ulid import new_short_id
 
 if TYPE_CHECKING:
@@ -833,6 +837,17 @@ class AgentManager:
             raise OctopError(ErrorCode.AGENT_FAILED, "internal runtime row vanished")
         try:
             await asyncio.to_thread(self._paths.ensure_project_task_file_runtime_dir, agent_id)
+        except UnsupportedPlatformError:
+            # 030A S5 / P3 closure: platforms without verified plain-directory
+            # proof semantics fail closed with the dedicated 422, not the
+            # generic create failure. Must stay ahead of ``except OSError``
+            # (UnsupportedPlatformError IS an OSError subclass).
+            logger.exception("project-task runtime %s: platform lacks directory proofs", agent_id)
+            await self._compensate_project_task_runtime(agent_id)
+            raise OctopError(
+                ErrorCode.PROJECT_TASK_FILES_UNSUPPORTED,
+                "controlled file tasks require Linux or Windows directory semantics",
+            ) from None
         except OSError:
             logger.exception("project-task runtime %s: private root creation failed", agent_id)
             # Best-effort compensation through the single dedicated path: a
@@ -1008,6 +1023,13 @@ class AgentManager:
         if stored is None or stored.last_state != "running":
             return False
         root = self._paths.project_task_file_runtime_dir(row.agent_id)
+        # 030A S6: the whole anchor→root chain must still be provably plain
+        # real directories at verification time (a planted symlink/junction at
+        # ANY managed level fails closed into the existing compensation).
+        try:
+            assert_plain_directory_chain(root)
+        except OSError:
+            return False
         backend = getattr(agent.workspace, "backend", None)
         backend = getattr(backend, "default", backend)
         # deepagents is a transitive-only dependency: compare by class name.

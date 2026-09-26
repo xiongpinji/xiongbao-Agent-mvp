@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from harness_agent.backends.workspace import BackendWorkspace
 
@@ -14,6 +15,9 @@ from octop.api.common.agent import (
     require_agent_row,
 )
 from octop.infra.backend.project_task_file_paths import (
+    ProjectTaskListingOverflowError,
+    assert_listing_subtree_reparse_free,
+    assert_plain_search_base,
     normalize_project_task_io_path,
     resolve_project_task_workspace_path,
 )
@@ -157,7 +161,14 @@ def assert_project_task_file_workspace(ws: Any, root: Path) -> None:
         ) from None
 
 
-def project_task_file_io_path(root: Path, raw: str, *, from_workspace: bool) -> str:
+def project_task_file_io_path(
+    root: Path,
+    raw: str,
+    *,
+    from_workspace: bool,
+    kind: Literal["file", "dir", "any"] = "any",
+    wildcard_tail: bool = False,
+) -> str:
     """Strict workspace-relative fragment for internal runtimes (M0 resolver).
 
     Rejects host absolute POSIX/Windows/UNC paths, ``file://`` URLs, ``..``
@@ -165,6 +176,12 @@ def project_task_file_io_path(root: Path, raw: str, *, from_workspace: bool) -> 
     under *root* cannot be proven (symlink/junction escape). Internal runtimes
     accept workspace-relative mode only: ``from_workspace=False`` (the chat/tool
     host-absolute mode) is refused outright, never silently upgraded.
+
+    030A B+: the resolver additionally runs the S1 literal ancestor-chain walk
+    (before any ``resolve()``), the S2 final-component type proof for *kind*
+    (``file`` for content routes, ``dir`` for listing bases) and the S7
+    hard-link refusal. *wildcard_tail* is for glob patterns: the component
+    walk stops at the first glob-magic segment (the S3 subtree scan covers it).
     """
     try:
         # The dashboard's single leading "/" denotes the managed root, but
@@ -178,7 +195,9 @@ def project_task_file_io_path(root: Path, raw: str, *, from_workspace: bool) -> 
             raise ValueError("UNC and Windows-absolute paths are not allowed")
         text = workspace_api_path(raw) if from_workspace else str(raw)
         rel = normalize_project_task_io_path(text, from_workspace=from_workspace)
-        resolve_project_task_workspace_path(root, rel, from_workspace=from_workspace)
+        resolve_project_task_workspace_path(
+            root, rel, from_workspace=from_workspace, kind=kind, wildcard_tail=wildcard_tail
+        )
     except ValueError as exc:  # ProjectTaskPathError is a ValueError subclass
         raise OctopError(
             ErrorCode.FORBIDDEN,
@@ -186,6 +205,57 @@ def project_task_file_io_path(root: Path, raw: str, *, from_workspace: bool) -> 
             details={"internal": True},
         ) from exc
     return rel
+
+
+async def assert_project_task_listing_base(root: Path, rel: str) -> None:
+    """030A S3: bounded reparse-free subtree proof before any listing dispatch.
+
+    Must run before ``ws.als``/``aglob``/``agrep`` on internal runtimes —
+    including the glob ``("**/*.md", "*.md")`` shortcut branch, which lists
+    ``.`` through ``ws.als`` without ever reaching ``ws.aglob``. A planted
+    symlink/junction anywhere in the base subtree refuses the whole listing
+    (403 internal); exceeding the bounded-scan cap fails closed with 503.
+    The blocking scan runs in a worker thread (AGENTS.md: no blocking I/O
+    inside async).
+    """
+    try:
+        base = resolve_project_task_workspace_path(root, rel, kind="dir")
+        await asyncio.to_thread(assert_listing_subtree_reparse_free, base)
+    except ProjectTaskListingOverflowError as exc:
+        raise OctopError(
+            ErrorCode.PROJECT_TASK_FILES_UNAVAILABLE,
+            "project-task file listing is too large",
+        ) from exc
+    except ValueError as exc:  # ProjectTaskPathError is a ValueError subclass
+        raise OctopError(
+            ErrorCode.FORBIDDEN,
+            "path escapes the project-task file workspace",
+            details={"internal": True},
+        ) from exc
+
+
+async def assert_project_task_search_base(root: Path, rel: str) -> None:
+    """030A S2/S3: proof for a grep base that may be a regular file OR a dir.
+
+    The installed filesystem backend searches either a single regular file or
+    a directory. Both forms get the S2 type proof (reparse points, FIFOs,
+    sockets, devices and hard-linked regular files refuse); a directory base
+    additionally gets the bounded S3 subtree scan because the backend reads
+    every candidate file beneath it. The blocking scan runs in a worker thread.
+    """
+    try:
+        await asyncio.to_thread(assert_plain_search_base, root, rel)
+    except ProjectTaskListingOverflowError as exc:
+        raise OctopError(
+            ErrorCode.PROJECT_TASK_FILES_UNAVAILABLE,
+            "project-task file listing is too large",
+        ) from exc
+    except ValueError as exc:  # ProjectTaskPathError is a ValueError subclass
+        raise OctopError(
+            ErrorCode.FORBIDDEN,
+            "path escapes the project-task file workspace",
+            details={"internal": True},
+        ) from exc
 
 
 def reanchor_entry_path(entry_path: str, *, parent: str) -> str:

@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from octop.infra.utils.safe_dirs import ensure_plain_directory_chain
+
 
 @dataclass(frozen=True)
 class PathLayout:
@@ -121,11 +123,23 @@ class PathLayout:
         return self.project_task_files_dir / agent_id
 
     def ensure_project_task_file_runtime_dir(self, agent_id: str) -> Path:
-        """Create the private runtime root with 0700 on POSIX and return it."""
+        """Create the private runtime root with 0700 and prove it plain (S5).
+
+        030A S5: before any mutation every existing component of the lexical
+        absolute chain (anchor → layout root → ``project-task-files`` →
+        ``<agent_id>``) must lstat as a real plain directory, each created
+        component is proven immediately, and the full chain is re-proven after
+        creation — a pre-planted symlink/junction at the leaf is refused, never
+        adopted through ``exist_ok`` (design §3.4). A relative ``OCTOP_HOME``
+        fails closed without ``resolve()`` hiding ancestor links, and unprobed
+        platforms fail closed. 0700 applies only to the feature-owned
+        ``project-task-files`` parent and the leaf; the shared layout root's
+        mode is never touched. Failures raise :class:`OSError` subclasses
+        (:class:`~octop.infra.utils.safe_dirs.SafeDirectoryError`) matching the
+        create-flow compensation catch in ``AgentManager``.
+        """
         out = self.project_task_file_runtime_dir(agent_id)
-        out.mkdir(parents=True, exist_ok=True, mode=0o700)
-        if os.name == "posix":
-            os.chmod(out, 0o700)
+        ensure_plain_directory_chain(out, private_from=self.project_task_files_dir)
         return out
 
     def agent_workspace(self, agent_id: str) -> Path:

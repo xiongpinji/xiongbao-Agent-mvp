@@ -22,7 +22,9 @@ import contextlib
 import json
 import os
 import stat
+import subprocess
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -1346,3 +1348,252 @@ async def test_ordinary_agent_creation_and_start_are_unchanged(
         assert workspace.resolve() == manager.paths.ensure_agent_workspace(row.agent_id).resolve()
     finally:
         _shutdown(manager, row.agent_id)
+
+
+# ---------------------------------------------------------------------------
+# 030A RD-5 / RD-6: S5 creation proofs, unsupported platform 422, S6 startup
+# verification against stable replacement, and cleanup non-following (A12).
+# Stable plants only — check-time refusals, no TOCTOU immunity claimed.
+# ---------------------------------------------------------------------------
+
+CANARY_TEXT = "CANARY-SECRET"
+
+
+def _require_junction(link: Path, target: Path) -> None:
+    """Create a real NTFS junction or fail loudly (never a silent skip)."""
+    result = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(link), str(target)],
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0 or not link.is_junction():
+        stderr = result.stderr.decode("utf-8", errors="replace").strip()
+        pytest.fail(
+            f"environment: cannot create NTFS junction {link} -> {target}: "
+            f"rc={result.returncode} stderr={stderr!r}"
+        )
+    assert os.path.realpath(link) == os.path.realpath(target)
+
+
+def _plant_dir_link(link: Path, target: Path) -> Callable[[], None]:
+    """Plant a stable directory link per platform; return its cleanup."""
+    if os.name == "nt":
+        _require_junction(link, target)
+        return link.rmdir
+    link.symlink_to(target, target_is_directory=True)
+    return link.unlink
+
+
+def _outside_tree(base: Path) -> Path:
+    """Canary tree OUTSIDE the layout root; returns the canary file."""
+    base.mkdir(parents=True, exist_ok=True)
+    canary = base / "canary.txt"
+    canary.write_text(CANARY_TEXT, encoding="utf-8")
+    (base / "nested").mkdir(exist_ok=True)
+    (base / "nested" / "deep.txt").write_text("deep", encoding="utf-8")
+    return canary
+
+
+async def test_create_refuses_preplanted_link_root_and_keeps_outside_intact(
+    manager: AgentManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A10: a pre-planted symlink/junction is never adopted as the private root.
+
+    S5 proves every existing component BEFORE any mutation, so the planted
+    link makes ``ensure_plain_directory_chain`` refuse (``mkdir(exist_ok=True)``
+    adoption gap closed). The outside tree must never be used as root, never
+    be deleted and never gain bytes; no task-capable row survives.
+    """
+    _seed_provider(manager)
+    uid = _make_user(manager, "owner-plant")
+    source = _make_source_expert(manager, user_id=uid, agent_id="SRC-PL", name="src-pl")
+    _boot_harness(manager)
+
+    fixed_id = "PTPLANTED01"
+    monkeypatch.setattr(
+        manager,
+        "_allocate_project_task_identity",
+        lambda owner_user_id: (fixed_id, "task-file-planted"),
+    )
+    outside = manager.paths.root.parent / "outside-target"
+    canary = _outside_tree(outside)
+
+    root = manager.paths.project_task_file_runtime_dir(fixed_id)
+    root.parent.mkdir(parents=True, exist_ok=True)
+    cleanup = _plant_dir_link(root, outside)
+    try:
+        with pytest.raises(OctopError) as excinfo:
+            await manager.create_project_task_file_runtime(owner_user_id=uid, source_expert=source)
+        assert excinfo.value.code is ErrorCode.AGENT_FAILED
+        # Outside zero side effects: not adopted, not written, not deleted.
+        assert canary.read_text(encoding="utf-8") == CANARY_TEXT
+        assert sorted(p.name for p in outside.iterdir()) == ["canary.txt", "nested"]
+        rows = _internal_rows(manager)
+        assert rows == [] or (len(rows) == 1 and rows[0].last_state == "failed")
+        if os.name == "posix":
+            # rmtree refuses symlinks: the link is kept, the row stays a
+            # retryable failed marker (cleanup never claims false success).
+            assert root.is_symlink()
+            assert len(rows) == 1
+            assert rows[0].last_state == "failed"
+    finally:
+        with contextlib.suppress(OSError):
+            cleanup()
+        _shutdown(manager)
+
+
+async def test_create_maps_unsupported_platform_to_dedicated_422(
+    manager: AgentManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P3 closure: platforms without verified directory proofs get 422.
+
+    ``UnsupportedPlatformError`` is an ``OSError`` subclass, so the dedicated
+    handler must stay ahead of the generic create-failure branch; nothing is
+    created and no row survives (compensation runs on the empty state).
+    """
+    _seed_provider(manager)
+    uid = _make_user(manager, "owner-plat")
+    source = _make_source_expert(manager, user_id=uid, agent_id="SRC-PLT", name="src-plt")
+    _boot_harness(manager)
+    monkeypatch.setattr("sys.platform", "darwin")
+    monkeypatch.setattr("os.name", "posix")
+    try:
+        with pytest.raises(OctopError) as excinfo:
+            await manager.create_project_task_file_runtime(owner_user_id=uid, source_expert=source)
+        assert excinfo.value.code is ErrorCode.PROJECT_TASK_FILES_UNSUPPORTED
+        assert _internal_rows(manager) == []
+        managed = manager.paths.project_task_files_dir
+        assert not managed.exists() or list(managed.iterdir()) == []
+    finally:
+        _shutdown(manager)
+
+
+async def test_create_fails_closed_on_relative_layout_root(
+    manager: AgentManager, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """RD-5: a relative layout root (e.g. relative ``OCTOP_HOME``) fails closed.
+
+    The S5 chain validator refuses non-absolute targets WITHOUT ``resolve()``
+    hiding ancestor links — creation must fail with nothing created anywhere.
+    """
+    _seed_provider(manager)
+    uid = _make_user(manager, "owner-rel")
+    source = _make_source_expert(manager, user_id=uid, agent_id="SRC-RL", name="src-rl")
+    _boot_harness(manager)
+    monkeypatch.setattr(manager, "_paths", PathLayout(Path("relative-octop-home")))
+    monkeypatch.chdir(tmp_path)
+    try:
+        with pytest.raises(OctopError) as excinfo:
+            await manager.create_project_task_file_runtime(owner_user_id=uid, source_expert=source)
+        assert excinfo.value.code is ErrorCode.AGENT_FAILED
+        assert _internal_rows(manager) == []
+        assert not (tmp_path / "relative-octop-home").exists()
+    finally:
+        _shutdown(manager)
+
+
+async def test_verify_false_after_root_or_ancestor_replacement(manager: AgentManager) -> None:
+    """A11/A16-start: S6 re-proves the anchor→root chain at verification time.
+
+    Simulates the design's A11 window (replaced after start, before verify) by
+    calling the verifier directly on a running runtime.
+    """
+    _seed_provider(manager)
+    uid = _make_user(manager, "owner-verify")
+    source = _make_source_expert(manager, user_id=uid, agent_id="SRC-VF", name="src-vf")
+    row: AgentRow | None = None
+    try:
+        row = await _create_runtime(manager, owner_user_id=uid, source=source)
+        assert manager._verify_project_task_runtime(row) is True
+        agent = manager.get_agent(row.agent_id)
+        _quiesce_agent_memory(agent)
+
+        # A11: the running root itself is stably replaced.
+        root = manager.paths.project_task_file_runtime_dir(row.agent_id)
+        real_root = root.parent / f"real-{row.agent_id}"
+        try:
+            root.rename(real_root)
+        except PermissionError as exc:
+            if os.name == "nt":
+                pytest.skip(
+                    f"Windows holds the running runtime root open; post-start rename unproven: {exc}"
+                )
+            pytest.fail(f"environment: cannot rename the running root: {exc}")
+        except OSError as exc:  # pragma: no cover - environment evidence
+            pytest.fail(f"environment: cannot rename the running root: {exc}")
+        cleanup = _plant_dir_link(root, real_root)
+        try:
+            assert manager._verify_project_task_runtime(row) is False
+        finally:
+            with contextlib.suppress(OSError):
+                cleanup()
+            real_root.rename(root)
+        assert manager._verify_project_task_runtime(row) is True
+
+        # A16 start variant: the managed ancestor (project-task-files) is
+        # replaced while the leaf itself stays a real directory. The layout
+        # root level is not renamed here — it holds the open sqlite handles.
+        tasks_dir = manager.paths.project_task_files_dir
+        real_tasks = tasks_dir.parent / "real-project-task-files"
+        try:
+            tasks_dir.rename(real_tasks)
+        except OSError as exc:  # pragma: no cover - environment evidence
+            pytest.fail(f"environment: cannot rename the managed ancestor: {exc}")
+        cleanup = _plant_dir_link(tasks_dir, real_tasks)
+        try:
+            assert manager._verify_project_task_runtime(row) is False
+        finally:
+            with contextlib.suppress(OSError):
+                cleanup()
+            real_tasks.rename(tasks_dir)
+        assert manager._verify_project_task_runtime(row) is True
+    finally:
+        if row is not None:
+            _shutdown(manager, row.agent_id)
+        else:
+            _shutdown(manager)
+
+
+async def test_cleanup_removes_planted_link_without_following(manager: AgentManager) -> None:
+    """A12/RD-6: whole-task deletion removes a planted link, never its target.
+
+    Pins the documented CPython non-following behavior of ``shutil.rmtree``
+    through the real compensation path (POSIX ``_rmtree_safe_fd``
+    ``entry.is_symlink()``; Windows junction semantics proven at runtime by
+    this test). The outside tree must survive byte-identical.
+    """
+    _seed_provider(manager)
+    uid = _make_user(manager, "owner-clean")
+    source = _make_source_expert(manager, user_id=uid, agent_id="SRC-CL", name="src-cl")
+    outside = manager.paths.root.parent / "outside-cleanup"
+    canary = _outside_tree(outside)
+    link: Path | None = None
+    row: AgentRow | None = None
+    try:
+        row = await _create_runtime(manager, owner_user_id=uid, source=source)
+        root = manager.paths.project_task_file_runtime_dir(row.agent_id)
+        (root / "notes.txt").write_text("task bytes", encoding="utf-8")
+        link = root / "escape"
+        _plant_dir_link(link, outside)
+
+        assert await manager.cleanup_unlinked_project_task_runtime(row.agent_id) is True
+
+        assert not root.exists()
+        assert _internal_rows(manager) == []
+        # Outside tree fully intact — only the link itself is gone.
+        assert canary.read_text(encoding="utf-8") == CANARY_TEXT
+        assert (outside / "nested" / "deep.txt").read_text(encoding="utf-8") == "deep"
+        assert sorted(p.name for p in outside.iterdir()) == ["canary.txt", "nested"]
+        _shutdown(manager, row.agent_id)
+        row = None
+    finally:
+        if link is not None:
+            with contextlib.suppress(OSError):
+                if os.name == "nt":
+                    link.rmdir()
+                else:
+                    link.unlink()
+        if row is not None:
+            _shutdown(manager, row.agent_id)
+        else:
+            _shutdown(manager)
