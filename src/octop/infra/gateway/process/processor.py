@@ -31,6 +31,7 @@ from octop.infra.agents.teams.team_manager import (
 from octop.infra.agents.teams.team_manager import (
     stamp_team_host_chunk as _maybe_stamp_team_host,
 )
+from octop.infra.db.repos.agents import RUNTIME_KIND_PROJECT_TASK_FILES
 from octop.infra.errors import OctopError
 from octop.infra.gateway.hitl.coordinator import (
     HitlAnswerOutcome,
@@ -57,6 +58,7 @@ from octop.infra.gateway.process.history_projection import (
     message_inputs,
 )
 from octop.infra.gateway.process.message_keys import (
+    INBOUND_ATTACHMENTS_KEY,
     resolve_user_id_for_message,
     sanitize_im_metadata,
     session_key_from_message,
@@ -71,6 +73,8 @@ from octop.infra.gateway.slash.catalog import spec_for
 from octop.infra.gateway.slash.ctx import SlashCtx, build_slash_ctx
 from octop.infra.gateway.slash.parser import parse_slash
 from octop.infra.gateway.slash.runner import try_handle_slash
+from octop.infra.gateway.threads import ThreadRegistry
+from octop.infra.gateway.ws import WS_CHANNEL_ID
 from octop.infra.history.trajectory.settings import agent_trajectory_enabled
 from octop.infra.knowledge.default_open import stamp_turn_knowledge_config
 from octop.infra.users.preferences import (
@@ -88,7 +92,6 @@ if TYPE_CHECKING:
     from octop.infra.db.repos.project_tasks import ProjectTaskRepo
     from octop.infra.db.repos.users import UserRepo
     from octop.infra.gateway.slash.dispatcher import SlashDispatcher
-    from octop.infra.gateway.threads import ThreadRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +114,11 @@ def _overwrite_last_user_text(request: dict[str, Any], text: str) -> None:
     extra = getattr(last, "additional_kwargs", None)
     kwargs = dict(extra) if isinstance(extra, dict) else {}
     messages[-1] = HumanMessage(content=text, additional_kwargs=kwargs)
+
+
+def _row_is_project_task_runtime(row: Any) -> bool:
+    """True for DB-marked 030A internal project-task file runtimes."""
+    return row is not None and getattr(row, "runtime_kind", None) == RUNTIME_KIND_PROJECT_TASK_FILES
 
 
 class _MessageEventSink(SlashSink):
@@ -180,6 +188,58 @@ class GlobalProcessor:
             thread_message_repo=thread_message_repo,
             gateway=gateway,
         )
+        # 030A B4: every thread-creation caller (dashboard, CLI, slash, cron,
+        # teams, channels) shares this registry — attaching the internal-runtime
+        # check here guards all creation paths in one place.
+        thread_registry.set_internal_runtime_checker(self._agent_is_project_task_runtime)
+
+    def _agent_is_project_task_runtime(self, agent_id: str) -> bool:
+        """DB-fresh check: is *agent_id* an internal project-task file runtime?"""
+        return _row_is_project_task_runtime(self._agent_repo.get(agent_id))
+
+    def _project_task_file_turn_refusal(
+        self,
+        msg: InboundMessage,
+        meta: dict[str, Any],
+        *,
+        agent_id: str,
+        user_id: int,
+    ) -> str | None:
+        """030A B4 internal file-runtime turn re-validation at the trust boundary.
+
+        The API layer refuses non-owner / metadata-carrying turns; this is the
+        second guard for enqueued messages arriving anywhere else (CLI channel,
+        cron, direct enqueue). A turn is allowed only when it comes from the
+        dashboard WS channel, is not a slash command, targets the calling
+        owner's own EXISTING bound thread, and carries no client-controlled
+        capability metadata. Returns a refusal message, or ``None`` to allow.
+        """
+        agent_row = self._agent_repo.get(agent_id)
+        if not _row_is_project_task_runtime(agent_row):
+            return None
+        denial = "internal project-task runtime does not accept this message"
+        if msg.channel_id != WS_CHANNEL_ID:
+            return denial
+        if msg.channel_type != ThreadRegistry.CHANNEL_DASHBOARD:
+            return denial
+        if parse_slash(msg.text) is not None:
+            return denial
+        thread_id = meta.get("thread_id")
+        if not isinstance(thread_id, str) or not thread_id.strip():
+            return denial
+        trow = self._thread_registry.get_thread(thread_id)
+        if trow is None or trow.agent_id != agent_id or trow.user_id != user_id:
+            return denial
+        if agent_row is not None and agent_row.user_id != user_id:
+            return denial
+        for key in ("mcp_servers", "skills", "knowledge_base_ids", "target_agent_ids"):
+            if meta.get(key):
+                return denial
+        if meta.get("hitl_policy") is not None:
+            return denial
+        if meta.get(INBOUND_ATTACHMENTS_KEY):
+            return denial
+        return None
 
     async def _begin_history(
         self, agent_id: str, thread_id: str, request: dict[str, Any], *, resume: bool = False
@@ -639,6 +699,14 @@ class GlobalProcessor:
             return
 
         agent_row = self._agent_repo.get(agent_id)
+        if _row_is_project_task_runtime(agent_row):
+            # 030A B4: IM / cron / team channels never reach an internal file
+            # runtime — dashboard turns flow through iter_turn_chunks only,
+            # after strict re-validation. Refused before any slash / HITL /
+            # thread side effect.
+            yield MessageEvent.error_event("internal project-task runtime does not accept messages")
+            yield MessageEvent.completed()
+            return
         user_id = resolve_user_id_for_message(
             msg,
             agent_owner_id=agent_row.user_id if agent_row is not None else None,
@@ -946,6 +1014,16 @@ class GlobalProcessor:
         im_meta = sanitize_im_metadata(msg)
         meta = msg.metadata or {}
 
+        refusal = self._project_task_file_turn_refusal(
+            msg, meta, agent_id=agent_id, user_id=user_id
+        )
+        if refusal is not None:
+            # 030A B4: refused before slash handling, implicit thread creation
+            # or any other side effect.
+            yield {"type": "error", "message": refusal}
+            yield {"type": "done"}
+            return
+
         handled, slash_lines, slash_actions = await try_handle_slash(
             msg.text,
             dispatcher=self._dispatcher,
@@ -1208,6 +1286,18 @@ class GlobalProcessor:
             INBOUND_ATTACHMENTS_KEY,
         )
 
+        is_internal = self._agent_is_project_task_runtime(agent_id)
+        if is_internal:
+            # 030A B4: drop every client-controlled capability knob for internal
+            # file runtimes, so a directly-enqueued message that bypassed the
+            # API layer still cannot inject MCP/skills/knowledge/attachments/
+            # HITL/composer overrides into the harness request.
+            meta = {
+                key: meta[key]
+                for key in ("session_key", "thread_id", "user_is_admin", "locale")
+                if key in meta
+            }
+
         media_backend = media_backend_for_agent(self._agent_manager, agent_id)
         source = f"{msg.channel_type}/{msg.channel_id}"
         locale = resolve_user_locale(
@@ -1221,6 +1311,11 @@ class GlobalProcessor:
             media_backend=media_backend,
             locale=locale,
         )
+        if is_internal and isinstance(content, list):
+            # Text only: attachment/vision blocks never reach the runtime even
+            # if the API-layer refusal was bypassed. A plain string content is
+            # already text-only and passes through unchanged.
+            content = [block for block in content if block.get("type") == "text"]
         model_ref = self._resolve_harness_model(
             agent_id,
             thread_id,
@@ -1251,12 +1346,16 @@ class GlobalProcessor:
         else:
             explicit_mcp = None
             apply_defaults = True
-        mcp_servers = await self._resolve_turn_mcp_servers(
-            agent_id=agent_id,
-            user_id=user_id,
-            explicit=explicit_mcp,
-            apply_defaults=apply_defaults,
-        )
+        if is_internal:
+            # 030A B4: no MCP servers at all for internal file runtimes.
+            mcp_servers = None
+        else:
+            mcp_servers = await self._resolve_turn_mcp_servers(
+                agent_id=agent_id,
+                user_id=user_id,
+                explicit=explicit_mcp,
+                apply_defaults=apply_defaults,
+            )
         if mcp_servers:
             # Keep history chips aligned with the servers actually injected.
             if isinstance(composer, dict) and composer:
@@ -1295,16 +1394,17 @@ class GlobalProcessor:
             request, thread_id=thread_id, user_id=user_id, agent_id=agent_id
         )
         self.teams.stamp_host_runtime(request, agent_id)
-        self._attach_turn_knowledge_config(
-            request,
-            user_id=user_id,
-            is_admin=bool(meta.get("user_is_admin")),
-            explicit_ids=meta.get("knowledge_base_ids")
-            if isinstance(meta.get("knowledge_base_ids"), list)
-            else None,
-            locale=locale,
-            agent_id=agent_id,
-        )
+        if not is_internal:
+            self._attach_turn_knowledge_config(
+                request,
+                user_id=user_id,
+                is_admin=bool(meta.get("user_is_admin")),
+                explicit_ids=meta.get("knowledge_base_ids")
+                if isinstance(meta.get("knowledge_base_ids"), list)
+                else None,
+                locale=locale,
+                agent_id=agent_id,
+            )
 
         if mcp_servers:
             request["mcp_servers"] = mcp_servers
@@ -1427,6 +1527,9 @@ class GlobalProcessor:
         """Expose selected knowledge-base ids for the search_knowledge tool."""
         if self._knowledge_services is None:
             return
+        if agent_id and self._agent_is_project_task_runtime(agent_id):
+            # 030A B4: internal file runtimes get no knowledge-base attachment.
+            return
         bases = (
             self._knowledge_services.knowledge_repo.list_all()
             if is_admin
@@ -1463,6 +1566,10 @@ class GlobalProcessor:
 
         # Team hosts only dispatch — never attach MCP tools.
         if is_team_agent(self._agent_manager.get_row(agent_id)):
+            return None
+        if self._agent_is_project_task_runtime(agent_id):
+            # 030A B4: internal file runtimes get no MCP tools — neither
+            # explicit turn picks nor default_open connectors.
             return None
 
         extra_defaults = self._agent_manager.default_mcp_servers(agent_id)

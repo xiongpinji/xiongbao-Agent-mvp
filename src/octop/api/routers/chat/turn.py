@@ -15,7 +15,12 @@ from harness_gateway.models import (
     TextContent,
 )
 
-from octop.api.common.agent import require_agent_row
+from octop.api.common.agent import (
+    assert_project_task_file_owner,
+    is_project_task_file_runtime,
+    refuse_project_task_file_runtime,
+    require_agent_row,
+)
 from octop.api.common.validators import validate_chat_mcp_servers, validate_chat_skills
 from octop.api.routers.chat.models import ChatTurnBody
 from octop.infra.errors import ErrorCode, OctopError
@@ -223,6 +228,70 @@ def content_parts_from_dashboard_turn(turn: ChatTurnBody) -> list[ContentPart]:
     return parts
 
 
+def _assert_internal_turn_allowed(
+    server: Any,
+    *,
+    agent_id: str,
+    row: Any,
+    user: Any,
+    turn: ChatTurnBody,
+) -> None:
+    """030A B4 pre-checks for internal project-task file runtimes.
+
+    Runs BEFORE any side effect (MCP preparation, implicit thread creation,
+    composer updates). Only the owner may continue an EXISTING thread bound to
+    this runtime; every client-controlled capability knob is refused so no
+    turn metadata can inject MCP/skills/knowledge/subagents/attachments.
+    Ordinary agents return immediately and behave exactly as before.
+    """
+    if not is_project_task_file_runtime(row):
+        return
+    assert_project_task_file_owner(row, user)
+    if turn.session_key:
+        refuse_project_task_file_runtime("session_key is not allowed for internal file tasks")
+    if not turn.thread_id:
+        refuse_project_task_file_runtime(
+            "internal file-task turns require the existing bound thread id"
+        )
+    registry = server.app_runtime.gateway.thread_registry
+    trow = registry.get_thread(turn.thread_id)
+    if trow is None or trow.agent_id != agent_id:
+        raise OctopError(ErrorCode.AGENT_NOT_FOUND, f"thread {turn.thread_id!r} not found")
+    if trow.user_id != user.id:
+        raise OctopError(ErrorCode.FORBIDDEN, "thread not owned by user")
+    for name, value in (
+        ("mcp_servers", turn.mcp_servers),
+        ("skills", turn.skills),
+        ("knowledge_base_ids", turn.knowledge_base_ids),
+        ("target_agent_ids", turn.target_agent_ids),
+    ):
+        if value:  # empty list = documented opt-out; the processor neutralizes it
+            refuse_project_task_file_runtime(f"{name} is not allowed for internal file tasks")
+    if turn.hitl_policy is not None:
+        refuse_project_task_file_runtime("hitl_policy is not allowed for internal file tasks")
+    if (turn.default_model or "").strip():
+        refuse_project_task_file_runtime("default_model is not allowed for internal file tasks")
+    if turn.reasoning_mode is not None or (turn.reasoning_effort or "").strip():
+        refuse_project_task_file_runtime(
+            "reasoning overrides are not allowed for internal file tasks"
+        )
+    if turn.conversation_mode:
+        refuse_project_task_file_runtime("conversation_mode is not allowed for internal file tasks")
+    for msg in turn.messages:
+        content = msg.get("content") if isinstance(msg, dict) else None
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if isinstance(block, dict) and str(block.get("type") or "") in (
+                "image",
+                "file",
+                "image_url",
+            ):
+                refuse_project_task_file_runtime(
+                    "attachments are not allowed for internal file tasks"
+                )
+
+
 async def prepare_dashboard_turn(
     server: Any,
     *,
@@ -232,6 +301,7 @@ async def prepare_dashboard_turn(
 ) -> PreparedDashboardTurn:
     """Validate MCP/skills, resolve thread, return data for gateway enqueue."""
     row = require_agent_row(agent_id, user=user, as_user=None, server=server)
+    _assert_internal_turn_allowed(server, agent_id=agent_id, row=row, user=user, turn=turn)
     default_model = (row.default_model or "").strip() or None
 
     mcp_servers = await validate_chat_mcp_servers(server, user_id=user.id, names=turn.mcp_servers)

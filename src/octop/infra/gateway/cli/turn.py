@@ -22,6 +22,15 @@ async def prepare_cli_turn(
     session_key: str | None,
 ) -> tuple[str, str]:
     """Resolve session_key and thread_id for a CLI turn."""
+    if thread_registry.is_internal_runtime_agent(agent_id):
+        # 030A B4: internal project-task file runtimes accept no CLI turns at
+        # all — not with an explicit thread id, not via the bound session, and
+        # never through implicit creation. Checked before any registry write.
+        raise OctopError(
+            ErrorCode.FORBIDDEN,
+            "internal project-task runtime does not accept CLI turns",
+            details={"internal": True},
+        )
     sk = session_key or ThreadRegistry.cli_key(agent_id=agent_id, user_id=user_id)
     if thread_id:
         row = thread_registry.get_thread(thread_id)

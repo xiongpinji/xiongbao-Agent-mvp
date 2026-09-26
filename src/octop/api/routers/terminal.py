@@ -65,7 +65,11 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
-from octop.api.common.agent import assert_agent_owner
+from octop.api.common.agent import (
+    assert_agent_owner,
+    is_project_task_file_runtime,
+    refuse_project_task_file_runtime,
+)
 from octop.api.common.agent_workspace import resolve_agent_workspace_dir
 from octop.api.deps import get_server, require_permission, resolve_user_from_token
 from octop.infra.errors import ErrorCode, OctopError
@@ -453,6 +457,10 @@ async def terminal_context(
     row = server.app_runtime.agent_registry.get_row(agent_id)
     if row is None:
         raise OctopError(ErrorCode.AGENT_NOT_FOUND, "no agents for user")
+    if is_project_task_file_runtime(row):
+        # 030A B4: internal file runtimes have no terminal surface — the
+        # context payload would leak the managed root and host OS details.
+        refuse_project_task_file_runtime()
     assert_agent_owner(row, user)
     # AI-facing path: persisted config value (e.g. ``/.octop/workspaces/<id>``).
     # PTY spawn still uses the host-mapped path via resolve_agent_workspace_dir.
@@ -547,6 +555,12 @@ async def terminal_ws(
                 break
     if agent_row is None:
         await websocket.close(code=4404, reason="agent not found")
+        return
+    if is_project_task_file_runtime(agent_row):
+        # 030A B4: never spawn a PTY for an internal project-task file runtime,
+        # not even for its owner — checked AFTER the suffix-match fallback so a
+        # short id cannot select the internal row unguarded.
+        await websocket.close(code=4003, reason="internal runtime")
         return
     try:
         assert_agent_owner(agent_row, user)

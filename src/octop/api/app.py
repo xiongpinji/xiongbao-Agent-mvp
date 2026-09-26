@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from scalar_fastapi import get_scalar_api_reference
 
 from octop.api.middleware.jwt_auth import install as install_jwt_auth
+from octop.api.middleware.project_task_file_gate import install as install_project_task_file_gate
 from octop.api.middleware.setup_lockdown import install as install_setup_lockdown
 from octop.api.openapi_meta import API_DESCRIPTION, OPENAPI_TAGS, configure_openapi
 from octop.infra.errors import ErrorCode, OctopError
@@ -129,6 +130,11 @@ def build_app(server: OctopServer) -> FastAPI:
             expose_headers=[ACCESS_TOKEN_RESPONSE_HEADER],
         )
 
+    # Registered before jwt auth so the gate runs INSIDE it (Starlette executes
+    # middleware in reverse registration order) and can read the authenticated
+    # user from request.state. 030A B4: default-deny ingress for internal
+    # project-task file runtimes.
+    install_project_task_file_gate(app, server)
     install_jwt_auth(app, server)
     install_setup_lockdown(app, server)
 

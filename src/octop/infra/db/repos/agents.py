@@ -46,6 +46,18 @@ class ProjectTaskFilesQuotaError(RuntimeError):
         self.current = current
 
 
+class _ProjectTaskRowsGuard(RuntimeError):
+    """Invariant violation inside the 030A full-delete transaction (B4).
+
+    Raised when the runtime owns threads besides the delete target, when the
+    thread DELETE affects an unexpected rowcount, or when a thread reappears
+    mid-transaction. Propagating out of ``db.transaction()`` rolls EVERY child
+    delete back, so a mismatch can never commit partially deleted metadata;
+    the manager maps it to the retryable failed-cleanup 503 path. Pre-check
+    binding failures keep returning False (zero writes) instead.
+    """
+
+
 def _count_project_task_runtimes(conn: Any, *, user_id: int | None = None) -> int:
     """Count registered ``project_task_files`` rows, optionally for one owner.
 
@@ -350,9 +362,15 @@ class AgentRepo:
         by the same user. Only then are the session, share/content-grant,
         context, projection, link, and thread rows removed in one transaction;
         the runtime Agent row is deleted too when this was its last thread.
-        Any guard failure returns False with zero writes, so a dedicated
-        full-task delete can never remove another user's data or detach a
-        standard Agent.
+        Any binding guard failure returns False with zero writes, so a
+        dedicated full-task delete can never remove another user's data or
+        detach a standard Agent.
+
+        030A B4: the transaction additionally requires that *thread_id* is the
+        runtime's ONLY thread and that the thread DELETE affects exactly one
+        row with no thread remaining afterwards. A violated invariant raises
+        :class:`_ProjectTaskRowsGuard`, rolling every child delete back — an
+        unexpected rowcount can never commit partially deleted metadata.
         """
         with self._db.transaction() as conn:
             thread = conn.execute(
@@ -371,6 +389,13 @@ class AgentRepo:
                 or int(row["user_id"]) != owner_user_id
             ):
                 return False
+            siblings = conn.execute(
+                "SELECT COUNT(*) AS n FROM threads WHERE agent_id = ? AND thread_id <> ?",
+                (agent_id, thread_id),
+            ).fetchone()
+            if siblings is None or int(siblings["n"]) != 0:
+                msg = f"runtime {agent_id!r} owns threads besides {thread_id!r}"
+                raise _ProjectTaskRowsGuard(msg)
             # Children before parents: content grants reference shares,
             # shares/contexts reference the link, the link references the
             # thread. Sessions carry no FK to threads, so they are explicit.
@@ -384,12 +409,15 @@ class AgentRepo:
             conn.execute("DELETE FROM project_task_links WHERE thread_id = ?", (thread_id,))
             deleted = conn.execute("DELETE FROM threads WHERE thread_id = ?", (thread_id,))
             if getattr(deleted, "rowcount", 1) != 1:
-                return False
+                msg = f"thread {thread_id!r} delete affected an unexpected rowcount"
+                raise _ProjectTaskRowsGuard(msg)
             remaining = conn.execute(
                 "SELECT 1 FROM threads WHERE agent_id = ? LIMIT 1", (agent_id,)
             ).fetchone()
-            if remaining is None:
-                conn.execute("DELETE FROM agents WHERE agent_id = ?", (agent_id,))
+            if remaining is not None:
+                msg = f"runtime {agent_id!r} gained a thread mid-delete"
+                raise _ProjectTaskRowsGuard(msg)
+            conn.execute("DELETE FROM agents WHERE agent_id = ?", (agent_id,))
             return True
 
     def get(self, agent_id: str) -> AgentRow | None:

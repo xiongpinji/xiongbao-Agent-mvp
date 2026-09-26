@@ -4,7 +4,36 @@ from __future__ import annotations
 
 from typing import Any
 
+from octop.infra.db.repos.agents import RUNTIME_KIND_PROJECT_TASK_FILES
 from octop.infra.errors import ErrorCode, OctopError
+
+
+def is_project_task_file_runtime(row: Any) -> bool:
+    """True for DB-marked 030A internal project-task file runtimes."""
+    return getattr(row, "runtime_kind", None) == RUNTIME_KIND_PROJECT_TASK_FILES
+
+
+def refuse_project_task_file_runtime(message: str | None = None) -> None:
+    """Always raise the stable 030A internal-runtime refusal."""
+    raise OctopError(
+        ErrorCode.FORBIDDEN,
+        message or "internal project-task runtime is not manageable",
+        details={"internal": True},
+    )
+
+
+def assert_project_task_file_owner(row: Any, user: Any, *, as_user: int | None = None) -> None:
+    """Owner-only access for internal runtimes; admins and as_user are denied.
+
+    No-op for ordinary agents. 030A B4: the internal file runtime is a private
+    storage surface for its creating user — no admin bypass, no impersonation.
+    """
+    if not is_project_task_file_runtime(row):
+        return
+    if as_user is not None:
+        refuse_project_task_file_runtime()
+    if row.user_id is None or row.user_id != getattr(user, "id", None):
+        refuse_project_task_file_runtime()
 
 
 def agent_is_shared(row: Any) -> bool:

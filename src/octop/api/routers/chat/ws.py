@@ -12,7 +12,10 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 from starlette.websockets import WebSocketState
 
-from octop.api.common.agent import assert_agent_access
+from octop.api.common.agent import (
+    assert_project_task_file_owner,
+    require_agent_row,
+)
 from octop.api.deps import resolve_user_from_token
 from octop.api.routers.chat.models import UserTurnWsFrame
 from octop.api.routers.chat.sse import json_chunk_default
@@ -56,7 +59,13 @@ async def dashboard_chat_ws(
         return
 
     try:
-        assert_agent_access(server, agent_id, user)
+        # require_agent_row enforces owner/shared/admin access for ordinary
+        # agents (unchanged behavior).
+        row = require_agent_row(agent_id, user=user, as_user=None, server=server)
+        # 030A B4: the internal project-task file runtime chat WS is
+        # owner-only (no admin bypass, no shared-card readers) and is refused
+        # BEFORE accept() so no connection or side effect is ever established.
+        assert_project_task_file_owner(row, user)
     except OctopError as exc:
         from octop.infra.errors import ErrorCode  # noqa: PLC0415
 

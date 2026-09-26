@@ -9,7 +9,12 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 
-from octop.api.common.agent import require_agent_row
+from octop.api.common.agent import (
+    assert_project_task_file_owner,
+    is_project_task_file_runtime,
+    refuse_project_task_file_runtime,
+    require_agent_row,
+)
 from octop.api.common.agent_workspace import resolve_agent_workspace_dir
 from octop.api.deps import current_user, get_server
 from octop.api.routers.chat.models import ForkThreadBody, RebindSessionBody, RenameThreadBody
@@ -84,10 +89,27 @@ def _agent_facing_workspace_dir(server: Any, agent_id: str) -> Path:
     return resolve_agent_workspace_dir(server, agent_id)
 
 
+def _refuse_internal_runtime(server: Any, agent_id: str) -> None:
+    """030A B4: deny thread-management routes for internal file runtimes.
+
+    Even the owner never creates / forks / rebinds / exports / patches threads
+    on an internal runtime — the single bound thread is created by the
+    file-task bind flow and removed only by the dedicated complete-delete
+    route. Defense in depth behind the HTTP gate middleware.
+    """
+    assert server.app_runtime is not None
+    row = server.app_runtime.agent_registry.get_row(agent_id)
+    if row is not None and is_project_task_file_runtime(row):
+        refuse_project_task_file_runtime()
+
+
 def _require_thread(
     server: Any, agent_id: str, thread_id: str, user: Any, as_user: int | None
 ) -> Any:
-    require_agent_row(agent_id, user=user, as_user=as_user, server=server)
+    agent_row = require_agent_row(agent_id, user=user, as_user=as_user, server=server)
+    # Internal runtimes: owner-only (no admin bypass, no as_user) even on the
+    # allowed history/read routes; every thread row is additionally checked.
+    assert_project_task_file_owner(agent_row, user, as_user=as_user)
     row = server.app_runtime.gateway.thread_registry.get_thread(thread_id)
     if row is None or row.agent_id != agent_id:
         raise OctopError(ErrorCode.AGENT_NOT_FOUND, f"thread {thread_id!r} not found")
@@ -106,7 +128,9 @@ async def list_threads(
     server: Any = Depends(get_server),
 ) -> list[dict[str, Any]]:
     """List conversation threads for an agent, including which thread is active for this user."""
-    require_agent_row(agent_id, user=user, as_user=as_user, server=server)
+    agent_row = require_agent_row(agent_id, user=user, as_user=as_user, server=server)
+    # 030A B4: the bound-thread list of an internal runtime is owner-only.
+    assert_project_task_file_owner(agent_row, user, as_user=as_user)
     thread_registry = server.app_runtime.gateway.thread_registry
     effective_uid = as_user if as_user is not None else user.id
     rows = thread_registry.list_threads(agent_id=agent_id, user_id=effective_uid, limit=limit)
@@ -149,6 +173,7 @@ async def get_history_migration_status(
 ) -> dict[str, Any]:
     """Report old conversations awaiting the v10 dashboard history projection."""
     require_agent_row(agent_id, user=user, as_user=as_user, server=server)
+    _refuse_internal_runtime(server, agent_id)
     effective_uid = as_user if as_user is not None else user.id
     return _history_migration_payload(server, agent_id=agent_id, user_id=effective_uid)
 
@@ -165,6 +190,7 @@ async def start_history_migration(
 ) -> dict[str, Any]:
     """Queue a bounded batch; the gateway decodes exactly one checkpoint at a time."""
     require_agent_row(agent_id, user=user, as_user=as_user, server=server)
+    _refuse_internal_runtime(server, agent_id)
     # Fail before changing persisted states when this agent is not actually available.
     server.app_runtime.agent_registry.get_agent(agent_id)
     effective_uid = as_user if as_user is not None else user.id
@@ -216,6 +242,10 @@ async def create_thread(
 ) -> dict[str, Any]:
     """Start a new conversation (/new equivalent for dashboard)."""
     require_agent_row(agent_id, user=user, as_user=as_user, server=server)
+    # 030A B4 (GLM P1): an internal runtime is limited to its single bound
+    # thread — refused BEFORE reset() creates any session/thread rows, for
+    # everyone including the owner and admins.
+    _refuse_internal_runtime(server, agent_id)
     effective_uid = as_user if as_user is not None else user.id
     sk = ThreadRegistry.dashboard_key(agent_id=agent_id, user_id=effective_uid)
     tid = await server.app_runtime.gateway.thread_registry.reset(
@@ -252,6 +282,7 @@ async def get_thread_context_usage(
 ) -> dict[str, Any]:
     """Return persisted context-window usage for a thread (harness-agent snapshot)."""
     _require_thread(server, agent_id, thread_id, user, as_user)
+    _refuse_internal_runtime(server, agent_id)
     registry = server.app_runtime.agent_registry
     effective_max = registry.resolve_context_max_tokens(agent_id, fallback=max_tokens)
     breakdown = await compute_context_breakdown(
@@ -433,6 +464,7 @@ async def fork_thread(
             "message_id or assistant_turns_from_end is required",
         )
     row = _require_thread(server, agent_id, thread_id, user, as_user)
+    _refuse_internal_runtime(server, agent_id)
     effective_uid = as_user if as_user is not None else user.id
     harness = server.app_runtime.agent_registry.get_agent(agent_id)
     return await fork_dashboard_thread(
@@ -458,6 +490,7 @@ async def rebind_session(
 ) -> dict[str, Any]:
     """Point the user's dashboard session at an existing thread."""
     _require_thread(server, agent_id, body.thread_id, user, as_user=None)
+    _refuse_internal_runtime(server, agent_id)
     sk = ThreadRegistry.dashboard_key(agent_id=agent_id, user_id=user.id)
     await server.app_runtime.gateway.thread_registry.rebind(
         session_key=sk, thread_id=body.thread_id, agent_id=agent_id
@@ -482,6 +515,7 @@ async def export_history(
     from octop.infra.history.reader import export_messages  # noqa: PLC0415
 
     _require_thread(server, agent_id, thread_id, user, as_user)
+    _refuse_internal_runtime(server, agent_id)
     archive = getattr(server.app_runtime, "history_archive", None)
     if not isinstance(archive, HistoryArchive):
         raise OctopError(ErrorCode.NOT_FOUND, "Versioned history is not enabled")
@@ -511,6 +545,7 @@ async def patch_thread(
 ) -> dict[str, Any]:
     """Update sidebar metadata or sticky composer settings for a thread."""
     row = _require_thread(server, agent_id, thread_id, user, as_user)
+    _refuse_internal_runtime(server, agent_id)
     composer_fields = {
         "model_ref",
         "reasoning_mode",

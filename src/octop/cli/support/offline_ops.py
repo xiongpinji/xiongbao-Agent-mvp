@@ -17,12 +17,43 @@ from octop.infra.agents.experts.catalog import ExpertCatalog, default_library_ro
 from octop.infra.agents.providers.model_flags import is_local_runtime_provider
 from octop.infra.cron.task_type import normalize_cron_task_type, require_cron_prompt
 from octop.infra.cron.trigger import build_trigger
+from octop.infra.db.repos.agents import RUNTIME_KIND_PROJECT_TASK_FILES
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.gateway.threads import ThreadRegistry
 from octop.infra.users.password import hash_password
 from octop.infra.utils.ulid import new_cron_id, new_ulid
 
 logger = logging.getLogger(__name__)
+
+
+def _row_is_project_task_runtime(row: Any) -> bool:
+    return row is not None and getattr(row, "runtime_kind", None) == RUNTIME_KIND_PROJECT_TASK_FILES
+
+
+def _refuse_project_task_runtime(row: Any) -> None:
+    """030A B4: the offline CLI never manages internal project-task runtimes.
+
+    Their workspace rows and managed root are removed only through
+    ``DELETE /api/project-task-files/{thread_id}`` — a CLI delete here would
+    orphan the file task or wipe the private root without the full cascade.
+    """
+    if _row_is_project_task_runtime(row):
+        raise OctopError(
+            ErrorCode.FORBIDDEN,
+            "internal project-task runtime is not manageable offline",
+            details={"internal": True},
+        )
+
+
+def _install_registry_guards(registry: ThreadRegistry, services: Any) -> ThreadRegistry:
+    """Deny internal-runtime thread creation on an offline-CLI registry."""
+    agent_repo = services.agent_repo
+
+    def _is_internal(agent_id: str) -> bool:
+        return _row_is_project_task_runtime(agent_repo.get(agent_id))
+
+    registry.set_internal_runtime_checker(_is_internal)
+    return registry
 
 
 def _user_row_to_dict(row: Any) -> dict[str, Any]:
@@ -161,9 +192,12 @@ def delete_user_offline(username: str, *, home: Path | None = None) -> None:
 async def _ensure_dashboard_session(
     services: Any, *, agent_id: str, user_id: int, session_key: str
 ) -> None:
-    registry = ThreadRegistry(
-        session_repo=services.session_repo,
-        thread_repo=services.thread_repo,
+    registry = _install_registry_guards(
+        ThreadRegistry(
+            session_repo=services.session_repo,
+            thread_repo=services.thread_repo,
+        ),
+        services,
     )
     await registry.get_or_create_by_key(
         session_key=session_key,
@@ -193,8 +227,11 @@ def create_cron_offline(
     cleaned_prompt = require_cron_prompt(prompt)
     session_key = ThreadRegistry.dashboard_key(agent_id=agent_id, user_id=user_id)
     with open_cli_services(home) as svc:
-        if svc.agent_repo.get(agent_id) is None:
+        agent_row = svc.agent_repo.get(agent_id)
+        if agent_row is None:
             raise OctopError(ErrorCode.AGENT_NOT_FOUND, f"agent {agent_id!r} not found")
+        # 030A B4: no cron scheduling against internal file runtimes.
+        _refuse_project_task_runtime(agent_row)
         asyncio.run(
             _ensure_dashboard_session(
                 svc, agent_id=agent_id, user_id=user_id, session_key=session_key
@@ -253,6 +290,10 @@ def delete_agent_offline(agent_id: str, *, home: Path | None = None) -> None:
         row = svc.agent_repo.get(agent_id)
         if row is None:
             raise OctopError(ErrorCode.AGENT_NOT_FOUND, f"agent {agent_id!r} not found")
+        # 030A B4: refuse BEFORE any destructive step — no rmtree of the
+        # managed private root, no partial row delete. The complete delete is
+        # the dedicated project-task file route with its full cascade.
+        _refuse_project_task_runtime(row)
         workspace_dir = workspace_dir_from_config_json(
             row.config_json, paths=svc.paths, agent_id=agent_id
         )
@@ -438,8 +479,11 @@ def create_channel_offline(
 ) -> dict[str, Any]:
     channel_id = new_ulid()
     with open_cli_services(home) as svc:
-        if svc.agent_repo.get(agent_id) is None:
+        agent_row = svc.agent_repo.get(agent_id)
+        if agent_row is None:
             raise OctopError(ErrorCode.AGENT_NOT_FOUND, f"agent {agent_id!r} not found")
+        # 030A B4: no alternate channels bound to internal file runtimes.
+        _refuse_project_task_runtime(agent_row)
         svc.channel_repo.create(
             channel_id=channel_id,
             agent_id=agent_id,
@@ -496,9 +540,13 @@ def create_thread_offline(
 ) -> dict[str, Any]:
     session_key = ThreadRegistry.dashboard_key(agent_id=agent_id, user_id=user_id)
     with open_cli_services(home) as svc:
-        registry = ThreadRegistry(
-            session_repo=svc.session_repo,
-            thread_repo=svc.thread_repo,
+        _refuse_project_task_runtime(svc.agent_repo.get(agent_id))
+        registry = _install_registry_guards(
+            ThreadRegistry(
+                session_repo=svc.session_repo,
+                thread_repo=svc.thread_repo,
+            ),
+            svc,
         )
         tid = asyncio.run(
             registry.get_or_create_by_key(
@@ -530,6 +578,7 @@ def update_thread_offline(
         row = svc.thread_repo.get(thread_id)
         if row is None or row.agent_id != agent_id:
             raise OctopError(ErrorCode.AGENT_NOT_FOUND, f"thread {thread_id!r} not found")
+        _refuse_project_task_runtime(svc.agent_repo.get(row.agent_id))
         if title is not None:
             svc.thread_repo.update_title(thread_id, title)
         if pinned is not None:
@@ -548,6 +597,9 @@ def delete_thread_offline(agent_id: str, thread_id: str, *, home: Path | None = 
         row = svc.thread_repo.get(thread_id)
         if row is None or row.agent_id != agent_id:
             raise OctopError(ErrorCode.AGENT_NOT_FOUND, f"thread {thread_id!r} not found")
+        # 030A B4: refuse BEFORE trajectory/thread deletion — the bound thread
+        # of an internal runtime is removed only by the complete-delete route.
+        _refuse_project_task_runtime(svc.agent_repo.get(row.agent_id))
         try:
             svc.trajectory_event_repo.delete_for_thread(thread_id)
         except Exception:

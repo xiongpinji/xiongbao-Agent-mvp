@@ -29,6 +29,7 @@ PostgreSQL lock order is asserted with the same static dual-dialect fake the
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, cast
 
@@ -41,6 +42,7 @@ from octop.infra.db.repos.agents import (
     PROJECT_TASK_FILES_GLOBAL_LIMIT,
     PROJECT_TASK_FILES_OWNER_LIMIT,
     AgentRepo,
+    _ProjectTaskRowsGuard,
 )
 from octop.infra.db.repos.project_task_shares import ProjectTaskShareRepo
 from octop.infra.db.repos.project_tasks import ProjectTaskRepo
@@ -399,7 +401,7 @@ def test_delete_file_task_rows_removes_everything_for_last_thread(
     assert agents.get(RUNTIME_ID) is None
 
 
-def test_delete_file_task_rows_keeps_runtime_with_other_thread(
+def test_delete_file_task_rows_refuses_unexpected_second_thread(
     db: SqlitePool,
     agents: AgentRepo,
     repo: ProjectTaskRepo,
@@ -409,6 +411,11 @@ def test_delete_file_task_rows_keeps_runtime_with_other_thread(
     owner_id: int,
     member_id: int,
 ) -> None:
+    """030A B4: a full delete must cover the WHOLE runtime — one thread only.
+
+    An unexpected second thread raises the rollback guard BEFORE any child
+    delete; the B3 behavior of removing just the named thread's rows is gone.
+    """
     _seed_agent(db, agent_id=SOURCE_ID, user_id=owner_id, shared=True)
     _seed_runtime(db, user_id=member_id)
     _set_instructions(projects, pid, owner_id, INSTRUCTIONS)
@@ -423,14 +430,87 @@ def test_delete_file_task_rows_keeps_runtime_with_other_thread(
         session_key="session-thr_second",
         title="second",
     )
-    assert (
+    with pytest.raises(_ProjectTaskRowsGuard):
         agents.delete_project_task_file_task_rows(
             agent_id=RUNTIME_ID, thread_id=first, owner_user_id=member_id
         )
-        is True
-    )
-    assert _row_count(db, "threads", "thread_id = ?", (first,)) == 0
+    # Nothing was removed: both threads, the task rows and the runtime stay.
+    assert _row_count(db, "threads", "thread_id = ?", (first,)) == 1
     assert threads.get("thr_second") is not None
+    assert _row_count(db, "project_task_links", "thread_id = ?", (first,)) == 1
+    assert _row_count(db, "project_task_contexts", "thread_id = ?", (first,)) == 1
+    assert agents.get(RUNTIME_ID) is not None
+
+
+class _ZeroRowcountCursor:
+    rowcount = 0
+
+
+class _ConnProxy:
+    """Pass-through connection reporting rowcount 0 for the threads DELETE."""
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+
+    def execute(self, sql: str, params: tuple[object, ...] = ()) -> Any:
+        cursor = self._inner.execute(sql, params)
+        if sql.strip().startswith("DELETE FROM threads"):
+            return _ZeroRowcountCursor()
+        return cursor
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+
+def test_delete_file_task_rows_rowcount_mismatch_rolls_back_children(
+    db: SqlitePool,
+    agents: AgentRepo,
+    repo: ProjectTaskRepo,
+    projects: ProjectRepo,
+    pid: str,
+    owner_id: int,
+    member_id: int,
+    reader_id: int,
+    shares: ProjectTaskShareRepo,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """030A B4 (e): an unexpected threads-DELETE rowcount rolls back ALL children.
+
+    The B3 code returned False after the child deletes had already run inside
+    the transaction — which COMMITTED them. The guard exception now propagates
+    out of ``db.transaction()``, so sessions/grants/shares/contexts/projection/
+    links are restored together with the thread and the runtime row.
+    """
+    _seed_agent(db, agent_id=SOURCE_ID, user_id=owner_id, shared=True)
+    _seed_runtime(db, user_id=member_id)
+    _set_instructions(projects, pid, owner_id, INSTRUCTIONS)
+    mutation = _create_files(repo, pid=pid, member_id=member_id)
+    assert mutation.outcome == "created"
+    thread_id = mutation.summary.thread_id
+    _seed_session(db, agent_id=RUNTIME_ID, user_id=member_id, thread_id=thread_id)
+    _grant_share_and_text(
+        shares, db, pid=pid, thread_id=thread_id, actor_id=member_id, grantee_id=reader_id
+    )
+
+    real_transaction = db.transaction
+
+    @contextmanager
+    def proxied() -> Any:
+        with real_transaction() as conn:
+            yield _ConnProxy(conn)
+
+    monkeypatch.setattr(db, "transaction", proxied)
+    with pytest.raises(_ProjectTaskRowsGuard):
+        agents.delete_project_task_file_task_rows(
+            agent_id=RUNTIME_ID, thread_id=thread_id, owner_user_id=member_id
+        )
+    assert _row_count(db, "threads", "thread_id = ?", (thread_id,)) == 1
+    assert _row_count(db, "sessions", "thread_id = ?", (thread_id,)) == 1
+    assert _row_count(db, "project_task_links", "thread_id = ?", (thread_id,)) == 1
+    assert _row_count(db, "project_task_contexts", "thread_id = ?", (thread_id,)) == 1
+    assert _row_count(db, "project_task_shares", "thread_id = ?", (thread_id,)) == 1
+    assert _row_count(db, "project_task_content_grants", "thread_id = ?", (thread_id,)) == 1
+    assert _row_count(db, "thread_history_projection", "thread_id = ?", (thread_id,)) == 1
     assert agents.get(RUNTIME_ID) is not None
 
 

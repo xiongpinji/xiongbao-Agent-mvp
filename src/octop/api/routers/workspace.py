@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
@@ -11,12 +12,17 @@ from fastapi.responses import Response, StreamingResponse
 from harness_agent.backends.utils import BackendOperationNotSupportedError
 from pydantic import BaseModel
 
+from octop.api.common.agent import is_project_task_file_runtime, refuse_project_task_file_runtime
 from octop.api.common.agent_workspace import resolve_agent_workspace_dir
 from octop.api.common.content_disposition import content_disposition
 from octop.api.common.workspace import (
+    assert_project_task_file_workspace,
     coerce_read_content,
     file_info_to_dict,
+    project_task_file_io_path,
+    project_task_file_owner_row,
     reanchor_entry_path,
+    require_project_task_file_root,
     require_running_workspace,
     workspace_api_path,
 )
@@ -34,6 +40,72 @@ from octop.infra.utils.doc_edit import DocConverter, get_doc_converter
 logger = logging.getLogger(__name__)
 
 _PROTECTED_PREFIX = "_builtin_skills"
+
+
+def _refuse_if_internal_runtime(server: Any, agent_id: str) -> None:
+    """Deny workspace routes that must never touch an internal runtime.
+
+    030A B4: directory create/delete/move and zip archive import/export are
+    outside the owner allowlist for ``runtime_kind='project_task_files'`` —
+    refused for everyone, including the owner and admins (defense in depth
+    behind the HTTP gate middleware).
+    """
+    assert server.app_runtime is not None
+    row = server.app_runtime.agent_registry.get_row(agent_id)
+    if row is not None and is_project_task_file_runtime(row):
+        refuse_project_task_file_runtime()
+
+
+async def _file_workspace(
+    server: Any,
+    agent_id: str,
+    *,
+    user: Any,
+    as_user: int | None,
+    owner_only: bool,
+) -> tuple[Any, Path | None]:
+    """``(workspace, managed root | None)`` — internal runtimes owner-only + pinned.
+
+    For ordinary agents the second element is ``None`` and behavior is
+    unchanged. For internal project-task file runtimes the caller must be the
+    owner (no admin bypass, no ``as_user``) and the live workspace must resolve
+    to exactly the managed private root.
+    """
+    internal_row = project_task_file_owner_row(server, agent_id, user=user, as_user=as_user)
+    ws = await require_running_workspace(
+        agent_id, user=user, as_user=as_user, server=server, owner_only=owner_only
+    )
+    if internal_row is None:
+        return ws, None
+    root = require_project_task_file_root(server, internal_row)
+    assert_project_task_file_workspace(ws, root)
+    return ws, root
+
+
+def _io_path(root: Path | None, path: str, *, from_workspace: bool) -> str:
+    """Strict managed-root fragment for internal runtimes; legacy mapping otherwise."""
+    if root is not None:
+        return project_task_file_io_path(root, path, from_workspace=from_workspace)
+    return _workspace_io_path(path, from_workspace=from_workspace)
+
+
+def _internal_preview_source(root: Path, source: str) -> str:
+    """Rewrite *source* to a proven managed-relative fragment, or refuse.
+
+    Host-absolute paths and ``file://`` URLs are refused even when they point
+    inside the managed root: only an explicitly managed-relative source is
+    accepted. The returned fragment is always relative, so
+    ``resolve_preview_payload`` can only take its workspace-download branch —
+    never the host TEMP / screenshots / raw host-file fallbacks.
+    """
+    raw = source.strip()
+    if is_host_absolute_path(raw):
+        raise OctopError(
+            ErrorCode.FORBIDDEN,
+            "path escapes the project-task file workspace",
+            details={"internal": True},
+        )
+    return project_task_file_io_path(root, raw, from_workspace=True)
 
 
 def _assert_workspace_mutable(path: str) -> str:
@@ -126,10 +198,8 @@ async def list_tree(
     server: Any = Depends(get_server),
 ) -> list[dict[str, Any]]:
     """Single-level directory listing under ``path`` (agent must be running)."""
-    ws = await require_running_workspace(
-        agent_id, user=user, as_user=as_user, server=server, owner_only=True
-    )
-    io_path = _workspace_io_path(path, from_workspace=from_workspace)
+    ws, root = await _file_workspace(server, agent_id, user=user, as_user=as_user, owner_only=True)
+    io_path = _io_path(root, path, from_workspace=from_workspace)
     result = await ws.als(io_path)
     if result is None:
         raise OctopError(ErrorCode.NOT_FOUND, f"cannot list {path!r}")
@@ -161,8 +231,8 @@ async def read_file(
     server: Any = Depends(get_server),
 ) -> dict[str, Any]:
     """Read a UTF-8 text file."""
-    ws = await require_running_workspace(agent_id, user=user, as_user=as_user, server=server)
-    content = await ws.aread_text(_workspace_io_path(path, from_workspace=from_workspace))
+    ws, root = await _file_workspace(server, agent_id, user=user, as_user=as_user, owner_only=False)
+    content = await ws.aread_text(_io_path(root, path, from_workspace=from_workspace))
     if content is None:
         raise OctopError(ErrorCode.NOT_FOUND, f"cannot read {path!r}")
     return {"path": path, "content": coerce_read_content(content)}
@@ -179,9 +249,10 @@ async def write_file(
     server: Any = Depends(get_server),
 ) -> dict[str, Any]:
     """Overwrite ``path`` with ``body.content`` (text)."""
-    ws = await require_running_workspace(
-        agent_id, user=user, as_user=as_user, server=server, owner_only=True
-    )
+    ws, root = await _file_workspace(server, agent_id, user=user, as_user=as_user, owner_only=True)
+    # Resolve/authorize before building content or touching the backend: a path
+    # refusal (403, e.g. symlink escape) must never be remapped to 404.
+    io_path = _io_path(root, path, from_workspace=from_workspace)
     converter = get_doc_converter(path)
     if converter is not None:
         # Editable-document paths are always stored as the binary document
@@ -198,7 +269,7 @@ async def write_file(
     else:
         data = body.content.encode("utf-8")
     try:
-        await ws.aupload_bytes(_workspace_io_path(path, from_workspace=from_workspace), data)
+        await ws.aupload_bytes(io_path, data)
     except Exception as exc:
         raise OctopError(ErrorCode.NOT_FOUND, f"cannot write {path!r}: {exc}") from exc
     return {"path": path, "size": len(data)}
@@ -226,6 +297,7 @@ async def mkdir_workspace_dir(
     server: Any = Depends(get_server),
 ) -> dict[str, Any]:
     """Create a directory (and parents) under the agent workspace."""
+    _refuse_if_internal_runtime(server, agent_id)
     _ = from_workspace  # API surface; mutations always use workspace-relative paths.
     rel = _assert_workspace_mutable(path)
     ws = await require_running_workspace(
@@ -256,6 +328,7 @@ async def delete_workspace_file(
     server: Any = Depends(get_server),
 ) -> Response:
     """Remove a file or directory tree from the agent workspace."""
+    _refuse_if_internal_runtime(server, agent_id)
     _ = from_workspace
     rel = _assert_workspace_mutable(path)
     ws = await require_running_workspace(
@@ -285,6 +358,7 @@ async def move_workspace_file(
     server: Any = Depends(get_server),
 ) -> dict[str, Any]:
     """Move ``path`` to ``body.destination`` (rename when the parent directory is unchanged)."""
+    _refuse_if_internal_runtime(server, agent_id)
     _ = from_workspace
     src = _assert_workspace_mutable(path)
     dest = _assert_workspace_mutable(body.destination)
@@ -310,16 +384,16 @@ async def upload_file(
     server: Any = Depends(get_server),
 ) -> dict[str, Any]:
     """Upload a binary file via multipart ``file=@...``."""
-    ws = await require_running_workspace(
-        agent_id, user=user, as_user=as_user, server=server, owner_only=True
-    )
+    ws, root = await _file_workspace(server, agent_id, user=user, as_user=as_user, owner_only=True)
     target = path or f"/{file.filename or 'upload.bin'}"
+    # Internal runtimes: the multipart filename is client-controlled, so the
+    # strict resolver must reject traversal / host-absolute shapes from it too
+    # — and must run before any bytes are buffered or written. The request's
+    # own ``from_workspace`` is honored: false is refused, never upgraded.
+    io_target = _io_path(root, target, from_workspace=from_workspace)
     data = await file.read()
     try:
-        await ws.aupload_bytes(
-            _workspace_io_path(target, from_workspace=from_workspace),
-            data,
-        )
+        await ws.aupload_bytes(io_target, data)
     except Exception as exc:
         raise OctopError(ErrorCode.NOT_FOUND, f"cannot upload to {target!r}: {exc}") from exc
     return {"path": target, "size": len(data)}
@@ -341,11 +415,17 @@ async def download_file(
     outputs (Desktop, ``~/.octop/agents/…``, workspace tree) but denied for
     sensitive system roots (``/etc``, ``.harness-browser``, Windows system dirs).
     """
-    ws = await require_running_workspace(agent_id, user=user, as_user=as_user, server=server)
-    io_path = _workspace_io_path(path, from_workspace=from_workspace)
-    if is_host_absolute_path(io_path) and not is_allowed_host_download_abs_path(
-        io_path,
-        workspace=ws.workspace_dir,
+    ws, root = await _file_workspace(server, agent_id, user=user, as_user=as_user, owner_only=False)
+    io_path = _io_path(root, path, from_workspace=from_workspace)
+    # Internal runtimes never take the host-absolute branch: _io_path already
+    # proved the fragment is workspace-relative inside the managed root.
+    if (
+        root is None
+        and is_host_absolute_path(io_path)
+        and not is_allowed_host_download_abs_path(
+            io_path,
+            workspace=ws.workspace_dir,
+        )
     ):
         raise OctopError(ErrorCode.FORBIDDEN, f"cannot download {path!r}: path not allowed")
 
@@ -375,8 +455,8 @@ async def read_doc(
 ) -> dict[str, Any]:
     """Read an editable document (e.g. ``.docx``) as Markdown for online editing."""
     converter = _ensure_editable_doc(path)
-    ws = await require_running_workspace(agent_id, user=user, as_user=as_user, server=server)
-    io_path = _workspace_io_path(path, from_workspace=from_workspace)
+    ws, root = await _file_workspace(server, agent_id, user=user, as_user=as_user, owner_only=False)
+    io_path = _io_path(root, path, from_workspace=from_workspace)
     try:
         blob = await ws.adownload_bytes(io_path)
     except PermissionError as exc:
@@ -404,10 +484,18 @@ async def write_doc(
     server: Any = Depends(get_server),
 ) -> dict[str, Any]:
     """Convert Markdown *content* back to the document format and overwrite *path*."""
-    _ = from_workspace  # Mutations always use workspace-relative paths.
-    rel = _assert_workspace_mutable(path)
+    # Resolve/authorize before the converter and any backend I/O: the root
+    # check (403) must win over an unsupported-extension 400. Ordinary
+    # mutations always use workspace-relative paths; internal runtimes still
+    # honor the request flag so ``from_workspace=false`` is refused.
+    ws, root = await _file_workspace(server, agent_id, user=user, as_user=as_user, owner_only=False)
+    if root is not None:
+        rel = project_task_file_io_path(root, path, from_workspace=from_workspace)
+        if rel == ".":
+            raise OctopError(ErrorCode.FORBIDDEN, "cannot modify workspace root")
+    else:
+        rel = _assert_workspace_mutable(path)
     converter = _ensure_editable_doc(path)
-    ws = await require_running_workspace(agent_id, user=user, as_user=as_user, server=server)
     try:
         data = converter.from_markdown(body.content)
     except Exception as exc:
@@ -438,9 +526,19 @@ async def preview_media(
     """Stream an image or video inline for dashboard tool-result previews."""
     path_agent = _agent_id_from_media_source(source)
     effective_agent = path_agent or agent_id
+    # 030A B4: gate on the agent the source actually resolves to, so an
+    # internal runtime cannot be previewed through another agent's URL either.
+    internal_row = project_task_file_owner_row(server, effective_agent, user=user, as_user=as_user)
     ws = await require_running_workspace(effective_agent, user=user, as_user=as_user, server=server)
+    preview_source = source
+    if internal_row is not None:
+        root = require_project_task_file_root(server, internal_row)
+        assert_project_task_file_workspace(ws, root)
+        # Only a proven workspace-relative fragment reaches the resolver, so
+        # its host TEMP / screenshots / raw host-file fallbacks can never run.
+        preview_source = _internal_preview_source(root, source)
     payload = await resolve_preview_payload(
-        source=source,
+        source=preview_source,
         workspace=ws,
         mime_hint=mime_type or "",
     )
@@ -465,10 +563,15 @@ async def glob_files(
     user: Any = Depends(current_user),
     server: Any = Depends(get_server),
 ) -> list[dict[str, Any]]:
-    ws = await require_running_workspace(
-        agent_id, user=user, as_user=as_user, server=server, owner_only=True
+    ws, managed = await _file_workspace(
+        server, agent_id, user=user, as_user=as_user, owner_only=True
     )
-    root = _workspace_io_path(path, from_workspace=from_workspace)
+    root = _io_path(managed, path, from_workspace=from_workspace)
+    if managed is not None:
+        # The glob pattern is a path shape too: refuse traversal / host-absolute
+        # patterns via the same strict resolver (globs have no containment proof
+        # inside the backend glob itself).
+        pattern = project_task_file_io_path(managed, pattern, from_workspace=True)
     if pattern in ("**/*.md", "*.md") and root == ".":
         ls_result = await ws.als(".")
         if ls_result is None:
@@ -500,10 +603,11 @@ async def grep_files(
     user: Any = Depends(current_user),
     server: Any = Depends(get_server),
 ) -> list[dict[str, Any]]:
-    ws = await require_running_workspace(
-        agent_id, user=user, as_user=as_user, server=server, owner_only=True
+    ws, managed = await _file_workspace(
+        server, agent_id, user=user, as_user=as_user, owner_only=True
     )
-    result = await ws.agrep(pattern, _workspace_io_path(path, from_workspace=from_workspace))
+    io_path = _io_path(managed, path, from_workspace=from_workspace)
+    result = await ws.agrep(pattern, io_path)
     if result is None:
         raise OctopError(ErrorCode.NOT_FOUND, "grep failed")
     matches = getattr(result, "matches", None) or []
@@ -525,6 +629,7 @@ async def export_workspace_archive(
     server: Any = Depends(get_server),
 ) -> StreamingResponse:
     """Pack workspace files into a zip archive."""
+    _refuse_if_internal_runtime(server, agent_id)
     ws = await require_running_workspace(
         agent_id, user=user, as_user=as_user, server=server, owner_only=True
     )
@@ -550,6 +655,7 @@ async def import_workspace_archive(
     server: Any = Depends(get_server),
 ) -> dict[str, Any]:
     """Import a zip archive into the workspace (merge or replace)."""
+    _refuse_if_internal_runtime(server, agent_id)
     raw = await file.read()
     if len(raw) > _MAX_WORKSPACE_ARCHIVE_BYTES:
         raise OctopError(ErrorCode.SLASH_BAD_ARGS, "workspace archive too large (max 200MB)")

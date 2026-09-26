@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from typing import Any
 
 from octop.infra.db.repos.sessions import SessionRepo, SessionRow
 from octop.infra.db.repos.threads import ThreadRepo, ThreadRow
+from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.utils.ulid import new_ulid
+
+#: 030A B4 — returns True when an agent id is a DB-marked internal
+#: ``project_task_files`` runtime. Attached by the gateway processor (and the
+#: offline CLI services) so EVERY thread-creation caller — dashboard, CLI,
+#: slash commands, cron, teams, channels — is gated in one place.
+InternalRuntimeChecker = Callable[[str], bool]
 
 
 class ThreadRegistry:
@@ -91,6 +99,27 @@ class ThreadRegistry:
         self._sessions = session_repo
         self._threads = thread_repo
         self._lock = asyncio.Lock()
+        self._internal_runtime_checker: InternalRuntimeChecker | None = None
+
+    def set_internal_runtime_checker(self, checker: InternalRuntimeChecker | None) -> None:
+        """Attach the 030A internal-runtime lookup guarding thread creation."""
+        self._internal_runtime_checker = checker
+
+    def is_internal_runtime_agent(self, agent_id: str) -> bool:
+        """True when *agent_id* is a DB-marked internal project-task runtime."""
+        checker = self._internal_runtime_checker
+        if checker is None:
+            return False
+        return bool(checker(agent_id))
+
+    def _refuse_internal_creation(self, agent_id: str) -> None:
+        """Never create threads for internal runtimes (single bound thread only)."""
+        if self.is_internal_runtime_agent(agent_id):
+            raise OctopError(
+                ErrorCode.FORBIDDEN,
+                "internal project-task runtime threads cannot be created",
+                details={"internal": True},
+            )
 
     def replace_repos(self, *, session_repo: SessionRepo, thread_repo: ThreadRepo) -> None:
         """Point at repos from a rebound control-plane pool."""
@@ -139,6 +168,7 @@ class ThreadRegistry:
         channel_metadata: dict[str, Any] | None = None,
         channel_id: str | None = None,
     ) -> str:
+        self._refuse_internal_creation(agent_id)
         session_key = self.make_key(
             agent_id=agent_id,
             channel_type=channel_type,
@@ -197,6 +227,7 @@ class ThreadRegistry:
         channel_metadata: dict[str, Any] | None = None,
         channel_channel_id: str | None = None,
     ) -> str:
+        self._refuse_internal_creation(agent_id)
         row = self._sessions.get(session_key)
         if row is not None:
             if row.agent_id != agent_id:
@@ -289,6 +320,7 @@ class ThreadRegistry:
         channel_metadata: dict[str, Any] | None = None,
         channel_id: str | None = None,
     ) -> str:
+        self._refuse_internal_creation(agent_id)
         session_key = self.make_key(
             agent_id=agent_id,
             channel_type=channel_type,
@@ -329,6 +361,7 @@ class ThreadRegistry:
         if session is None:
             msg = f"session {session_key!r} not found"
             raise ValueError(msg)
+        self._refuse_internal_creation(session.agent_id)
         async with self._lock:
             tid = _new_thread_id()
             self._threads.insert(
@@ -410,6 +443,7 @@ class ThreadRegistry:
         thread_id: str | None = None,
     ) -> str:
         """Insert a thread row without rebinding the active session."""
+        self._refuse_internal_creation(agent_id)
         tid = thread_id or _new_thread_id()
         self._threads.insert(
             thread_id=tid,

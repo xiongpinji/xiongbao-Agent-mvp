@@ -457,12 +457,16 @@ async def test_dedicated_delete_refuses_non_owner_and_generic_routes(
     assert resp.json()["error"]["code"] == "FORBIDDEN"
     assert srv.services.agent_repo.get(runtime_id) is not None
 
-    # Generic thread delete refuses and points at the dedicated route.
+    # Generic thread delete refuses. 030A B4: the default-deny ingress gate
+    # now answers BEFORE the handler's dedicated-route hint, with the uniform
+    # internal-runtime envelope; the dedicated route below stays the only
+    # complete delete.
     resp = await client.delete(
         f"/api/agents/{runtime_id}/threads/{tid}", headers=ctx["auth"]["member"]
     )
     assert resp.status_code == 403, resp.text
-    assert resp.json()["error"]["details"]["route"] == f"/api/project-task-files/{tid}"
+    assert resp.json()["error"]["code"] == "FORBIDDEN"
+    assert resp.json()["error"]["details"] == {"internal": True}
     assert srv.services.thread_repo.get(tid) is not None
 
     # The dedicated route still completes after the refusals.
@@ -503,3 +507,145 @@ async def test_dedicated_delete_failure_is_retryable_never_false_204(
     assert srv.services.thread_repo.get(tid) is None
     assert srv.services.agent_repo.get(runtime_id) is None
     assert not root.exists()
+
+
+# ---------------------------------------------------------------------------
+# 030A B4: full-delete invariants, DB failure path, capability constructibility
+# ---------------------------------------------------------------------------
+
+
+async def test_full_delete_refuses_unexpected_second_thread(
+    env_with_provider: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B4(d): a second thread aborts the full delete BEFORE any side effect."""
+    _surface(monkeypatch)
+    ctx = _install_runtime_fake(await _base(env_with_provider), monkeypatch)
+    srv, client = ctx["srv"], ctx["client"]
+    r = await _create_files(ctx)
+    assert r.status_code == 201, r.text
+    tid = r.json()["thread_id"]
+    runtime_id = r.json()["chat_agent_id"]
+    root = srv.services.paths.project_task_file_runtime_dir(runtime_id)
+
+    # An unexpected second thread bound to the same runtime (e.g. leaked by an
+    # older bug): a "complete" delete would be a lie, so NOTHING may be
+    # deleted — not the root bytes, not the requested thread, not the runtime.
+    srv.services.thread_repo.insert(
+        thread_id="thr_second_b4",
+        agent_id=runtime_id,
+        user_id=ctx["uid"]["member"],
+        channel_type="dashboard",
+        session_key=f"{runtime_id}:dashboard:{ctx['uid']['member']}:extra",
+        last_active=0,
+    )
+
+    resp = await client.delete(f"/api/project-task-files/{tid}", headers=ctx["auth"]["member"])
+    assert resp.status_code == 503, resp.text
+    assert resp.json()["error"]["code"] == "PROJECT_TASK_FILES_UNAVAILABLE"
+
+    assert _count(srv, "threads", "agent_id = ?", (runtime_id,)) == 2
+    assert srv.services.thread_repo.get(tid) is not None
+    assert _count(srv, "project_task_links", "thread_id = ?", (tid,)) == 1
+    assert _count(srv, "project_task_contexts", "thread_id = ?", (tid,)) == 1
+    row = srv.services.agent_repo.get(runtime_id)
+    assert row is not None and row.last_state == "failed"
+    assert (root / "seed.txt").read_text(encoding="utf-8") == "private bytes"
+
+    # Once the anomaly is gone, the very same delete completes (retryable).
+    with srv.services.db.transaction() as conn:
+        conn.execute("DELETE FROM threads WHERE thread_id = ?", ("thr_second_b4",))
+    resp = await client.delete(f"/api/project-task-files/{tid}", headers=ctx["auth"]["member"])
+    assert resp.status_code == 204, resp.text
+    assert srv.services.thread_repo.get(tid) is None
+    assert srv.services.agent_repo.get(runtime_id) is None
+    assert not root.exists()
+
+
+async def test_full_delete_db_failure_marks_failed_and_retry_tolerates_absent_root(
+    env_with_provider: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B4(e/f): a metadata-removal failure is 503 + failed marker, never 204."""
+    _surface(monkeypatch)
+    ctx = _install_runtime_fake(await _base(env_with_provider), monkeypatch)
+    srv, client = ctx["srv"], ctx["client"]
+    r = await _create_files(ctx)
+    assert r.status_code == 201, r.text
+    tid = r.json()["thread_id"]
+    runtime_id = r.json()["chat_agent_id"]
+    root = srv.services.paths.project_task_file_runtime_dir(runtime_id)
+
+    manager = srv.app_runtime.agent_registry
+    repo = manager._repos.agent_repo
+    original = repo.delete_project_task_file_task_rows
+
+    def boom(**_kwargs: Any) -> bool:
+        raise RuntimeError("simulated metadata removal failure")
+
+    monkeypatch.setattr(repo, "delete_project_task_file_task_rows", boom)
+    resp = await client.delete(f"/api/project-task-files/{tid}", headers=ctx["auth"]["member"])
+    assert resp.status_code == 503, resp.text
+    assert resp.json()["error"]["code"] == "PROJECT_TASK_FILES_UNAVAILABLE"
+
+    # Metadata intact, failed marker set — and the private bytes are ALREADY
+    # gone: the retry must tolerate that mixed state instead of failing
+    # forever or reporting a false success.
+    row = srv.services.agent_repo.get(runtime_id)
+    assert row is not None and row.last_state == "failed"
+    assert srv.services.thread_repo.get(tid) is not None
+    assert _count(srv, "project_task_links", "thread_id = ?", (tid,)) == 1
+    assert not root.exists()
+
+    monkeypatch.setattr(repo, "delete_project_task_file_task_rows", original)
+    resp = await client.delete(f"/api/project-task-files/{tid}", headers=ctx["auth"]["member"])
+    assert resp.status_code == 204, resp.text
+    assert srv.services.thread_repo.get(tid) is None
+    assert srv.services.agent_repo.get(runtime_id) is None
+    assert _count(srv, "project_task_links", "thread_id = ?", (tid,)) == 0
+
+
+async def test_capability_requires_constructible_backend_when_gate_open(
+    env_with_provider: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B4(g): the capability hint verifies the strict backend is constructible."""
+    import harness_agent.backends as harness_backends
+
+    from octop.infra.agents import project_task_file_boundary
+
+    ctx = await _base(env_with_provider)
+    client = ctx["client"]
+    member = ctx["auth"]["member"]
+    real_resolve = harness_backends.resolve_backend
+    real_spec = project_task_file_boundary.project_task_file_backend_spec
+
+    def boom(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("broken harness install")
+
+    # Default stays disabled regardless of backend health — the B4 test suite
+    # never flips the production switch.
+    monkeypatch.setattr(harness_backends, "resolve_backend", boom)
+    r = await client.get("/api/projects/task-capabilities", headers=member)
+    assert r.status_code == 200, r.text
+    assert r.json() == {"files": {"available": False, "reason": "disabled"}}
+
+    # Gate open (test-only surface): broken construction → storage_unavailable.
+    _surface(monkeypatch)
+    r = await client.get("/api/projects/task-capabilities", headers=member)
+    assert r.status_code == 200, r.text
+    assert r.json() == {"files": {"available": False, "reason": "storage_unavailable"}}
+
+    # Spec drift (a non-virtual backend) is refused the same way.
+    monkeypatch.setattr(
+        project_task_file_boundary,
+        "project_task_file_backend_spec",
+        lambda root: {"type": "filesystem", "virtual_mode": False, "root_dir": str(root)},
+    )
+    monkeypatch.setattr(harness_backends, "resolve_backend", real_resolve)
+    r = await client.get("/api/projects/task-capabilities", headers=member)
+    assert r.status_code == 200, r.text
+    assert r.json() == {"files": {"available": False, "reason": "storage_unavailable"}}
+
+    # Everything healthy → available (mirrors the B3 assertion above).
+    monkeypatch.setattr(project_task_file_boundary, "project_task_file_backend_spec", real_spec)
+    r = await client.get("/api/projects/task-capabilities", headers=member)
+    assert r.status_code == 200, r.text
+    assert r.json() == {"files": {"available": True, "reason": None}}

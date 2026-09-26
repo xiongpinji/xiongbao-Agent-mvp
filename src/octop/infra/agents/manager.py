@@ -1159,6 +1159,20 @@ class AgentManager:
             if int(row.user_id or 0) != int(owner_user_id):
                 return False
             agent_id = row.agent_id
+            # 030A B4: a complete delete must cover the WHOLE runtime — exactly
+            # one bound thread, namely this one. An unexpected second thread
+            # aborts before any side effect (checkpoint, bytes, rows) and marks
+            # the runtime as a retryable failed cleanup; nothing is deleted.
+            siblings = self._repos.thread_repo.list_by_agent(agent_id=agent_id, limit=2)
+            if len(siblings) != 1 or siblings[0].thread_id != thread_id:
+                logger.error(
+                    "project-task full delete: runtime %s has %d thread(s), expected only %s",
+                    agent_id,
+                    len(siblings),
+                    thread_id,
+                )
+                self._mark_project_task_cleanup_incomplete(agent_id)
+                raise unavailable from None
             # Checkpoint first: it needs the live harness handle and a failure
             # keeps the thread row visible for a retry.
             try:
@@ -1176,11 +1190,23 @@ class AgentManager:
                     await asyncio.to_thread(self._quiesce_harness_memory, agent_id)
                     await self._harness_manager.aremove_agent(agent_id)
                 except Exception:
-                    logger.exception(
-                        "project-task full delete: runtime unload failed for %s", agent_id
-                    )
-                    self._mark_project_task_cleanup_incomplete(agent_id)
-                    raise unavailable from None
+                    if self._harness_agent_or_none(agent_id) is None:
+                        # 030A B4: the harness entry is already gone, so the
+                        # unload outcome is proven even though aremove_agent
+                        # raised (e.g. a retry after a crash mid-removal).
+                        # Continue instead of failing forever.
+                        logger.warning(
+                            "project-task full delete: runtime %s already absent from "
+                            "harness after unload failure; continuing",
+                            agent_id,
+                            exc_info=True,
+                        )
+                    else:
+                        logger.exception(
+                            "project-task full delete: runtime unload failed for %s", agent_id
+                        )
+                        self._mark_project_task_cleanup_incomplete(agent_id)
+                        raise unavailable from None
             root = self._paths.project_task_file_runtime_dir(agent_id)
             try:
                 if await asyncio.to_thread(root.exists):
@@ -1191,9 +1217,23 @@ class AgentManager:
                 )
                 self._mark_project_task_cleanup_incomplete(agent_id)
                 raise unavailable from None
-            removed = self._repos.agent_repo.delete_project_task_file_task_rows(
-                agent_id=agent_id, thread_id=thread_id, owner_user_id=owner_user_id
-            )
+            try:
+                removed = self._repos.agent_repo.delete_project_task_file_task_rows(
+                    agent_id=agent_id, thread_id=thread_id, owner_user_id=owner_user_id
+                )
+            except Exception:
+                # 030A B4: a DB failure (rolled-back transaction, repo guard
+                # violation, connection loss) is never a success. The failed
+                # marker stays and the 503 path applies, so the caller can
+                # retry even though harness/root are already removed — the
+                # steps above tolerate a missing harness entry and directory.
+                logger.exception(
+                    "project-task full delete: metadata removal failed for %s/%s",
+                    agent_id,
+                    thread_id,
+                )
+                self._mark_project_task_cleanup_incomplete(agent_id)
+                raise unavailable from None
             if not removed:
                 self._mark_project_task_cleanup_incomplete(agent_id)
                 return False
@@ -1260,8 +1300,25 @@ class AgentManager:
             out["workspace_dir"] = current_raw["workspace_dir"]
         return out
 
+    def _refuse_project_task_runtime_management(self, row: AgentRow | None) -> None:
+        """030A B4: generic lifecycle/config entry points refuse internal runtimes.
+
+        An internal ``project_task_files`` runtime is managed exclusively by
+        the dedicated create/bind/full-delete flow; generic update, share,
+        icon and delete entry points must never touch it (no admin bypass).
+        Removal happens only through :meth:`delete_project_task_file_task` or
+        the compensation/cleanup paths, which use the repo directly.
+        """
+        if _is_project_task_runtime(row):
+            raise OctopError(
+                ErrorCode.FORBIDDEN,
+                "internal project-task runtime is not manageable",
+                details={"internal": True},
+            )
+
     async def update(self, agent_id: str, **kwargs: Any) -> AgentRow:
         """Update agent config in DB and reload harness agent in the background."""
+        self._refuse_project_task_runtime_management(self._repos.agent_repo.get(agent_id))
         runtime_updates = {
             key: kwargs.pop(key) for key in AGENT_RUNTIME_CONFIG_KEYS if key in kwargs
         }
@@ -1324,6 +1381,7 @@ class AgentManager:
         existing = self._repos.agent_repo.get(agent_id)
         if existing is None:
             raise OctopError(ErrorCode.AGENT_NOT_FOUND, f"agent {agent_id!r} not found")
+        self._refuse_project_task_runtime_management(existing)
         from octop.infra.agents.teams import is_team_agent
 
         if shared and is_team_agent(existing):
@@ -1339,6 +1397,7 @@ class AgentManager:
         row = self._repos.agent_repo.get(agent_id)
         if row is None:
             raise OctopError(ErrorCode.AGENT_NOT_FOUND, f"agent {agent_id!r} not found")
+        self._refuse_project_task_runtime_management(row)
         self._repos.agent_repo.update_config(agent_id, icon_url=icon_url)
         updated = self._repos.agent_repo.get(agent_id)
         if updated is None:
@@ -1350,6 +1409,11 @@ class AgentManager:
         row = self._repos.agent_repo.get(agent_id)
         if row is None:
             raise OctopError(ErrorCode.AGENT_NOT_FOUND, f"agent {agent_id!r} not found")
+        # 030A B4: the only complete delete for an internal runtime is
+        # delete_project_task_file_task; this generic path (rmtree of the
+        # resolved workspace, harness unload, row delete) must never run for
+        # it. Compensation/cleanup use agent_repo.delete directly.
+        self._refuse_project_task_runtime_management(row)
         self._teams.assert_can_delete_agent(agent_id)
         from octop.infra.agents.teams import is_team_agent
 
