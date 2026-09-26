@@ -125,7 +125,7 @@ def _ensure_private_dir(directory: Path) -> None:
         if not stat.S_ISDIR(os.fstat(fd).st_mode):
             raise AssetStorageError("asset directory is not a directory")
         if os.name == "posix":
-            os.fchmod(fd, 0o700)  # type: ignore[attr-defined]  # POSIX-only API
+            os.fchmod(fd, 0o700)  # type: ignore[attr-defined, unused-ignore]  # POSIX-only API
     finally:
         os.close(fd)
 
@@ -238,7 +238,7 @@ class ProjectAssetStorage:
             created = True
             with os.fdopen(fd, "wb") as out:
                 if os.name == "posix":
-                    os.fchmod(out.fileno(), 0o600)  # type: ignore[attr-defined]  # POSIX-only API
+                    os.fchmod(out.fileno(), 0o600)  # type: ignore[attr-defined, unused-ignore]  # POSIX-only API
                 while True:
                     chunk = stream.read(_CHUNK_SIZE)
                     if not chunk:

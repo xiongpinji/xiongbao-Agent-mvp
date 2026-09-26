@@ -61,8 +61,10 @@ describe("ChatInputActionsRow compact pickers", () => {
       expect(document.querySelector(".ant-popover")).toBeInTheDocument();
     });
     const popover = document.querySelector(".ant-popover");
-    expect(popover?.querySelector("svg.lucide-sparkles")).not.toBeNull();
+    expect(popover?.querySelector("svg.lucide-route")).not.toBeNull();
+    expect(popover).toHaveTextContent("Auto");
     expect(popover?.querySelector("img")).not.toBeNull();
+    expect(popover).toHaveTextContent("Provider / Compact Model");
     expect(document.querySelector(".ant-drawer-content")).toBeNull();
   });
 });
