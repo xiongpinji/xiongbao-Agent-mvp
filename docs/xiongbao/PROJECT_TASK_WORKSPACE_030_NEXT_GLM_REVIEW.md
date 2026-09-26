@@ -1,0 +1,75 @@
+All review areas are covered. Compiling the final report.
+
+---
+
+# Read-only review — 030A fixed composite candidate
+
+**Fixed SHA:** `4a2efb55b1f60e7d92d34a73f01f60da15771cb0` (vs base `198f5cf9fa9ffb195e12184c2dc1e8ba2a9fb21a`)
+**Verdict: `GO for gated integration`** — with the creation switch `PROJECT_TASK_FILES_MODE_ENABLED = False` left unchanged. **File-mode activation is NOT allowed** by this review; it remains a separate gate (see "Unverified before activation").
+
+No P0/P1/P2 findings. Three reviewed areas, ordinary-Agent compatibility, and residual P3s below.
+
+## Workspace & scope check
+
+The harness git snapshot reports a clean detached HEAD whose log shows `4a2efb55` directly on top of `198f5cf9`, so the review range is the single commit `4a2efb55` ("fix(030): close private file dock and runtime gate gaps") and the working tree equals the fixed candidate. I could not run `git` myself (see Evidence limits), so hunk-level scope drift could not be enumerated from the diff; instead I reviewed the current state of every file in the assigned scope plus the surrounding enforcement context. Nothing inspected is inconsistent with the three described fix areas, and I found no out-of-scope edits in those files.
+
+## Area 1 — Windows junction HTTP regression
+
+`tests/integration/test_project_task_files_workspace.py:344-461` is genuine authenticated HTTP escape evidence, not a resolver mock:
+
+- `_require_windows_junction` (line 351) creates a real NTFS junction via `cmd /c mklink /J`, asserts `link.is_junction()` and `realpath(link) == realpath(target)` (direction proof), and **fails loudly** (`pytest.fail`) if the environment cannot create it — a silently skipped proof is not accepted as gate evidence. Windows-only via `skipif(os.name != "nt")` (line 374).
+- The route is the real DB-marked internal path: `_ws_ctx` (line 47) creates a real file task through the gate-opened API, marks the row `running`, and `require_running_workspace` (`src/octop/api/common/workspace.py:56-88`) falls back to `workspace_for_agent`, which pins a bare virtual `FilesystemBackend` on the managed root (`src/octop/infra/agents/manager.py:3288-3297`). Requests carry owner auth headers.
+- Coverage matches the required matrix: existing-outside **read + download** (lines 411-419), **preview** via `/media/preview` (421-426), **tree listing** of the junction dir (428-434), **glob** through it (434-437), all 403 with `junction-escape-secret` absent from every response body; **write of a not-yet-created outside file** refused with `outside/new.txt` proven absent (440-446). Root listing (402-408) leaks neither the outside name nor bytes; the managed positive read still works (fixture validity, 397-401).
+- Cleanup detaches only the reparse point with non-recursive `link.rmdir()` inside `finally` **before** fixture teardown (449-457), then proves the junction is gone, the outside tree intact, and `outside` contains only `secret.txt` (459-461) — cleanup never follows into the target.
+- Enforcement chain traced end-to-end: router `_file_workspace`/`_io_path` (`src/octop/api/routers/workspace.py:66-110`) → owner-only row (`api/common/workspace.py:112-121`, admin/`as_user` refused) → fail-closed root (`:123-140`) → workspace-pinned-to-root proof (`:142-158`) → `project_task_file_io_path` (`:160-194`, rejects `\\`, `//`, mixed UNC shapes **before** `workspace_api_path` erases them; `from_workspace=false` refused outright) → `resolve_project_task_workspace_path` (`src/octop/infra/backend/project_task_file_paths.py:58-84`, resolve-with-junction-expansion + containment proof, existence-independent so the new-file write is caught on the same path shape). The backend itself additionally blocks junction escapes (`tests/unit/backend/test_project_task_file_paths.py:195`) — defense in depth.
+- Correctly distinguished from the pure resolver tests (`test_project_task_file_paths.py:127,195`, which skip when junction creation is unavailable) and from TOCTOU claims: this proves check-time refusal through authenticated HTTP, not reparse-point completeness or race-free opens.
+
+This is my inspection of the test design; the pass itself is Codex-supplied evidence ("the exact authenticated Windows junction HTTP case 1/1 passed; integrated Windows pytest 52 passed, 2 platform skips").
+
+## Area 2 — Private dock F2 repairs
+
+The mental sequences are all covered, at the unit and panel-seam levels:
+
+- **Tab identity:** `privateDockFileTabId` (`dashboard/src/pages/Chat/utils/dockFilePath.ts:186-197`) keys safe shapes as `file:{managed-relative}` and refused raw shapes as `file-refused:{raw}` — disjoint namespaces, so `file:///workspace/note.png` can never reuse (or be reused by) the `/workspace/note.png` tab in either open order. Proven in `dockFilePath.privatePath.test.ts` and `ChatDockPanels.privatePath.test.tsx` ("opens a distinct refused tab when an unsafe form follows a safe key" / reverse case): the refused tab is focused and shows the refusal state, the safe tab keeps its own working managed-relative preview (`/agents/RT1/media/preview?source=note.png`), and a valid safe path remains accessible.
+- **Zero requests for unsafe raw forms:** `toPrivateWorkspaceRelPath` (`dashboard/src/utils/workspaceIoPath.ts:141-166`) refuses URL schemes, drive letters, UNC, `~`, `..` anywhere, NUL, and root-only inputs without collapsing; `FilePanelContent` (`dashboard/src/pages/Chat/components/FilePanelContent.tsx:64-88`) computes `privateBlocked` and the load effect (lines 104-160) returns before any `request`/`requestBlob`/`probeAuthResource` call — asserted with zero mock calls across `file://`, drive, UNC, traversal, `~`, NUL in both `FilePanelContent.privateTask.test.tsx` and `ChatDockPanels.privatePath.test.tsx`. Safe file I/O goes through `…/workspace/file|download?path=<rel>&from_workspace=true` (`withFromWorkspace`), media through a managed-relative preview source.
+- **Transitions:** `useChatDockPanel.ts:120-145` tracks `tabsAgentId`: first `null → A` adopts the identity and keeps tabs (first paint, not a switch), `A → null → A` keeps tabs while the panel-level `privateBlocked` clears content/edit state and disables actions, and `A → null → B` resets tabs during the same render. All three are direct tests in `useChatDockPanel.test.ts` ("clears agent A's tabs when a transient null hides an A → B switch", "keeps the same agent's tabs when a transient null re-verifies to the same id", "keeps first-paint tabs when the first real agent id resolves"). Keep-alive tab authorization loss is proven at the component level ("drops a keep-alive tab's authorization when a verified route becomes refused": no further reads/saves/downloads, viewer unmounted).
+- **Route verification wiring:** `Chat/index.tsx:138-180` (`useInternalTaskRoute`, fail-closed: unknown route ids are restricted until the owner card resolves; internal ids require a server-verified existing thread) → `chatAgentId` only set when `status === "verified"` (lines 287-297) → `ChatDockPanels … privateTask={isInternalTask} agentId={chatAgentId ?? ""}` (1880-1885). Unverified first paint therefore performs zero file I/O, exactly as tested.
+- **Refusal vs 404 + locales:** refusal copy `chat.dockFileUnavailable` is distinct from the genuine-404 copy `chat.dockFileMaybeDeleted` (`FilePanelContent.tsx:317-345`; tested both ways, including a 404 tab later refused switching copies). Keys exist identically in `dashboard/src/locales/en.json:2078-2079` and `zh.json:2078-2079`.
+- **Ordinary Agent compatibility:** explicit unchanged-behavior tests — ordinary relative reads without `from_workspace`, host-absolute tool paths kept as `file://` for both I/O URL and viewer, ordinary probe/download without the flag (`FilePanelContent.privateTask.test.tsx`, "ordinary agent dock behavior is unchanged" section); backend-side `test_ordinary_agent_creation_and_start_are_unchanged` and `test_ordinary_agent_surface_unaffected`; the router's `root is None` branches preserve legacy mapping, and the download host-absolute allowlist only applies when `root is None` (`workspace.py:296-304`). Private row downloads stay fail-closed (`ChatDockFileList.tsx:124-158`: refused or ambiguous raw→key shapes download nothing).
+
+Codex-supplied evidence: "integrated Windows frontend dock/path suites 103/103; npx tsc -b, targeted ESLint, npm run build passed" — not executed by me.
+
+## Area 3 — B2 post-start middleware verifier
+
+- **Post-start, not config-construction proof:** `_verify_project_task_runtime` (`src/octop/infra/agents/manager.py:989-1057`) inspects the **live** harness agent's `agent.config` after `_start_agent` (creation flow at `:847-857`: `verified = started is not None and self._verify_project_task_runtime(row)`).
+- **Exact middleware checks:** for `TokenQuotaMiddleware`, `ProjectInstructionsMiddleware`, `ProjectTaskFileToolBoundaryMiddleware` — `type(mw) is required` (exact class, subclass/replacement never counts), each exactly once (duplicates cannot mask a loss), and the boundary must be the sole final entry (`middleware[-1]`); extra policy middleware is tolerated only ahead of the boundary. Quota-vs-instructions relative order is deliberately not pinned (disjoint phases) — a reasonable, documented call.
+- **Final six-tool boundary:** `tools_disabled` must contain the full denylist superset and be disjoint from `PROJECT_TASK_FILE_TOOLS` (`ls/read_file/write_file/edit_file/glob/grep`, `project_task_file_boundary.py:19-27`); the boundary middleware filters every model request to the allowlist and vetoes forged calls in `wrap_tool_call`/`awrap_tool_call` before the handler runs. The graph-level probe (`test_built_config_exposes_six_tools_and_vetoes_forged_calls`) asserts the model-visible tool set equals exactly the six names and that forged `task`/`execute`/`web_fetch` calls return error `ToolMessage`s — execution-entry refusal, not just visibility. Backend pinned (`type/cwd==root/virtual_mode/no execute`) and spec equality also verified.
+- **Failed verification compensates:** `create_project_task_file_runtime` runs the dedicated `_compensate_project_task_runtime` (`:1076-1105`) — harness removal → private-root rmtree → DB row delete; any uncertain step keeps the row marked `failed` (never `running`, never deleted-while-uncertain) for the bounded boot cleanup / `cleanup_unlinked_project_task_runtime` retry. Tests simulate missing/reordered/duplicated middleware (9 mutation cases, each fails closed), middleware stripped between start and verify (full compensation, quota seat released), start/dir/audit/finalization failures, rmtree/harness-removal/DB-delete failures (retryable `failed` markers), and boot refusing to restart young failed unlinked rows. A failed create never leaves a task-capable row/runtime.
+- **No live provider invocation:** creation/verification use provider-store lookups only (`is_model_ref_usable`, `resolve_explicit_default_model`); the verifier inspects objects. The unit-test file states "No real model is ever called".
+- **Switch remains OFF:** `src/octop/infra/projects/file_tasks.py:22` `PROJECT_TASK_FILES_MODE_ENABLED = False` (plain module constant — not env-configurable), enforced at the create route before any precheck (`api/routers/project_tasks.py:172`) and in the capability hint; tests open it only via monkeypatch (`test_project_task_file_mode_api.py:33-36`).
+
+## Findings (ordered by severity)
+
+- **P0:** none.
+- **P1:** none.
+- **P2:** none.
+- **P3 (residual, none block gated integration):**
+  1. **TOCTOU check-to-open window.** `resolve_project_task_workspace_path` proves containment at check time, then the backend re-opens the raw relative fragment — a swap between check and open is conceivable. The contract (`PROJECT_TASK_WORKSPACE_030_CONTRACT.md`, "访问与工具边界") explicitly forbids presenting single-shot normalization as a full sandbox and lists TOCTOU posture as an activation item; with creation OFF there is no production exposure. **Required before activation:** no-follow opens or refusing unsafe entries.
+  2. **Name-based backend check.** `manager.py:1015-1017` compares `type(backend).__name__ == "FilesystemBackend"` (deepagents is transitive-only). A same-named different class would pass this one check; the `cwd == root`, `virtual_mode`, no-`execute`, and spec-equality checks still bind behavior. Theoretical only.
+  3. **Junction write coverage nit.** The write denial is asserted only for a not-yet-existing outside file (`link/new.txt`); overwriting the existing outside file through the junction is not separately asserted. The resolver is existence-independent (the read of `link/secret.txt` is refused on the same path shape), so behavior is identical — coverage nit only.
+  4. **Known front-end inconsistency persists:** `my:file.txt` is refused (scheme-like) while `/my:file.txt` is accepted as a contained managed key (server 404). Safe (server is the authority) but inconsistent UX; carried over from the F3 review.
+  5. **Process caveat (pre-existing, Codex evidence):** WSL `make typecheck` is not green — two unused-ignore diagnostics in unchanged `asset_storage.py`; and two unrelated Chat baseline failures (`ChatInputActionsRow.test.tsx`, `TrajectoryInspector.test.tsx`) reproduce on unchanged base `198f5cf9`. Neither is a new regression from this candidate, but the repo ship bar (`make all` + pre-commit) will stay red until the typecheck diagnostics are addressed.
+
+## Unverified before turning file mode ON (activation gate — separate from this GO)
+
+- Live runtime with a real provider: model-visible tool boundary and middleware chain in production (all my evidence and the unit tests use fake/recording models).
+- PostgreSQL migration and quota/concurrency behavior (SQLite-only evidence inspected here).
+- Authenticated browser journey: create → read/write → restart → revoke, end-to-end.
+- Full Windows reparse-point matrix beyond the junction case, and the explicit TOCTOU risk posture (P3 #1).
+- WorkBuddy 1:1 parity and the overall 25-item goal are **not** addressed by this review and remain separate.
+
+## Evidence limits (explicit)
+
+- I executed **no** tests, builds, lint, typecheck, or git commands — this session has no shell tool, and direct reads of `.git` internals are permission-denied in non-interactive mode. SHA/workspace match therefore rests on the harness-provided git snapshot (clean detached HEAD, tip `4a2efb55`, parent `198f5cf9`); the diff could not be enumerated hunk-by-hunk, limiting my scope-drift check to current-state inspection. Codex's independent scope check is relied upon for the remainder.
+- All execution results quoted above (Windows 52 passed/2 skips, junction case 1/1, frontend 103/103, tsc/ESLint/Ruff/build, WSL pytest 4495 passed/17 skipped, `make lint` pass, typecheck not green) are **Codex-supplied evidence, not GLM-executed checks**.
+- The Codex coordination channel (`channel.py event/ask`) could not be used — no shell available in this read-only route; no phase updates were published and no question was escalated. This report is the delivered output.

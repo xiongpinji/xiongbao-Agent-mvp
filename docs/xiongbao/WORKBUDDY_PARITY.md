@@ -20,7 +20,7 @@
 | P0 | 日常办公/代码开发/设计创意场景建议 | 三场景切换和建议预填已实现；普通欢迎快卡也只预填，定向测试覆盖不自动发送。快卡目前仅在“日常办公”场景显示 | 在真实任务首页验证点击、输入框和场景切换；确定其他场景是否需要快卡 | 代码及定向测试通过 |
 | P0 | 当前任务的“产物”清单和点击预览 | 当前会话 `artifacts` 独立进入右侧标签，空态、去重、Agent/会话隔离与现有预览路径定向测试通过 | 真实生成文件后在桌面验证权限、预览、下载与异常态 | 部分实现·待桌面验收 |
 | P0 | 可明确区分“产物 / 全部文件 / 变更 / 预览” | 右栏已将当前会话的“产物”和 Agent 授权工作区的“工作空间文件”分开，另将工具检测路径明确标为“已发现文件”；现有文件树入口、空态/失败态及定向测试通过 | 任务级目录仍未实现；“变更”缺真实新增/修改/删除来源与 diff，网页/文件预览需真实桌面验收 | 部分实现·待桌面验收 |
-| P0 | 工作空间选择及任务目录隔离 | Octop 以 Agent 工作区为主，聊天有 Workspace Drawer；原有项目任务复用所选 Agent 的工作区。[030A 第三版合同](PROJECT_TASK_WORKSPACE_030_CONTRACT.md)收窄为托管文件任务，GLM 已给设计 GO。[M0 工具/路径探针](PROJECT_TASK_WORKSPACE_030_M0_ACCEPTANCE.md)、[B1 持久化和配额](PROJECT_TASK_WORKSPACE_030_B1_ACCEPTANCE.md)与 [B2 内部运行时](PROJECT_TASK_WORKSPACE_030_B2_ACCEPTANCE.md)已分片验收；B3/B4/F1–F3 已形成[开关关闭的集成候选](PROJECT_TASK_WORKSPACE_030_F3_INTEGRATED_ACCEPTANCE.md)，文件模式未开放 | 任务创建时选目录、显示范围和权限，后续任务同目录连续编辑；跨任务隔离测试；Windows 安全 shell、HTTP 文件与终端旁路都须实测 | 差距 |
+| P0 | 工作空间选择及任务目录隔离 | Octop 以 Agent 工作区为主，聊天有 Workspace Drawer；原有项目任务复用所选 Agent 的工作区。030A 托管文件任务已到[开关关闭的集成候选](PROJECT_TASK_WORKSPACE_030_F3_INTEGRATED_ACCEPTANCE.md)；固定 `4a2efb55` 又补上[Windows 已认证 junction HTTP、运行时中间件与私有 dock 门禁](PROJECT_TASK_WORKSPACE_030_NEXT_GATE_ACCEPTANCE.md)，GLM 只读 GO。创建开关仍关闭，不是用户可用的任务级目录 | 真实 PG、浏览器创建—读写—重启—撤权、模型调用及 TOCTOU 处置；WorkBuddy 式用户自选目录与安全本地命令属后继片，云端和团队协作另验 | 差距 |
 | P0 | 任务执行流、计划、进度、失败/待确认状态 | Octop Chat 消息、工具调用、审批和 trajectory 组件有实现 | 对齐 WorkBuddy 的任务状态、停止/重试/继续、确认提示；失败后不得显示完成 | 基线有·待验收 |
 | P0 | @ 引用文件/规则、上传/拖拽/粘贴图片 | Octop 聊天输入和文件附件代码存在 | 多文件、截图、引用解析、权限及错误态在桌面 UI 实测 | 基线有·待验收 |
 | P0 | 选择模型、深度思考与权限模式 | Octop 模型选择、reasoning/HITL policy 代码存在 | 设置生效且在任务中可见；不同模式的批准和拒绝行为实测 | 基线有·待验收 |
