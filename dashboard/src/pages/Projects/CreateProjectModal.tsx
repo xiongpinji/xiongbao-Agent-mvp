@@ -132,17 +132,29 @@ export default function CreateProjectModal({
   const activeEditIdRef = useRef<string | null>(null);
   /** Bumped on every open/close transition so stale callbacks can be ignored. */
   const modalSessionRef = useRef(0);
+  /** Live overwrite-confirm handle, owned by the session that created it. */
+  const pendingConfirmRef = useRef<ReturnType<typeof Modal.confirm> | null>(
+    null,
+  );
 
   useEffect(() => {
     const justOpened = open && !wasOpenRef.current;
     if (open !== wasOpenRef.current) modalSessionRef.current += 1;
     wasOpenRef.current = open;
-    if (!open) return;
+    if (!open) {
+      pendingConfirmRef.current?.destroy();
+      pendingConfirmRef.current = null;
+      return;
+    }
     const editId = editTarget ? editTarget.project_id : null;
     if (!justOpened) {
       // The initial seed is one opening event: a parent prop drift or a locale
       // change while the modal stays open must not reset a draft in progress.
-      if (editId !== activeEditIdRef.current) onClose();
+      if (editId !== activeEditIdRef.current) {
+        pendingConfirmRef.current?.destroy();
+        pendingConfirmRef.current = null;
+        onClose();
+      }
       return;
     }
     let initial: FormSnapshot = EMPTY_FORM;
@@ -167,6 +179,14 @@ export default function CreateProjectModal({
     setSubmitting(false);
     setSubmitError(null);
   }, [open, editTarget, initialTemplateId, t, onClose]);
+
+  useEffect(
+    () => () => {
+      pendingConfirmRef.current?.destroy();
+      pendingConfirmRef.current = null;
+    },
+    [],
+  );
 
   const trimmedName = form.name.trim();
   const nameLength = Array.from(trimmedName).length;
@@ -194,7 +214,7 @@ export default function CreateProjectModal({
     if (appliedTemplate === tpl.id && !isDirty) return;
     if (isDirty) {
       const confirmSession = modalSessionRef.current;
-      Modal.confirm({
+      const handle = Modal.confirm({
         title: t("projects.create.overwriteTitle", "覆盖未保存内容？"),
         content: t(
           "projects.create.overwriteContent",
@@ -203,10 +223,20 @@ export default function CreateProjectModal({
         okText: t("projects.create.overwriteOk", "覆盖"),
         cancelText: t("projects.create.overwriteCancel", "保留当前内容"),
         onOk: () => {
+          // A destroyed handle must not act on a later draft, even if some
+          // host still invokes its captured callback.
+          if (pendingConfirmRef.current !== handle) return;
+          pendingConfirmRef.current = null;
           if (confirmSession !== modalSessionRef.current) return;
           applyTemplate(tpl);
         },
+        onCancel: () => {
+          if (pendingConfirmRef.current === handle) {
+            pendingConfirmRef.current = null;
+          }
+        },
       });
+      pendingConfirmRef.current = handle;
       return;
     }
     applyTemplate(tpl);
@@ -387,6 +417,7 @@ export default function CreateProjectModal({
       {nameTooLong ? (
         <div
           id={NAME_HELP_ID}
+          role="alert"
           style={{ ...helpStyle, color: "var(--fn-color-danger, #cf1322)" }}
         >
           {t("projects.create.nameTooLong", "名称最多 15 个字符")}
@@ -394,6 +425,7 @@ export default function CreateProjectModal({
       ) : nameBlankTyped ? (
         <div
           id={NAME_HELP_ID}
+          role="alert"
           style={{ ...helpStyle, color: "var(--fn-color-danger, #cf1322)" }}
         >
           {t("projects.create.nameRequired", "请输入项目名称")}

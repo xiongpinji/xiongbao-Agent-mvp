@@ -1131,6 +1131,188 @@ describe("project-space pages against the real API response shapes", () => {
     );
   });
 
+  it("keeps a remounted session's draft when an old confirm callback fires", async () => {
+    stubGetComputedStyle();
+    let staleOnOk: (() => void) | undefined;
+    vi.spyOn(Modal, "confirm").mockImplementation((config) => {
+      staleOnOk = config.onOk;
+      return {
+        destroy: vi.fn(),
+        update: vi.fn(),
+      } as unknown as ReturnType<typeof Modal.confirm>;
+    });
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+
+    const first = render(
+      <CreateProjectModal
+        open
+        initialTemplateId="requirements"
+        onClose={onClose}
+        onSaved={vi.fn()}
+      />,
+    );
+    await user.type(screen.getByLabelText("项目名称"), "自定义项目");
+    await user.click(screen.getByRole("button", { name: /竞品分析/ }));
+    expect(staleOnOk).toBeTypeOf("function");
+
+    first.unmount();
+    render(
+      <CreateProjectModal
+        open
+        initialTemplateId="knowledge"
+        onClose={onClose}
+        onSaved={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText("描述")).toHaveValue(
+      TEMPLATE_COPY.knowledge.description,
+    );
+
+    act(() => {
+      staleOnOk?.();
+    });
+
+    expect(screen.getByLabelText("项目名称")).toHaveValue("");
+    expect(screen.getByLabelText("描述")).toHaveValue(
+      TEMPLATE_COPY.knowledge.description,
+    );
+    expect(screen.getByLabelText("项目指令")).toHaveValue(
+      TEMPLATE_COPY.knowledge.instructions,
+    );
+    expect(screen.getByRole("button", { name: /团队知识库/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: /竞品分析/ })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+
+  it("removes a pending overwrite confirmation when its parent session closes", async () => {
+    stubGetComputedStyle();
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+
+    const { rerender } = render(
+      <CreateProjectModal open onClose={onClose} onSaved={vi.fn()} />,
+    );
+    await user.type(screen.getByLabelText("项目名称"), "自定义项目");
+    await user.click(screen.getByRole("button", { name: /竞品分析/ }));
+    expect(
+      await screen.findByRole("button", { name: /覆\s*盖/ }),
+    ).toBeInTheDocument();
+
+    rerender(
+      <CreateProjectModal open={false} onClose={onClose} onSaved={vi.fn()} />,
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: /覆\s*盖/ })).toBeNull(),
+    );
+    expect(screen.queryByRole("button", { name: "保留当前内容" })).toBeNull();
+  });
+
+  it("destroys a pending overwrite confirmation on a target switch or unmount", async () => {
+    stubGetComputedStyle();
+    const destroy = vi.fn();
+    let staleOnOk: (() => void) | undefined;
+    vi.spyOn(Modal, "confirm").mockImplementation((config) => {
+      staleOnOk = config.onOk;
+      return {
+        destroy,
+        update: vi.fn(),
+      } as unknown as ReturnType<typeof Modal.confirm>;
+    });
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const targetA: ProjectRecord = {
+      ...summary,
+      project_id: "project-a",
+      name: "项目 A",
+      description: "A 描述",
+      instructions: "A 指令",
+      instructions_sha256: "sha-a",
+    };
+
+    const first = render(
+      <CreateProjectModal open onClose={onClose} onSaved={vi.fn()} />,
+    );
+    await user.type(screen.getByLabelText("项目名称"), "自定义项目");
+    await user.click(screen.getByRole("button", { name: /竞品分析/ }));
+    expect(destroy).not.toHaveBeenCalled();
+
+    first.rerender(
+      <CreateProjectModal
+        open
+        editTarget={targetA}
+        onClose={onClose}
+        onSaved={vi.fn()}
+      />,
+    );
+    expect(onClose).toHaveBeenCalled();
+    expect(destroy).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      staleOnOk?.();
+    });
+    expect(screen.getByLabelText("项目名称")).toHaveValue("自定义项目");
+    expect(screen.getByLabelText("描述")).toHaveValue("");
+
+    first.unmount();
+
+    const second = render(
+      <CreateProjectModal open onClose={onClose} onSaved={vi.fn()} />,
+    );
+    await user.type(screen.getByLabelText("项目名称"), "另一个草稿");
+    await user.click(screen.getByRole("button", { name: /竞品分析/ }));
+    expect(destroy).toHaveBeenCalledTimes(1);
+
+    second.unmount();
+    expect(destroy).toHaveBeenCalledTimes(2);
+  });
+
+  it("announces name errors while the neutral rule stays a non-live reference", async () => {
+    stubGetComputedStyle();
+    const user = userEvent.setup();
+
+    render(<CreateProjectModal open onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    const name = screen.getByLabelText("项目名称");
+    expect(name).toHaveAttribute("aria-describedby", NAME_HELP_ID);
+    const neutralHelp = document.getElementById(NAME_HELP_ID);
+    expect(neutralHelp).not.toBeNull();
+    expect(neutralHelp).not.toHaveAttribute("role");
+    expect(neutralHelp).not.toHaveAttribute("aria-live");
+
+    await user.type(name, "有效名称");
+    expect(document.getElementById(NAME_HELP_ID)).toBe(neutralHelp);
+    expect(neutralHelp).not.toHaveAttribute("role");
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    await user.clear(name);
+    await user.type(name, "   ");
+    expect(name).toHaveAttribute("aria-invalid", "true");
+    const blankError = screen.getByRole("alert");
+    expect(blankError).toHaveAttribute("id", NAME_HELP_ID);
+    expect(blankError).toHaveTextContent("请输入项目名称");
+    expect(name).toHaveAccessibleDescription("请输入项目名称");
+
+    await user.clear(name);
+    await user.type(name, "1234567890123456");
+    expect(name).toHaveAttribute("aria-invalid", "true");
+    const longError = screen.getByRole("alert");
+    expect(longError).toHaveAttribute("id", NAME_HELP_ID);
+    expect(longError).toHaveTextContent("名称最多 15 个字符");
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+
+    await user.clear(name);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(document.getElementById(NAME_HELP_ID)).toBe(neutralHelp);
+    expect(neutralHelp).not.toHaveAttribute("role");
+  });
+
   it("frames the home introduction as one labelled region with a single h1", async () => {
     list.mockResolvedValue({
       items: [],
