@@ -681,8 +681,8 @@ export default function ProjectAssets({ projectId }: Props) {
     }
     if (parsed?.code === "FORBIDDEN" || httpStatus(err) === 403) {
       return t(
-        "projects.assets.trashArchived",
-        "项目已归档：回收站只读，无法删除或恢复。",
+        "projects.assets.trashForbidden",
+        "项目已归档，或你没有管理该资产的权限。",
       );
     }
     return apiErrorMessage(err, fallback, t);
@@ -980,9 +980,13 @@ export default function ProjectAssets({ projectId }: Props) {
         >
           <button
             type="button"
-            aria-label={t("projects.assets.openFolder", "进入文件夹：{{name}}", {
-              name: node.name,
-            })}
+            aria-label={t(
+              "projects.assets.openFolder",
+              "进入文件夹：{{name}}",
+              {
+                name: node.name,
+              },
+            )}
             onClick={() => enterFolder(node)}
             style={{
               display: "flex",

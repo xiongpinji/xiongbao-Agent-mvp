@@ -844,7 +844,10 @@ describe("ProjectAssets against the PS-06A / 023A contract", () => {
 });
 
 describe("ProjectAssets 042 recoverable trash", () => {
-  async function openDeleteDialog(user: ReturnType<typeof userEvent.setup>, testId: string) {
+  async function openDeleteDialog(
+    user: ReturnType<typeof userEvent.setup>,
+    testId: string,
+  ) {
     const row = await screen.findByTestId(testId);
     await user.click(within(row).getByRole("button", { name: "更多操作" }));
     await user.click(
@@ -871,7 +874,7 @@ describe("ProjectAssets 042 recoverable trash", () => {
     ).toBeInTheDocument();
     expect(deleteToTrash).not.toHaveBeenCalled();
 
-    await user.click(within(dialog).getByRole("button", { name: "取消" }));
+    await user.click(within(dialog).getByRole("button", { name: /取\s*消/ }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(deleteToTrash).not.toHaveBeenCalled();
     expect(message.success).not.toHaveBeenCalled();
@@ -918,9 +921,7 @@ describe("ProjectAssets 042 recoverable trash", () => {
 
     const dialog = await screen.findByRole("dialog");
     expect(
-      within(dialog).getByText(
-        /文件夹会连同其中当前可见的内容一起移入回收站/,
-      ),
+      within(dialog).getByText(/文件夹会连同其中当前可见的内容一起移入回收站/),
     ).toBeInTheDocument();
     await user.click(
       within(dialog).getByRole("button", { name: "移入回收站" }),
@@ -943,7 +944,9 @@ describe("ProjectAssets 042 recoverable trash", () => {
       within(dialog).getByRole("button", { name: "移入回收站" }),
     );
 
-    expect(await within(dialog).findByText("internal boom")).toBeInTheDocument();
+    expect(
+      await within(dialog).findByText("internal boom"),
+    ).toBeInTheDocument();
     expect(message.success).not.toHaveBeenCalled();
     // The failed request never removes the row or reloads the directory.
     expect(screen.getByTestId("project-asset-file-1")).toBeInTheDocument();
@@ -957,7 +960,7 @@ describe("ProjectAssets 042 recoverable trash", () => {
     expect(message.success).toHaveBeenCalledWith("已移入回收站");
   });
 
-  it("explains an archived 403 delete without dropping the row", async () => {
+  it("explains an archived or unauthorized 403 delete without dropping the row", async () => {
     const user = userEvent.setup();
     deleteToTrash.mockRejectedValueOnce(
       new Error('403 - {"error":{"code":"FORBIDDEN","message":"forbidden"}}'),
@@ -970,9 +973,7 @@ describe("ProjectAssets 042 recoverable trash", () => {
     );
 
     expect(
-      await within(dialog).findByText(
-        "项目已归档：回收站只读，无法删除或恢复。",
-      ),
+      await within(dialog).findByText("项目已归档，或你没有管理该资产的权限。"),
     ).toBeInTheDocument();
     expect(message.success).not.toHaveBeenCalled();
     expect(screen.getByTestId("project-asset-file-1")).toBeInTheDocument();
@@ -1108,9 +1109,7 @@ describe("ProjectAssets 042 recoverable trash", () => {
     listTrash.mockResolvedValueOnce(
       trashResponse([trashFolderLocked], { total: 2, offset: 1 }),
     );
-    await user.click(
-      within(dialog).getByRole("button", { name: "加载更多" }),
-    );
+    await user.click(within(dialog).getByRole("button", { name: "加载更多" }));
 
     await waitFor(() =>
       expect(listTrash).toHaveBeenLastCalledWith("p1", {
@@ -1133,9 +1132,7 @@ describe("ProjectAssets 042 recoverable trash", () => {
     await openDeleteDialog(user, "project-asset-file-1");
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
 
-    list.mockResolvedValue(
-      listResponse([{ ...fileSpec, name: "新项目.pdf" }]),
-    );
+    list.mockResolvedValue(listResponse([{ ...fileSpec, name: "新项目.pdf" }]));
     usage.mockResolvedValue({ file_count: 1, total_bytes: 1 });
     rerender(<ProjectAssets projectId="p2" />);
 
@@ -1157,9 +1154,7 @@ describe("ProjectAssets 042 recoverable trash", () => {
     await openTrashDialog(user);
     await waitFor(() => expect(listTrash).toHaveBeenCalledTimes(1));
 
-    list.mockResolvedValue(
-      listResponse([{ ...fileSpec, name: "新项目.pdf" }]),
-    );
+    list.mockResolvedValue(listResponse([{ ...fileSpec, name: "新项目.pdf" }]));
     usage.mockResolvedValue({ file_count: 1, total_bytes: 1 });
     rerender(<ProjectAssets projectId="p2" />);
     expect(await screen.findByText("新项目.pdf")).toBeInTheDocument();
@@ -1207,9 +1202,7 @@ describe("ProjectAssets 042 recoverable trash", () => {
     await user.click(within(row).getByRole("button", { name: "恢复" }));
     await waitFor(() => expect(restoreTrashed).toHaveBeenCalledTimes(1));
 
-    list.mockResolvedValue(
-      listResponse([{ ...fileSpec, name: "新项目.pdf" }]),
-    );
+    list.mockResolvedValue(listResponse([{ ...fileSpec, name: "新项目.pdf" }]));
     usage.mockResolvedValue({ file_count: 1, total_bytes: 1 });
     rerender(<ProjectAssets projectId="p2" />);
     await screen.findByText("新项目.pdf");

@@ -762,7 +762,7 @@
       "trashRestoreNameConflict": "A file or folder with the same name already occupies the original location. Renaming and moving are not available yet; resolve the conflict first — the item stays in the trash.",
       "trashRestoreParentInTrash": "Its original folder is still in the trash: restore the parent first, then restore this item.",
       "trashCannotRestore": "You cannot restore this item; ask the project owner or an admin if needed.",
-      "trashArchived": "The project is archived: the trash is read-only, so deleting and restoring are disabled."
+      "trashForbidden": "The project is archived, or you do not have permission to manage this asset."
     }
   },
   "skillPackages": {

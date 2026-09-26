@@ -762,7 +762,7 @@
       "trashRestoreNameConflict": "原位置已有同名文件或文件夹；当前暂不支持改名或移动，请先处理同名项，此项保留在回收站。",
       "trashRestoreParentInTrash": "原文件夹仍在回收站：请先恢复父级，再恢复此项。",
       "trashCannotRestore": "你没有恢复此项目的权限；如需恢复请联系项目 owner 或管理员。",
-      "trashArchived": "项目已归档：回收站只读，无法删除或恢复。"
+      "trashForbidden": "项目已归档，或你没有管理该资产的权限。"
     }
   },
   "skillPackages": {
