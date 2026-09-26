@@ -166,8 +166,13 @@ def project_task_file_io_path(root: Path, raw: str, *, from_workspace: bool) -> 
     accept workspace-relative mode only: ``from_workspace=False`` (the chat/tool
     host-absolute mode) is refused outright, never silently upgraded.
     """
-    text = workspace_api_path(raw) if from_workspace else str(raw)
     try:
+        # The dashboard's single leading "/" denotes the managed root, but
+        # two leading slashes (POSIX UNC) or a leading backslash (Windows UNC)
+        # must be rejected before workspace_api_path erases their shape.
+        if from_workspace and str(raw).strip().startswith(("//", "\\")):
+            raise ValueError("UNC and Windows-absolute paths are not allowed")
+        text = workspace_api_path(raw) if from_workspace else str(raw)
         rel = normalize_project_task_io_path(text, from_workspace=from_workspace)
         resolve_project_task_workspace_path(root, rel, from_workspace=from_workspace)
     except ValueError as exc:  # ProjectTaskPathError is a ValueError subclass

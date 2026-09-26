@@ -524,11 +524,22 @@ async def preview_media(
     server: Any = Depends(get_server),
 ) -> StreamingResponse:
     """Stream an image or video inline for dashboard tool-result previews."""
+    url_internal_row = project_task_file_owner_row(server, agent_id, user=user, as_user=as_user)
     path_agent = _agent_id_from_media_source(source)
+    if url_internal_row is not None and path_agent is not None and path_agent != agent_id:
+        raise OctopError(
+            ErrorCode.FORBIDDEN,
+            "internal project-task previews cannot use another agent's source",
+            details={"internal": True},
+        )
     effective_agent = path_agent or agent_id
     # 030A B4: gate on the agent the source actually resolves to, so an
     # internal runtime cannot be previewed through another agent's URL either.
-    internal_row = project_task_file_owner_row(server, effective_agent, user=user, as_user=as_user)
+    internal_row = (
+        url_internal_row
+        if effective_agent == agent_id
+        else project_task_file_owner_row(server, effective_agent, user=user, as_user=as_user)
+    )
     ws = await require_running_workspace(effective_agent, user=user, as_user=as_user, server=server)
     preview_source = source
     if internal_row is not None:

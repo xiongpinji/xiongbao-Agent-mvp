@@ -158,6 +158,8 @@ async def test_owner_positive_surface_stays_inside_managed_root(
         ("C:\\Windows\\win.ini", "false"),
         ("C:\\Windows\\win.ini", "true"),
         ("\\\\host\\share\\secret.txt", "false"),
+        ("\\\\host\\share\\secret.txt", "true"),
+        ("//host/share/secret.txt", "true"),
         ("~/.octop/db.sqlite3", "false"),
         ("~/.octop/db.sqlite3", "true"),
         ("sub/../../etc/passwd", "true"),
@@ -488,6 +490,13 @@ async def test_preview_refuses_host_sources_and_cross_agent_urls(
     _never_served(r)
     r = await client.get(preview, params={"source": sneaky}, headers=other)
     _forbidden(r)
+
+    # The URL's internal runtime must not switch to an owner-accessible
+    # ordinary agent just because the source names that agent.
+    ordinary_source = f"/agents/{ctx['source']}/workspace/seed.txt"
+    r = await client.get(preview, params={"source": ordinary_source}, headers=auth)
+    _forbidden(r)
+    _never_served(r)
 
     # Host shapes are refused even when they point INSIDE the managed root:
     # only the explicit managed-relative preview form is accepted.
