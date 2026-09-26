@@ -1692,6 +1692,8 @@
   "chat": {
     "internalTask": {
       "refusalTitle": "Cannot confirm this private task thread",
+      "unknownAgentTitle": "Cannot confirm this conversation",
+      "unknownAgentDescription": "This address could not be verified. Open the conversation or project task from its list.",
       "refusalNoThread": "This private task must be opened from its task card; this address has no task thread.",
       "refusalUnknownThread": "This task thread could not be confirmed as yours. Reopen it from the project task card.",
       "noNewChat": "A private file task only has its existing conversation; a new blank chat is not available.",

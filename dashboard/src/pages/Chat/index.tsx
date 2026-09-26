@@ -1305,7 +1305,10 @@ function ChatPageInner() {
     isInternalTask &&
     (internalTaskRoute.status === "idle" ||
       internalTaskRoute.status === "checking");
-  const internalRefusalDescription = !threadId
+  const unknownAgentRoute = isInternalTask && internalTaskRoute.agent == null;
+  const internalRefusalDescription = unknownAgentRoute
+    ? t("chat.internalTask.unknownAgentDescription")
+    : !threadId
     ? t("chat.internalTask.refusalNoThread")
     : internalTaskRoute.error != null
     ? apiErrorMessage(
@@ -1496,10 +1499,11 @@ function ChatPageInner() {
                 ) : (
                   <EmptyState
                     variant="error"
-                    title={t(
-                      "chat.internalTask.refusalTitle",
-                      "无法确认该私有任务线程",
-                    )}
+                    title={
+                      unknownAgentRoute
+                        ? t("chat.internalTask.unknownAgentTitle")
+                        : t("chat.internalTask.refusalTitle")
+                    }
                     description={internalRefusalDescription}
                   />
                 )

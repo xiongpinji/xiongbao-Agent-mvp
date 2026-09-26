@@ -1692,6 +1692,8 @@
   "chat": {
     "internalTask": {
       "refusalTitle": "无法确认该私有任务线程",
+      "unknownAgentTitle": "无法确认该会话",
+      "unknownAgentDescription": "此地址无法确认，请从对话或项目任务列表重新打开。",
       "refusalNoThread": "该私有任务必须通过任务卡片打开；此地址缺少任务线程。",
       "refusalUnknownThread": "未能确认该任务线程属于你；请从项目任务卡片重新打开。",
       "noNewChat": "私有文件任务只有既有对话，不能新建空白会话。",

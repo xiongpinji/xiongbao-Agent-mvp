@@ -1278,6 +1278,23 @@ describe("ProjectTasks reader cards", () => {
     expect(within(dialog).queryAllByRole("link")).toHaveLength(0);
   });
 
+  it("treats a shared card with a missing access field as read-only", async () => {
+    const user = userEvent.setup();
+    list.mockResolvedValueOnce(page([]));
+    renderTasks();
+    await screen.findByText("还没有关联任务");
+    const malformed = { ...taskShared } as Partial<ProjectTask>;
+    delete malformed.access;
+    list.mockResolvedValueOnce(page([malformed as ProjectTask]));
+    await user.click(screen.getByText("分享给我的"));
+
+    const card = await screen.findByTestId("project-task-ts1");
+    expect(within(card).getByText("分享给我的 · 只读")).toBeInTheDocument();
+    expect(card.querySelector('a[href*="/chat"]')).toBeNull();
+    expect(within(card).queryByRole("button", { name: /取消关联/ })).toBeNull();
+    expect(within(card).queryByRole("button", { name: /分享任务/ })).toBeNull();
+  });
+
   it("clears a stale reader card when the detail re-check returns 404", async () => {
     const user = userEvent.setup();
     list.mockResolvedValueOnce(page([]));

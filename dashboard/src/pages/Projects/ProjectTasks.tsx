@@ -1331,7 +1331,9 @@ export default function ProjectTasks({
       task.title?.trim() || t("projects.tasks.untitled", "未命名任务");
     const agentName = agentNames.get(task.agent_id) ?? task.agent_id;
     const busy = busyThreadIds.includes(task.thread_id);
-    const isReader = task.access === "reader";
+    // A malformed or stale card may omit access; only an explicit owner
+    // grant may expose owner navigation and mutation controls.
+    const isReader = task.access !== "owner";
     const isFileTask = task.mode === "files";
     /**
      * Owner navigation target. A `files` task navigates through the private

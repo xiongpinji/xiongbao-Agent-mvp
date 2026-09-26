@@ -73,6 +73,7 @@ vi.mock("../../../context/AgentContext", () => ({
 import { useChatComposerResources } from "./useChatComposerResources";
 import { connectorsApi } from "../../../api/modules/connectors";
 import { knowledgeBasesApi } from "../../../api/modules/knowledgeBases";
+import { octopThreadsApi } from "../../../api/modules/octopThreads";
 
 beforeEach(() => {
   localStorage.clear();
@@ -102,6 +103,47 @@ describe("useChatComposerResources — per-expert KB selection", () => {
     expect(connectorsApi.listInstances).not.toHaveBeenCalled();
     expect(knowledgeBasesApi.getCapability).not.toHaveBeenCalled();
     expect(knowledgeBasesApi.list).not.toHaveBeenCalled();
+  });
+
+  it("keeps private task settings local without patching the ordinary thread API", () => {
+    const { result } = renderHook(() =>
+      useChatComposerResources(
+        "runtime-private",
+        "thread-existing",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        true,
+      ),
+    );
+    vi.mocked(octopThreadsApi.patch).mockClear();
+
+    act(() => {
+      result.current.setSelectedModel("provider/model");
+      result.current.handleReasoningChange("enabled", "high");
+      result.current.handleConversationModeChange("plan");
+      result.current.handleHitlPolicyChange({ mode: "ask" });
+    });
+
+    expect(octopThreadsApi.patch).not.toHaveBeenCalled();
+  });
+
+  it("still patches ordinary thread settings", () => {
+    const { result } = renderHook(() =>
+      useChatComposerResources("expertA", "thread-existing"),
+    );
+    vi.mocked(octopThreadsApi.patch).mockClear();
+
+    act(() => {
+      result.current.setSelectedModel("provider/model");
+      result.current.handleReasoningChange("enabled", "high");
+      result.current.handleConversationModeChange("plan");
+      result.current.handleHitlPolicyChange({ mode: "ask" });
+    });
+
+    expect(octopThreadsApi.patch).toHaveBeenCalledTimes(4);
   });
 
   it("projects empty selections on the first private-task render", async () => {

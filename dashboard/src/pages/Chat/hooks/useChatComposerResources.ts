@@ -439,6 +439,7 @@ export function useChatComposerResources(
         }));
       }
       if (
+        !privateTask &&
         resolvedAgentId &&
         activeThreadId &&
         !isPendingThread(activeThreadId)
@@ -450,7 +451,13 @@ export function useChatComposerResources(
         });
       }
     },
-    [activeThreadId, availableModels, modelReasoning, resolvedAgentId],
+    [
+      activeThreadId,
+      availableModels,
+      modelReasoning,
+      privateTask,
+      resolvedAgentId,
+    ],
   );
 
   const handleReasoningChange = useCallback(
@@ -468,6 +475,7 @@ export function useChatComposerResources(
         }));
       }
       if (
+        !privateTask &&
         resolvedAgentId &&
         activeThreadId &&
         !isPendingThread(activeThreadId)
@@ -478,7 +486,7 @@ export function useChatComposerResources(
         });
       }
     },
-    [activeThreadId, resolvedAgentId, selectedModel],
+    [activeThreadId, privateTask, resolvedAgentId, selectedModel],
   );
 
   const handleConversationModeChange = useCallback(
@@ -493,6 +501,7 @@ export function useChatComposerResources(
       }
       if (
         (options?.persist ?? true) &&
+        !privateTask &&
         resolvedAgentId &&
         activeThreadId &&
         !isPendingThread(activeThreadId)
@@ -502,7 +511,7 @@ export function useChatComposerResources(
         });
       }
     },
-    [activeThreadId, resolvedAgentId],
+    [activeThreadId, privateTask, resolvedAgentId],
   );
 
   const handleHitlPolicyChange = useCallback(
@@ -514,6 +523,7 @@ export function useChatComposerResources(
       }
       if (
         (options?.persist ?? true) &&
+        !privateTask &&
         resolvedAgentId &&
         activeThreadId &&
         !isPendingThread(activeThreadId)
@@ -523,7 +533,7 @@ export function useChatComposerResources(
         });
       }
     },
-    [activeThreadId, resolvedAgentId],
+    [activeThreadId, privateTask, resolvedAgentId],
   );
 
   return {
