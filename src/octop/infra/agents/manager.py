@@ -990,9 +990,17 @@ class AgentManager:
         """Strict post-start verification of one internal runtime.
 
         Every check fails closed: a runtime that is not provably confined to
-        the six-tool boundary on its private virtual root is compensated, never
-        returned to a caller as task-capable.
+        the six-tool boundary on its private virtual root — with its quota and
+        project-instruction middleware intact — is compensated, never returned
+        to a caller as task-capable.
         """
+        from octop.infra.agents.middleware.project_instructions import (  # noqa: PLC0415
+            ProjectInstructionsMiddleware,
+        )
+        from octop.infra.agents.middleware.token_quota import (  # noqa: PLC0415
+            TokenQuotaMiddleware,
+        )
+
         agent = self._harness_agent_or_none(row.agent_id)
         if agent is None:
             return False
@@ -1023,7 +1031,22 @@ class AgentManager:
         if cfg.system_prompt != row.system_prompt:
             return False
         middleware = list(cfg.middleware or [])
-        if not middleware or not isinstance(middleware[-1], ProjectTaskFileToolBoundaryMiddleware):
+        # B2 GLM P2: the started chain must still carry the required security
+        # middleware, not merely end at the boundary. Exact classes only (a
+        # subclass or replacement never counts), each exactly once (duplicates
+        # cannot mask a loss), and the boundary stays the sole final entry so
+        # it still filters host-injected tools and vetoes forged calls
+        # innermost. Extra policy-injected middleware is tolerated only ahead
+        # of the boundary; quota vs project-instruction order is not pinned —
+        # they hook disjoint phases (before_agent vs wrap_model_call).
+        for required in (
+            TokenQuotaMiddleware,
+            ProjectInstructionsMiddleware,
+            ProjectTaskFileToolBoundaryMiddleware,
+        ):
+            if sum(type(mw) is required for mw in middleware) != 1:
+                return False
+        if type(middleware[-1]) is not ProjectTaskFileToolBoundaryMiddleware:
             return False
         disabled = frozenset(cfg.tools_disabled or ())
         if not project_task_file_tools_disabled().issubset(disabled):

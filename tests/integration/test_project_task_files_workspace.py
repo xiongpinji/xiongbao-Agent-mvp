@@ -19,15 +19,17 @@ root that:
   readers are denied on every workspace route — including a preview requested
   through another agent's URL.
 
-POSIX symlink escapes are exercised directly; on Windows the equivalent
-junction/reparse-point escape is covered by the resolver's ``relative_to``
-containment proof but cannot be created portably here, so those cases skip.
+POSIX symlink escapes are exercised directly on POSIX; the Windows-only case
+below builds a real NTFS junction (``mklink /J``) inside the managed root and
+proves the same refusals through the authenticated HTTP routes — it skips on
+non-Windows platforms, where junctions do not exist.
 """
 
 from __future__ import annotations
 
 import base64
 import os
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -291,7 +293,9 @@ async def test_from_workspace_false_is_refused_on_every_file_entry(
     assert not (root / "up-false.txt").exists()
 
 
-@pytest.mark.skipif(os.name == "nt", reason="POSIX symlink; Windows junctions noted in report")
+@pytest.mark.skipif(
+    os.name == "nt", reason="POSIX symlink; Windows junctions covered by the nt-only case below"
+)
 async def test_symlink_escape_is_refused_for_read_write_and_listing(
     env_with_provider: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -339,6 +343,123 @@ async def test_symlink_escape_is_refused_for_read_write_and_listing(
     _forbidden(r)
     assert not (outside / "pwn.txt").exists()
     assert secret.read_text(encoding="utf-8") == "host secret"
+
+
+_JUNCTION_SECRET = "junction-escape-secret"
+
+
+def _require_windows_junction(link: Path, target: Path) -> None:
+    """Create a real NTFS junction ``link`` → ``target`` or fail loudly.
+
+    ``mklink /J`` is unprivileged (unlike symlinks); the argv list keeps the
+    arguments separated, so cmd's own quoting preserves paths with spaces. A
+    machine that cannot create the junction must FAIL with an environment
+    reason — a silently skipped escape proof is not gate evidence.
+    """
+    result = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(link), str(target)],
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0 or not link.is_junction():
+        stderr = result.stderr.decode("utf-8", errors="replace").strip()
+        pytest.fail(
+            f"environment: cannot create NTFS junction {link} -> {target}: "
+            f"rc={result.returncode} stderr={stderr!r}"
+        )
+    # Direction proof: the link resolves to the outside target directory.
+    assert os.path.realpath(link) == os.path.realpath(target)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows junction only")
+async def test_windows_junction_escape_is_refused_on_private_http_routes(
+    env_with_provider: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A real NTFS junction must not open any private-route escape (030A gate).
+
+    Mirrors the POSIX symlink case above with an actual reparse point inside
+    the DB-marked managed root: read/download/preview/list of an EXISTING
+    outside file and a write to a NOT-yet-created outside file are refused
+    (403 internal) through the authenticated owner routes, with zero outside
+    bytes served and zero outside side effects.
+    """
+    ctx = await _ws_ctx(env_with_provider, monkeypatch)
+    client, rt, root = ctx["client"], ctx["rt"], ctx["root"]
+    auth = ctx["owner_auth"]
+    base = f"/api/agents/{rt}/workspace"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    secret = outside / "secret.txt"
+    secret.write_text(_JUNCTION_SECRET, encoding="utf-8")
+    link = root / "link"
+    _require_windows_junction(link, outside)
+    try:
+        # Fixture validity: the managed positive read still works ...
+        r = await client.get(
+            f"{base}/file", params={"path": "seed.txt", "from_workspace": "true"}, headers=auth
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["content"] == "private bytes"
+        # ... and a root listing never shows outside entry names or bytes.
+        r = await client.get(
+            f"{base}/tree", params={"path": "/", "from_workspace": "true"}, headers=auth
+        )
+        assert r.status_code == 200, r.text
+        assert "secret.txt" not in r.text
+        assert _JUNCTION_SECRET not in r.text
+
+        # Read / download the EXISTING outside file through the junction.
+        for route in ("file", "download"):
+            r = await client.get(
+                f"{base}/{route}",
+                params={"path": "link/secret.txt", "from_workspace": "true"},
+                headers=auth,
+            )
+            _forbidden(r)
+            assert _JUNCTION_SECRET.encode() not in r.content
+
+        # Preview the outside file through the junction.
+        r = await client.get(
+            f"/api/agents/{rt}/media/preview", params={"source": "link/secret.txt"}, headers=auth
+        )
+        _forbidden(r)
+        assert _JUNCTION_SECRET.encode() not in r.content
+
+        # List the junction directory itself, and glob through it.
+        r = await client.get(
+            f"{base}/tree", params={"path": "link", "from_workspace": "true"}, headers=auth
+        )
+        _forbidden(r)
+        assert "secret.txt" not in r.text
+        r = await client.get(
+            f"{base}/glob", params={"pattern": "link/*", "from_workspace": "true"}, headers=auth
+        )
+        _forbidden(r)
+        assert "secret.txt" not in r.text
+
+        # Write a NOT-yet-created outside file through the junction: refused
+        # before any byte exists outside.
+        r = await client.put(
+            f"{base}/file",
+            params={"path": "link/new.txt", "from_workspace": "true"},
+            headers=auth,
+            json={"content": "pwned"},
+        )
+        _forbidden(r)
+        assert not (outside / "new.txt").exists()
+    finally:
+        # Detach the reparse point itself with the non-recursive native API
+        # (RemoveDirectoryW via os.rmdir): it never follows or deletes the
+        # target tree, and no shell deletion is involved. Runs BEFORE fixture
+        # cleanup so teardown only ever sees ordinary directories.
+        link.rmdir()
+
+    # Cleanup evidence: junction gone; outside tree and secret untouched;
+    # no refused request created anything outside.
+    assert not link.exists()
+    assert outside.is_dir()
+    assert secret.read_text(encoding="utf-8") == _JUNCTION_SECRET
+    assert sorted(p.name for p in outside.iterdir()) == ["secret.txt"]
 
 
 async def test_upload_filename_traversal_is_refused_or_contained(

@@ -534,7 +534,7 @@ function ChatPageInner() {
     focusToolUiTab,
     closeTab: closeDockTab,
     setActiveTab: setDockActiveTab,
-  } = useChatDockPanel(isMobile, chatAgentId);
+  } = useChatDockPanel(isMobile, chatAgentId, isInternalTask);
 
   const chromeCheckInFlightRef = useRef(false);
   const ensureChromeThen = useCallback(

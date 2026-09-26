@@ -9,6 +9,7 @@
 import {
   normalizeIoPath,
   toDockWorkspaceApiPath as toDockWorkspaceApiPathIo,
+  toPrivateWorkspaceRelPath,
   toWorkspaceApiPath as toWorkspaceApiPathIo,
 } from "../../../utils/workspaceIoPath";
 
@@ -105,6 +106,29 @@ export function dockFileBasename(path: string): string {
 /** Stable tab id for an open file path. */
 export function dockFileTabId(path: string, agentId?: string | null): string {
   return `file:${canonicalizeDockFilePath(path, agentId)}`;
+}
+
+/**
+ * Tab id for the owner-private 030 file-task route.
+ *
+ * Safe shapes are identified by their managed-root-relative key, so
+ * ``/workspace/note.png`` and ``note.png`` dedupe onto one tab. The
+ * agent-home collapse of ``dockFileTabId`` must **not** apply here: under
+ * the true-mode contract a leading slash is a managed-root key, so
+ * ``/home/…/.octop/agents/RT1/note.txt`` addresses a different managed
+ * file than ``note.txt`` and must not share its identity.
+ *
+ * Refused raw shapes (``file:`` / URL schemes, drive letters, UNC, ``~``,
+ * ``..``, NUL) keep a distinct ``file-refused:`` id keyed by the raw form,
+ * so an unsafe path can never reuse a safe ``file:`` tab and vice versa in
+ * either open order. Canonicalization is exactly what must not happen:
+ * ``file:///workspace/note.png`` and ``/workspace/note.png`` both collapse
+ * to ``file:note.png`` under ``dockFileTabId``.
+ */
+export function privateDockFileTabId(raw: string): string {
+  const rel = toPrivateWorkspaceRelPath(raw);
+  if (rel != null) return `file:${rel}`;
+  return `file-refused:${raw.trim()}`;
 }
 
 /** Prefer a richer on-disk path for tree display after canonical dedupe. */

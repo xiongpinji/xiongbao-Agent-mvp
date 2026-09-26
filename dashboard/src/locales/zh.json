@@ -2076,6 +2076,7 @@
     "dockFileListCount": "{{count}} 个文件",
     "dockFileListHint": "当前仅列出执行过程中生成的文件，不代表最终一定存储，可能在处理结束后被大模型删除。",
     "dockFileMaybeDeleted": "该文件可能为处理过程中的临时文件，当前已经被删除。",
+    "dockFileUnavailable": "该文件当前不可访问：任务未通过校验，或路径不在受控工作区内。",
     "remoteBrowserTitle": "远程浏览器",
     "dockTerminalTitle": "终端",
     "trajectoryTitle": "运行轨迹",

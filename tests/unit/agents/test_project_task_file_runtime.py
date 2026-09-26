@@ -38,6 +38,8 @@ from pydantic import PrivateAttr
 import octop.infra.agents.manager as manager_module
 from octop.config import OctopConfig
 from octop.infra.agents.manager import AgentCreateSpec, AgentManager
+from octop.infra.agents.middleware.project_instructions import ProjectInstructionsMiddleware
+from octop.infra.agents.middleware.token_quota import TokenQuotaMiddleware
 from octop.infra.agents.project_task_file_boundary import (
     PROJECT_TASK_FILE_TOOLS,
     ProjectTaskFileToolBoundaryMiddleware,
@@ -333,6 +335,15 @@ async def test_create_registers_internal_row_and_starts_synchronously(
         assert cfg.bootstrap_enabled is False
         assert cfg.system_prompt == _SOURCE_PROMPT
         assert isinstance(cfg.middleware[-1], ProjectTaskFileToolBoundaryMiddleware)
+        # B2 GLM P2: the started chain keeps quota + project-instruction
+        # middleware in the built order, ahead of the final boundary, and the
+        # strict verifier accepts exactly this shape.
+        assert [type(mw) for mw in cfg.middleware] == [
+            TokenQuotaMiddleware,
+            ProjectInstructionsMiddleware,
+            ProjectTaskFileToolBoundaryMiddleware,
+        ]
+        assert manager._verify_project_task_runtime(row) is True
         assert project_task_file_tools_disabled().issubset(cfg.tools_disabled)
         assert PROJECT_TASK_FILE_TOOLS.isdisjoint(cfg.tools_disabled)
         assert cfg.mcp_server_configs == {}
@@ -535,6 +546,100 @@ async def test_built_config_exposes_six_tools_and_vetoes_forged_calls(
     # The private root was created but nothing escaped into it from forged calls.
     root = manager.paths.project_task_file_runtime_dir(row.agent_id)
     assert root.is_dir()
+
+
+# ---------------------------------------------------------------------------
+# Strict post-start verification of the required middleware (B2 GLM P2)
+# ---------------------------------------------------------------------------
+
+
+async def test_verify_rejects_missing_or_misplaced_required_middleware(
+    manager: AgentManager,
+) -> None:
+    """A started runtime that lost quota/instructions or its final boundary
+    must never verify as task-capable — each mutation fails closed."""
+    _seed_provider(manager)
+    uid = _make_user(manager, "owner-verify")
+    source = _make_source_expert(manager, user_id=uid, agent_id="SRC-VER", name="src-ver")
+    row = await _create_runtime(manager, owner_user_id=uid, source=source)
+    runtime_id = row.agent_id
+    try:
+        agent = manager.get_agent(runtime_id)
+        original = list(agent.config.middleware)
+        quota, instructions, guard = original
+        assert type(quota) is TokenQuotaMiddleware
+        assert type(instructions) is ProjectInstructionsMiddleware
+        assert type(guard) is ProjectTaskFileToolBoundaryMiddleware
+        assert manager._verify_project_task_runtime(row) is True
+
+        cases: dict[str, list[Any]] = {
+            "quota removed": [instructions, guard],
+            "instructions removed": [quota, guard],
+            "boundary not last": [guard, quota, instructions],
+            "quota replaced by a second instructions": [instructions, instructions, guard],
+            "instructions replaced by a second quota": [quota, quota, guard],
+            "quota duplicated": [quota, quota, instructions, guard],
+            "instructions duplicated": [quota, instructions, instructions, guard],
+            "boundary duplicated": [quota, instructions, guard, guard],
+            "everything removed": [],
+        }
+        try:
+            for label, middleware in cases.items():
+                agent.config.middleware = middleware
+                assert manager._verify_project_task_runtime(row) is False, label
+            # The relative order of quota vs project instructions is NOT
+            # pinned: they hook disjoint harness phases (before_agent vs
+            # wrap_model_call), so either order enforces identically as long
+            # as the boundary stays the sole, final entry.
+            agent.config.middleware = [instructions, quota, guard]
+            assert manager._verify_project_task_runtime(row) is True
+        finally:
+            agent.config.middleware = original
+        assert manager._verify_project_task_runtime(row) is True
+    finally:
+        _shutdown(manager, runtime_id)
+
+
+async def test_middleware_loss_after_start_compensates_creation(
+    manager: AgentManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Middleware stripped between start and strict verification must take the
+    existing creation compensation path: no task-capable row, harness runtime
+    or private root survives, and the quota seat is released."""
+    _seed_provider(manager)
+    uid = _make_user(manager, "owner-mw-loss")
+    source = _make_source_expert(manager, user_id=uid, agent_id="SRC-MWL", name="src-mwl")
+    _boot_harness(manager)
+    started_ids: list[str] = []
+    real_start = manager._start_agent
+
+    async def _start_then_drop_quota(row: AgentRow, *, init_workspace: bool = True) -> Any:
+        agent = await real_start(row, init_workspace=init_workspace)
+        if agent is not None:
+            started_ids.append(row.agent_id)
+            # Simulate a policy/harness transformation removing the quota gate
+            # after start but before the strict verification runs.
+            agent.config.middleware = [
+                mw for mw in agent.config.middleware if not isinstance(mw, TokenQuotaMiddleware)
+            ]
+        return agent
+
+    monkeypatch.setattr(manager, "_start_agent", _start_then_drop_quota)
+    try:
+        with pytest.raises(OctopError) as excinfo:
+            await manager.create_project_task_file_runtime(owner_user_id=uid, source_expert=source)
+        assert excinfo.value.code is ErrorCode.AGENT_FAILED
+        assert len(started_ids) == 1
+        runtime_id = started_ids[0]
+        # Full proven compensation through the existing dedicated path.
+        assert _internal_rows(manager) == []
+        assert manager.get_row(runtime_id) is None
+        assert manager._harness_agent_or_none(runtime_id) is None
+        assert not manager.paths.project_task_file_runtime_dir(runtime_id).exists()
+        managed = manager.paths.project_task_files_dir
+        assert not managed.exists() or list(managed.iterdir()) == []
+    finally:
+        _shutdown(manager)
 
 
 # ---------------------------------------------------------------------------

@@ -126,7 +126,19 @@ export default function FilePanelContent({
   );
 
   useEffect(() => {
-    if (!resolvedPath || !agentId || privateBlocked) return;
+    if (!resolvedPath || !agentId || privateBlocked) {
+      if (privateBlocked) {
+        // Refused route/path — including a keep-alive tab whose verified
+        // route disappeared: drop the previous route's content and edit
+        // state so nothing stale can be shown or saved.
+        setContent("");
+        setEditMode(false);
+        setPreviewMode(true);
+        setFileLoading(false);
+        setFileMissing(false);
+      }
+      return;
+    }
     setEditMode(false);
     setPreviewMode(defaultPreviewMode(resolvedPath));
     setContent("");
@@ -382,10 +394,15 @@ export default function FilePanelContent({
               aria-hidden
             />
             <p className={styles.fileMissingTitle}>
-              {t(
-                "chat.dockFileMaybeDeleted",
-                "该文件可能为处理过程中的临时文件，当前已经被删除。",
-              )}
+              {privateBlocked
+                ? t(
+                    "chat.dockFileUnavailable",
+                    "该文件当前不可访问：任务未通过校验，或路径不在受控工作区内。",
+                  )
+                : t(
+                    "chat.dockFileMaybeDeleted",
+                    "该文件可能为处理过程中的临时文件，当前已经被删除。",
+                  )}
             </p>
           </div>
         ) : (

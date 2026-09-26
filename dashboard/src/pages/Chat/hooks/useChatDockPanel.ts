@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { PanelMode } from "../../../components/BrowserWorkspace";
 import {
   canonicalizeDockFilePath,
   dockFileTabId,
   isHostAbsolutePath,
   normalizeDockFilePath,
+  privateDockFileTabId,
 } from "../utils/dockFilePath";
 import type { KnowledgeCitation } from "../../../utils/parseKnowledgeCitations";
 import { dockKnowledgeTabId } from "../utils/dockKnowledgeTabId";
@@ -120,7 +121,11 @@ function initialDockTabs(isMobile: boolean): DockTab[] {
  * Shared chat dock with tabbed overview / artifacts / file list / file viewers /
  * browser / terminal.
  */
-export function useChatDockPanel(isMobile: boolean, agentId?: string | null) {
+export function useChatDockPanel(
+  isMobile: boolean,
+  agentId?: string | null,
+  privateTask = false,
+) {
   const [dockOpen, setDockOpen] = useState(() => !isMobile);
   const [dockMode, setDockMode] = useState<PanelMode>(loadPanelMode);
   const [openTabs, setOpenTabs] = useState<DockTab[]>(() =>
@@ -134,19 +139,30 @@ export function useChatDockPanel(isMobile: boolean, agentId?: string | null) {
     persistPanelSizes,
   );
 
-  // File paths, browser sessions and thread artifacts are agent-scoped. Only
-  // reset when switching between two real agents (ignore null ↔ id first-paint
-  // races): drop every tab from the previous agent, then show the new agent's
-  // overview on desktop. Mobile clears and stays collapsed.
-  const prevAgentIdRef = useRef(agentId);
-  useEffect(() => {
-    const prev = prevAgentIdRef.current;
-    prevAgentIdRef.current = agentId;
-    if (prev == null || agentId == null || prev === agentId) return;
-    setOpenTabs(initialDockTabs(isMobile));
-    setActiveTabId(isMobile ? null : "overview");
-    setDockOpen(!isMobile);
-  }, [agentId, isMobile]);
+  // File paths, browser sessions and thread artifacts are agent-scoped. Track
+  // the last non-null agent identity so a temporary null (internal route
+  // verification) cannot make the next real agent look like a first paint:
+  // switching between two real agents drops every old tab during the same
+  // render, before the new agent's children can mount them. null ↔ id first
+  // paint and A → null → A keep their tabs (the file panel loses the private
+  // route's authorization while the verified id is gone).
+  const [tabsAgentId, setTabsAgentId] = useState<string | null>(
+    agentId ?? null,
+  );
+  if (agentId != null && agentId !== tabsAgentId) {
+    // null → first real id is the first paint resolving (the private route
+    // verifies the runtime id asynchronously), not an agent switch: adopt the
+    // identity and keep every already-open tab. Only a real → different-real
+    // transition drops tabs, still during this same render so the new agent's
+    // children mount into a cleared dock.
+    const switchingAgents = tabsAgentId != null;
+    setTabsAgentId(agentId);
+    if (switchingAgents) {
+      setOpenTabs(initialDockTabs(isMobile));
+      setActiveTabId(isMobile ? null : "overview");
+      setDockOpen(!isMobile);
+    }
+  }
 
   const openDock = useCallback(() => {
     setDockOpen(true);
@@ -199,6 +215,26 @@ export function useChatDockPanel(isMobile: boolean, agentId?: string | null) {
         openFileList();
         return;
       }
+      if (privateTask) {
+        // Owner-private 030 route: keep the raw tool path so the private
+        // file panel can refuse unsafe shapes (``file://``, drive, UNC,
+        // ``~``, ``..``) against the managed-root-relative contract instead
+        // of normalization collapsing them into a safe-looking key. Tab
+        // identity follows the same contract: safe shapes dedupe by their
+        // managed-root-relative key (``/workspace/note.png`` ≡ ``note.png``)
+        // while refused shapes get a disjoint ``file-refused:`` id, so an
+        // unsafe form can never reuse a safe tab — or be reused by one —
+        // regardless of open order.
+        const privatePath = path.trim();
+        const id = privateDockFileTabId(privatePath);
+        setOpenTabs((prev) => {
+          if (prev.some((t) => t.id === id)) return prev;
+          return [...prev, { id, kind: "file", path: privatePath }];
+        });
+        setActiveTabId(id);
+        openDock();
+        return;
+      }
       const hostAbs = normalizeDockFilePath(path);
       // Keep host-absolute tool paths. Collapsing ``~/.octop/agents/<id>/…`` to a
       // relative key breaks virtual ``root_dir`` nests (bytes live under
@@ -218,7 +254,7 @@ export function useChatDockPanel(isMobile: boolean, agentId?: string | null) {
       setActiveTabId(id);
       openDock();
     },
-    [agentId, openDock, openFileList],
+    [agentId, openDock, openFileList, privateTask],
   );
 
   const openWorkspaceTab = useCallback(() => {

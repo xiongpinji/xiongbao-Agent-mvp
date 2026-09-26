@@ -2076,6 +2076,7 @@
     "dockFileListCount": "{{count}} files",
     "dockFileListHint": "This list only shows files produced during execution. They are not guaranteed to be kept, and the model may delete them after processing finishes.",
     "dockFileMaybeDeleted": "This file may have been a temporary artifact during processing and has already been deleted.",
+    "dockFileUnavailable": "This file is not accessible right now: the task is not verified, or the path is outside the controlled workspace.",
     "remoteBrowserTitle": "Remote Browser",
     "dockTerminalTitle": "Terminal",
     "trajectoryTitle": "Trajectory",

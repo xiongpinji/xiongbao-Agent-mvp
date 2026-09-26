@@ -85,6 +85,9 @@ const PRIVATE_READ_URL =
   "/agents/RT1/workspace/file?path=note.txt&from_workspace=true";
 const PRIVATE_DOWNLOAD_URL =
   "/agents/RT1/workspace/download?path=note.txt&from_workspace=true";
+const DELETED_COPY = "该文件可能为处理过程中的临时文件，当前已经被删除。";
+const REFUSED_COPY =
+  "该文件当前不可访问：任务未通过校验，或路径不在受控工作区内。";
 
 beforeEach(() => {
   requestMock.mockReset();
@@ -204,16 +207,42 @@ describe("FilePanelContent — private route refusals perform zero file I/O", ()
       screen.getByRole("button", { name: "common.download" }),
     ).toBeDisabled();
     expect(screen.queryByRole("button", { name: "common.edit" })).toBeNull();
+    // Refusal copy is truthful — never the deleted/temporary-file copy.
+    expect(screen.getByText(REFUSED_COPY)).toBeTruthy();
+    expect(screen.queryByText(DELETED_COPY)).toBeNull();
   });
 
   it("performs zero I/O on a private route before existing-thread verification", async () => {
     render(<Harness agentId="" filePath="note.txt" privateTask />);
 
-    await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(REFUSED_COPY)).toBeTruthy());
     expect(requestMock).not.toHaveBeenCalled();
     expect(requestBlobMock).not.toHaveBeenCalled();
     expect(probeMock).not.toHaveBeenCalled();
     expect(screen.queryByTestId("file-viewer")).toBeNull();
+    expect(screen.queryByText(DELETED_COPY)).toBeNull();
+  });
+
+  it("keeps the deleted/temporary copy for a genuine private 404", async () => {
+    requestMock.mockRejectedValue(new Error("Request failed with status 404"));
+    render(<Harness agentId="RT1" filePath="note.txt" privateTask />);
+
+    await waitFor(() => expect(screen.getByText(DELETED_COPY)).toBeTruthy());
+    expect(screen.queryByText(REFUSED_COPY)).toBeNull();
+  });
+
+  it("shows the refusal copy (not deleted) when a 404 tab's route is later refused", async () => {
+    requestMock.mockRejectedValue(new Error("Request failed with status 404"));
+    const { rerender } = render(
+      <Harness agentId="RT1" filePath="note.txt" privateTask />,
+    );
+    await waitFor(() => expect(screen.getByText(DELETED_COPY)).toBeTruthy());
+
+    rerender(<Harness agentId="" filePath="note.txt" privateTask />);
+
+    await waitFor(() => expect(screen.getByText(REFUSED_COPY)).toBeTruthy());
+    expect(screen.queryByText(DELETED_COPY)).toBeNull();
+    expect(requestMock).toHaveBeenCalledTimes(1);
   });
 
   it("drops a keep-alive tab's authorization when a verified route becomes refused", async () => {
@@ -228,12 +257,13 @@ describe("FilePanelContent — private route refusals perform zero file I/O", ()
     // stale mounted tab must not keep reading, saving or downloading.
     rerender(<Harness agentId="" filePath="note.txt" privateTask />);
 
-    await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(REFUSED_COPY)).toBeTruthy());
     expect(requestMock).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId("file-viewer")).toBeNull();
     expect(
       screen.getByRole("button", { name: "common.download" }),
     ).toBeDisabled();
+    expect(screen.queryByText(DELETED_COPY)).toBeNull();
   });
 });
 

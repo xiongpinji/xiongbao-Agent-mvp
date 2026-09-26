@@ -372,4 +372,210 @@ describe("useChatDockPanel tabs", () => {
     rerender({ agentId: "agent-a" });
     expect(result.current.dockOpen).toBe(true);
   });
+
+  it("clears agent A's tabs when a transient null hides an A → B switch", () => {
+    const { result, rerender } = renderHook(
+      ({ agentId }: { agentId: string | null }) =>
+        useChatDockPanel(false, agentId),
+      { initialProps: { agentId: "agent-a" as string | null } },
+    );
+    act(() => {
+      result.current.openFileAt("outbound/old-agent-a.txt");
+      result.current.openArtifactsTab();
+      result.current.openBrowserTab();
+    });
+    expect(result.current.openTabs.some((t) => t.kind === "file")).toBe(true);
+
+    // Internal-route verification transiently strips the chat agent id.
+    rerender({ agentId: null });
+    expect(result.current.openTabs.some((t) => t.kind === "file")).toBe(true);
+
+    rerender({ agentId: "agent-b" });
+
+    expect(result.current.openTabs).toEqual([
+      { id: "overview", kind: "overview" },
+    ]);
+    expect(result.current.activeTabId).toBe("overview");
+    expect(result.current.dockOpen).toBe(true);
+  });
+
+  it("keeps the same agent's tabs when a transient null re-verifies to the same id", () => {
+    const { result, rerender } = renderHook(
+      ({ agentId }: { agentId: string | null }) =>
+        useChatDockPanel(false, agentId),
+      { initialProps: { agentId: "agent-a" as string | null } },
+    );
+    act(() => {
+      result.current.openFileAt("outbound/keep-me.txt");
+    });
+    const before = result.current.openTabs.map((t) => t.id);
+    expect(before.some((id) => id.startsWith("file:"))).toBe(true);
+
+    rerender({ agentId: null });
+    rerender({ agentId: "agent-a" });
+
+    expect(result.current.openTabs.map((t) => t.id)).toEqual(before);
+    expect(result.current.openTabs.some((t) => t.kind === "file")).toBe(true);
+  });
+
+  it("keeps first-paint tabs when the first real agent id resolves", () => {
+    const { result, rerender } = renderHook(
+      ({ agentId }: { agentId: string | null }) =>
+        useChatDockPanel(false, agentId),
+      { initialProps: { agentId: null as string | null } },
+    );
+    act(() => {
+      result.current.openFileAt("outbound/first-paint.txt");
+    });
+    const before = result.current.openTabs.map((t) => t.id);
+    const activeBefore = result.current.activeTabId;
+    expect(before.some((id) => id.startsWith("file:"))).toBe(true);
+
+    // The first verified identity is a first paint resolving, not an agent
+    // switch: tabs opened while unverified must survive it.
+    rerender({ agentId: "agent-a" });
+
+    expect(result.current.openTabs.map((t) => t.id)).toEqual(before);
+    expect(result.current.activeTabId).toBe(activeBefore);
+    expect(result.current.dockOpen).toBe(true);
+  });
+
+  it("keeps a private raw tool path so the file panel can refuse unsafe shapes", () => {
+    const { result } = renderHook(() => useChatDockPanel(false, "RT1", true));
+    act(() => {
+      result.current.openFileAt("file:///workspace/note.png");
+    });
+    const tab = result.current.openTabs.find((t) => t.kind === "file");
+    expect(tab).toMatchObject({
+      kind: "file",
+      path: "file:///workspace/note.png",
+    });
+    expect(result.current.activeTabId).toBe(tab?.id);
+    expect(result.current.dockOpen).toBe(true);
+  });
+
+  it("keeps a safe private workspace key unchanged for the file panel", () => {
+    const { result } = renderHook(() => useChatDockPanel(false, "RT1", true));
+    act(() => {
+      result.current.openFileAt("/workspace/note.png");
+    });
+    const tab = result.current.openTabs.find((t) => t.kind === "file");
+    expect(tab).toMatchObject({
+      kind: "file",
+      path: "/workspace/note.png",
+    });
+    expect(result.current.activeTabId).toBe(
+      dockFileTabId("/workspace/note.png", "RT1"),
+    );
+  });
+
+  it("keeps a private first-paint tab when the runtime id verifies", () => {
+    const { result, rerender } = renderHook(
+      ({ agentId }: { agentId: string | null }) =>
+        useChatDockPanel(false, agentId, true),
+      { initialProps: { agentId: null as string | null } },
+    );
+    act(() => {
+      result.current.openFileAt("/workspace/note.png");
+    });
+    const before = result.current.openTabs.map((t) => t.id);
+    const activeBefore = result.current.activeTabId;
+
+    // Private routes verify asynchronously: null → first real id must adopt
+    // the identity without clearing the tab opened during first paint.
+    rerender({ agentId: "RT1" });
+
+    expect(result.current.openTabs.map((t) => t.id)).toEqual(before);
+    expect(result.current.activeTabId).toBe(activeBefore);
+    expect(result.current.dockOpen).toBe(true);
+  });
+
+  it("private unsafe raw path never reuses the safe tab", () => {
+    const { result } = renderHook(() => useChatDockPanel(false, "RT1", true));
+    act(() => {
+      result.current.openFileAt("/workspace/note.png");
+    });
+    const safeId = result.current.activeTabId;
+    expect(safeId).toBe(dockFileTabId("/workspace/note.png", "RT1"));
+
+    act(() => {
+      result.current.openFileAt("file:///workspace/note.png");
+    });
+
+    const fileTabs = result.current.openTabs.filter((t) => t.kind === "file");
+    expect(fileTabs).toHaveLength(2);
+    // The unsafe form must open (and focus) its own refused tab instead of
+    // reselecting the safe viewer behind a colliding canonical key.
+    expect(result.current.activeTabId).not.toBe(safeId);
+    const active = result.current.openTabs.find(
+      (t) => t.id === result.current.activeTabId,
+    );
+    expect(active).toMatchObject({
+      kind: "file",
+      path: "file:///workspace/note.png",
+    });
+    expect(fileTabs.find((t) => t.id === safeId)).toMatchObject({
+      kind: "file",
+      path: "/workspace/note.png",
+    });
+  });
+
+  it("private safe key never reuses a refused unsafe tab", () => {
+    const { result } = renderHook(() => useChatDockPanel(false, "RT1", true));
+    act(() => {
+      result.current.openFileAt("file:///workspace/note.png");
+    });
+    const refusedId = result.current.activeTabId;
+    expect(
+      result.current.openTabs.find((t) => t.id === refusedId),
+    ).toMatchObject({ kind: "file", path: "file:///workspace/note.png" });
+
+    act(() => {
+      result.current.openFileAt("/workspace/note.png");
+    });
+
+    const fileTabs = result.current.openTabs.filter((t) => t.kind === "file");
+    expect(fileTabs).toHaveLength(2);
+    // The safe key must open (and focus) its own working tab instead of
+    // reselecting the refused viewer behind a colliding canonical key.
+    expect(result.current.activeTabId).not.toBe(refusedId);
+    expect(result.current.activeTabId).toBe(
+      dockFileTabId("/workspace/note.png", "RT1"),
+    );
+    expect(
+      result.current.openTabs.find((t) => t.id === result.current.activeTabId),
+    ).toMatchObject({ kind: "file", path: "/workspace/note.png" });
+  });
+
+  it("dedupes safe private keys across root and relative forms", () => {
+    const { result } = renderHook(() => useChatDockPanel(false, "RT1", true));
+    act(() => {
+      result.current.openFileAt("/workspace/note.png");
+    });
+    act(() => {
+      result.current.openFileAt("note.png");
+    });
+    const fileTabs = result.current.openTabs.filter((t) => t.kind === "file");
+    expect(fileTabs).toHaveLength(1);
+    expect(result.current.activeTabId).toBe(fileTabs[0].id);
+    expect(result.current.activeTabId).toBe(
+      dockFileTabId("/workspace/note.png", "RT1"),
+    );
+  });
+
+  it("dedupes an identical refused raw form onto one tab", () => {
+    const { result } = renderHook(() => useChatDockPanel(false, "RT1", true));
+    act(() => {
+      result.current.openFileAt("file:///workspace/note.png");
+    });
+    act(() => {
+      result.current.openFileAt("file:///workspace/note.png");
+    });
+    const fileTabs = result.current.openTabs.filter((t) => t.kind === "file");
+    expect(fileTabs).toHaveLength(1);
+    expect(fileTabs[0]).toMatchObject({
+      kind: "file",
+      path: "file:///workspace/note.png",
+    });
+  });
 });
