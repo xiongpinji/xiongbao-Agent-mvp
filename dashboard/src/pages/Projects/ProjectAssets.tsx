@@ -1,26 +1,37 @@
 /**
- * ProjectAssets — 项目详情“资产”页签 (PS-06A / 023A).
+ * ProjectAssets — 项目详情“资产”页签 (PS-06A / 023A + 042 trash).
  *
- * Real private project asset library backed only by the 023A API:
+ * Real private project asset library backed only by the 023A/042 API:
  * - hidden root by default; the folder navigation stack builds the breadcrumb
  *   (no URL deep links, a refresh returns to the root)
  * - name search, file/folder filter and `limit/offset` paging are all
  *   server-side; rows are deduped by `node_id` while paging
- * - usage (`file_count` / `total_bytes`) is the committed current-version
- *   total, never a made-up quota
+ * - usage (`file_count` / `total_bytes`) counts visible **current versions
+ *   only**; 042 adds `trash_file_count` / `trash_total_bytes` shown separately
+ *   as “回收站保留” — never a made-up quota, remaining space or disk-freed
+ *   claim (moving to the trash does not free disk)
  * - files download through `requestBlob` into a one-shot `<a download>`
  *   anchor (the JWT header cannot ride a plain anchor), revoked afterwards
  * - request state is keyed by `projectId\0parentId\0query\0kind`, so switching
  *   project, folder or filter never flashes stale rows and late list/upload
- *   responses are dropped
- * - a 404 clears rows and usage and shows the no-access state; 409/413/403
- *   surface recoverable messages; filenames and MIME types are rendered as
- *   inert text from server metadata
+ *   responses are dropped; the trash list carries its own project key and
+ *   monotonic sequence with the same guarantees
+ * - a 404 clears rows, usage **and** trash rows, closes the delete/version/
+ *   trash modals and shows the no-access state; 409/413/403 surface
+ *   recoverable messages; filenames and MIME types are rendered as inert text
+ *   from server metadata
  * - a file row’s “版本管理” opens the wide PS-06B-1 version modal; folder rows
  *   never expose version actions
+ * - 042 recoverable trash: file and folder rows offer “移入回收站” behind an
+ *   accessible confirm modal (cancel mutates nothing, failure keeps the row);
+ *   the “回收站” view lists trash roots with name/type/original path/deletion
+ *   time+actor and a restore action only when the server says `can_restore`.
+ *   Trash rows are inert — no open, download or preview. Restore 409s keep
+ *   the row and explain either the same-name conflict or “先恢复父级”.
+ *   There is deliberately no permanent-delete or empty-trash control.
  *
- * Version management is live (PS-06B-1). Delete/recycle and “add to task” have
- * no safe backend yet (023B / PS-05B), so they stay visibly unavailable.
+ * “Add to task” has no safe backend yet (PS-05B), so it stays visibly
+ * unavailable.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -48,6 +59,8 @@ import {
   ListPlus,
   MoreHorizontal,
   RefreshCw,
+  RotateCcw,
+  Trash2,
   Upload as UploadIcon,
 } from "lucide-react";
 import { EmptyState } from "../../components/EmptyState";
@@ -57,6 +70,7 @@ import {
   projectAssetsApi,
   type ProjectAssetKind,
   type ProjectAssetNode,
+  type ProjectAssetTrashItem,
   type ProjectAssetUsage,
 } from "../../api/modules/projectAssets";
 import { useServerTimezone } from "../../hooks/useServerTimezone";
@@ -111,6 +125,19 @@ interface UsageState {
   value: ProjectAssetUsage | null;
 }
 
+/** 042 trash list state; keyed by project so a switch cannot leak rows. */
+interface TrashState {
+  key: string;
+  items: ProjectAssetTrashItem[];
+  total: number;
+  hasMore: boolean;
+  nextOffset: number;
+  loading: boolean;
+  loadingMore: boolean;
+  error: unknown;
+  appendError: unknown;
+}
+
 const secondaryStyle: React.CSSProperties = {
   fontSize: 12,
   color: "var(--fn-text-tertiary, rgba(0,0,0,0.45))",
@@ -157,6 +184,34 @@ function mergeUniqueNodes(
     if (seen.has(node.node_id)) continue;
     seen.add(node.node_id);
     merged.push(node);
+  }
+  return merged;
+}
+
+function freshTrashState(key: string): TrashState {
+  return {
+    key,
+    items: [],
+    total: 0,
+    hasMore: false,
+    nextOffset: 0,
+    loading: true,
+    loadingMore: false,
+    error: null,
+    appendError: null,
+  };
+}
+
+function mergeUniqueTrash(
+  previous: ProjectAssetTrashItem[],
+  incoming: ProjectAssetTrashItem[],
+): ProjectAssetTrashItem[] {
+  const seen = new Set(previous.map((item) => item.node_id));
+  const merged = [...previous];
+  for (const item of incoming) {
+    if (seen.has(item.node_id)) continue;
+    seen.add(item.node_id);
+    merged.push(item);
   }
   return merged;
 }
@@ -209,14 +264,50 @@ export default function ProjectAssets({ projectId }: Props) {
     node: ProjectAssetNode;
   } | null>(null);
 
+  /** 042: node pending the “移入回收站” confirmation; cancel mutates nothing. */
+  const [deleteTarget, setDeleteTarget] = useState<{
+    projectId: string;
+    node: ProjectAssetNode;
+  } | null>(null);
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  /** 042: trash view state; `key` is the projectId the rows belong to. */
+  const [trashOpen, setTrashOpen] = useState(false);
+  const [trashState, setTrashState] = useState<TrashState | null>(null);
+  const [trashTick, setTrashTick] = useState(0);
+  const [trashActionError, setTrashActionError] = useState<string | null>(null);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+
   /** Monotonic guards: late responses never overwrite fresher state. */
   const fetchSeq = useRef(0);
   const usageSeq = useRef(0);
   const mutationSeq = useRef(0);
   const downloadSeq = useRef(0);
+  const deleteSeq = useRef(0);
+  const trashSeq = useRef(0);
+  const restoreSeq = useRef(0);
   const uploadAbort = useRef<AbortController | null>(null);
   const currentProjectId = useRef(projectId);
   currentProjectId.current = projectId;
+
+  /**
+   * 042: drop every trash/delete trace and invalidate their in-flight calls.
+   * Used on project switch and on any 404 revocation so a late trash or
+   * delete response can never repopulate the new project or a cleared page.
+   */
+  const clearTrashAndDeleteState = useCallback(() => {
+    deleteSeq.current += 1;
+    trashSeq.current += 1;
+    restoreSeq.current += 1;
+    setDeleteTarget(null);
+    setDeleteSubmitting(false);
+    setDeleteError(null);
+    setTrashOpen(false);
+    setTrashState(null);
+    setTrashActionError(null);
+    setRestoringId(null);
+  }, []);
 
   // Reset everything that belongs to the previous project before any fetch.
   useEffect(() => {
@@ -232,13 +323,14 @@ export default function ProjectAssets({ projectId }: Props) {
     setActionError(null);
     setDownloadingId(null);
     setVersionNode(null);
+    clearTrashAndDeleteState();
     fetchSeq.current += 1;
     usageSeq.current += 1;
     mutationSeq.current += 1;
     downloadSeq.current += 1;
     uploadAbort.current?.abort();
     uploadAbort.current = null;
-  }, [projectId]);
+  }, [projectId, clearTrashAndDeleteState]);
 
   const ui = uiState.key === projectId ? uiState : freshUiState(projectId);
   const parentId =
@@ -248,6 +340,9 @@ export default function ProjectAssets({ projectId }: Props) {
   const stateKey = `${projectId}\u0000${parentId ?? ""}\u0000${ui.query}\u0000${
     ui.kind
   }`;
+  /** Latest list key for callbacks/effects that must not re-run on filters. */
+  const stateKeyRef = useRef(stateKey);
+  stateKeyRef.current = stateKey;
 
   const updateUi = useCallback(
     (patch: Partial<Omit<AssetsUiState, "key">>) => {
@@ -294,9 +389,10 @@ export default function ProjectAssets({ projectId }: Props) {
       .catch((err: unknown) => {
         if (seq !== fetchSeq.current) return;
         if (isNotFoundApiError(err)) {
-          // Revocation: drop the usage in flight and on screen.
+          // Revocation: drop the usage and trash in flight and on screen.
           usageSeq.current += 1;
           setUsageState(null);
+          clearTrashAndDeleteState();
         }
         setListState({
           key,
@@ -310,7 +406,15 @@ export default function ProjectAssets({ projectId }: Props) {
           appendError: null,
         });
       });
-  }, [projectId, parentId, kindParam, ui.query, reloadKey, stateKey]);
+  }, [
+    projectId,
+    parentId,
+    kindParam,
+    ui.query,
+    reloadKey,
+    stateKey,
+    clearTrashAndDeleteState,
+  ]);
 
   useEffect(() => {
     const seq = ++usageSeq.current;
@@ -323,6 +427,8 @@ export default function ProjectAssets({ projectId }: Props) {
           value: {
             file_count: data?.file_count ?? 0,
             total_bytes: data?.total_bytes ?? 0,
+            trash_file_count: data?.trash_file_count,
+            trash_total_bytes: data?.trash_total_bytes,
           },
         });
       })
@@ -332,34 +438,81 @@ export default function ProjectAssets({ projectId }: Props) {
       });
   }, [projectId, usageTick]);
 
-  const applyNotFound = useCallback((key: string, err: unknown) => {
-    fetchSeq.current += 1;
-    usageSeq.current += 1;
-    uploadAbort.current?.abort();
-    uploadAbort.current = null;
-    setUsageState(null);
-    setUploading(false);
-    setUploadError(null);
-    setFolderOpen(false);
-    setFolderSubmitting(false);
-    setDownloadingId(null);
-    setVersionNode(null);
-    setListState((previous) =>
-      previous.key !== key
-        ? previous
-        : {
-            ...previous,
-            items: [],
-            total: 0,
-            hasMore: false,
-            nextOffset: 0,
-            loading: false,
-            loadingMore: false,
-            error: err,
-            appendError: null,
-          },
-    );
-  }, []);
+  const applyNotFound = useCallback(
+    (key: string, err: unknown) => {
+      fetchSeq.current += 1;
+      usageSeq.current += 1;
+      uploadAbort.current?.abort();
+      uploadAbort.current = null;
+      setUsageState(null);
+      setUploading(false);
+      setUploadError(null);
+      setFolderOpen(false);
+      setFolderSubmitting(false);
+      setDownloadingId(null);
+      setVersionNode(null);
+      // 042: a revocation also clears the trash rows and closes the
+      // delete/trash modals; their late responses stay invalidated.
+      clearTrashAndDeleteState();
+      setListState((previous) =>
+        previous.key !== key
+          ? previous
+          : {
+              ...previous,
+              items: [],
+              total: 0,
+              hasMore: false,
+              nextOffset: 0,
+              loading: false,
+              loadingMore: false,
+              error: err,
+              appendError: null,
+            },
+      );
+    },
+    [clearTrashAndDeleteState],
+  );
+
+  // 042: fetch the trash roots whenever the trash view is (re)opened or
+  // refreshed. Responses are tied to this projectId and a monotonic
+  // sequence, so a project switch or revocation drops late payloads.
+  useEffect(() => {
+    if (!trashOpen) return;
+    const seq = ++trashSeq.current;
+    const key = projectId;
+    setTrashState(freshTrashState(key));
+    projectAssetsApi
+      .listTrash(projectId, {
+        limit: PROJECT_ASSETS_PAGE_SIZE,
+        offset: 0,
+      })
+      .then((data) => {
+        if (seq !== trashSeq.current || key !== currentProjectId.current)
+          return;
+        const items = Array.isArray(data?.items) ? data.items : [];
+        setTrashState({
+          key,
+          items,
+          total: data?.total ?? items.length,
+          hasMore: Boolean(data?.has_more),
+          nextOffset: items.length,
+          loading: false,
+          loadingMore: false,
+          error: null,
+          appendError: null,
+        });
+      })
+      .catch((err: unknown) => {
+        if (seq !== trashSeq.current || key !== currentProjectId.current)
+          return;
+        if (isNotFoundApiError(err)) {
+          // Revocation: clear the directory, usage and trash at once.
+          applyNotFound(stateKeyRef.current, err);
+          return;
+        }
+        setTrashState({ ...freshTrashState(key), loading: false, error: err });
+      });
+  }, [trashOpen, projectId, trashTick, applyNotFound]);
 
   const openVersionModal = useCallback(
     (node: ProjectAssetNode) => setVersionNode({ projectId, node }),
@@ -443,6 +596,206 @@ export default function ProjectAssets({ projectId }: Props) {
           ? previous
           : { ...previous, appendError: err, loadingMore: false },
       );
+    }
+  };
+
+  const loadMoreTrash = async () => {
+    const trash = trashState;
+    if (
+      trash == null ||
+      trash.key !== projectId ||
+      !trash.hasMore ||
+      trash.loading ||
+      trash.loadingMore
+    )
+      return;
+    const seq = ++trashSeq.current;
+    const key = projectId;
+    const offset = trash.nextOffset;
+    setTrashState((previous) =>
+      previous != null && previous.key === key
+        ? { ...previous, loadingMore: true, appendError: null }
+        : previous,
+    );
+    try {
+      const data = await projectAssetsApi.listTrash(projectId, {
+        limit: PROJECT_ASSETS_PAGE_SIZE,
+        offset,
+      });
+      if (seq !== trashSeq.current || key !== currentProjectId.current) return;
+      const items = Array.isArray(data?.items) ? data.items : [];
+      setTrashState((previous) =>
+        previous == null || previous.key !== key
+          ? previous
+          : {
+              ...previous,
+              items: mergeUniqueTrash(previous.items, items),
+              total: data?.total ?? previous.total,
+              hasMore: Boolean(data?.has_more),
+              nextOffset: offset + items.length,
+              loadingMore: false,
+              appendError: null,
+            },
+      );
+    } catch (err: unknown) {
+      if (seq !== trashSeq.current || key !== currentProjectId.current) return;
+      if (isNotFoundApiError(err)) {
+        applyNotFound(stateKeyRef.current, err);
+        return;
+      }
+      setTrashState((previous) =>
+        previous == null || previous.key !== key
+          ? previous
+          : { ...previous, appendError: err, loadingMore: false },
+      );
+    }
+  };
+
+  const openTrashModal = () => {
+    setTrashActionError(null);
+    setTrashOpen(true);
+  };
+
+  const closeTrashModal = () => {
+    // Invalidate an in-flight trash page so it cannot paint a closed view.
+    trashSeq.current += 1;
+    setTrashOpen(false);
+    setTrashActionError(null);
+    setRestoringId(null);
+  };
+
+  /** 042 trash mutation errors: the two 409 codes get dedicated guidance. */
+  const trashMutationErrorText = (err: unknown, fallback: string): string => {
+    const parsed = parseApiError(err);
+    if (parsed?.code === "PROJECT_ASSET_NAME_CONFLICT") {
+      return t(
+        "projects.assets.trashRestoreNameConflict",
+        "原位置已有同名文件或文件夹；当前暂不支持改名或移动，请先处理同名项，此项保留在回收站。",
+      );
+    }
+    if (parsed?.code === "PROJECT_ASSET_PARENT_IN_TRASH") {
+      return t(
+        "projects.assets.trashRestoreParentInTrash",
+        "原文件夹仍在回收站：请先恢复父级，再恢复此项。",
+      );
+    }
+    if (parsed?.code === "FORBIDDEN" || httpStatus(err) === 403) {
+      return t(
+        "projects.assets.trashArchived",
+        "项目已归档：回收站只读，无法删除或恢复。",
+      );
+    }
+    return apiErrorMessage(err, fallback, t);
+  };
+
+  const openDeleteModal = (node: ProjectAssetNode) => {
+    setDeleteError(null);
+    setDeleteTarget({ projectId, node });
+  };
+
+  const closeDeleteModal = () => {
+    // Cancel makes zero mutation; block closing mid-request only.
+    if (deleteSubmitting) return;
+    setDeleteTarget(null);
+    setDeleteError(null);
+  };
+
+  const confirmDelete = async () => {
+    const target = deleteTarget;
+    if (target == null || target.projectId !== projectId) return;
+    const seq = ++deleteSeq.current;
+    const submittedProjectId = projectId;
+    setDeleteSubmitting(true);
+    setDeleteError(null);
+    try {
+      await projectAssetsApi.deleteToTrash(projectId, target.node.node_id);
+      if (
+        seq !== deleteSeq.current ||
+        submittedProjectId !== currentProjectId.current
+      )
+        return;
+      setDeleteTarget(null);
+      // The trashed node must not keep an open version modal alive.
+      setVersionNode((previous) =>
+        previous != null &&
+        previous.projectId === submittedProjectId &&
+        previous.node.node_id === target.node.node_id
+          ? null
+          : previous,
+      );
+      void message.success(
+        t("projects.assets.deleteMovedToTrash", "已移入回收站"),
+      );
+      // Refresh the directory, usage and the trash view state.
+      setTrashTick((tick) => tick + 1);
+      reload();
+    } catch (err: unknown) {
+      if (
+        seq !== deleteSeq.current ||
+        submittedProjectId !== currentProjectId.current
+      )
+        return;
+      if (isNotFoundApiError(err)) {
+        applyNotFound(stateKey, err);
+        return;
+      }
+      // Failure keeps the row and the dialog: retry or cancel stay possible.
+      setDeleteError(
+        trashMutationErrorText(
+          err,
+          t("projects.assets.deleteFailed", "移入回收站失败"),
+        ),
+      );
+    } finally {
+      if (
+        seq === deleteSeq.current &&
+        submittedProjectId === currentProjectId.current
+      )
+        setDeleteSubmitting(false);
+    }
+  };
+
+  const handleRestore = async (item: ProjectAssetTrashItem) => {
+    const seq = ++restoreSeq.current;
+    const submittedProjectId = projectId;
+    setRestoringId(item.node_id);
+    setTrashActionError(null);
+    try {
+      await projectAssetsApi.restoreTrashed(projectId, item.node_id);
+      if (
+        seq !== restoreSeq.current ||
+        submittedProjectId !== currentProjectId.current
+      )
+        return;
+      void message.success(
+        t("projects.assets.trashRestored", "已恢复到原位置"),
+      );
+      // Restore refreshes the trash list, the directory and both usages.
+      setTrashTick((tick) => tick + 1);
+      reload();
+    } catch (err: unknown) {
+      if (
+        seq !== restoreSeq.current ||
+        submittedProjectId !== currentProjectId.current
+      )
+        return;
+      if (isNotFoundApiError(err)) {
+        applyNotFound(stateKey, err);
+        return;
+      }
+      // A 409 conflict keeps the trash row exactly where it is.
+      setTrashActionError(
+        trashMutationErrorText(
+          err,
+          t("projects.assets.trashRestoreFailed", "恢复失败"),
+        ),
+      );
+    } finally {
+      if (
+        seq === restoreSeq.current &&
+        submittedProjectId === currentProjectId.current
+      )
+        setRestoringId(null);
     }
   };
 
@@ -617,24 +970,64 @@ export default function ProjectAssets({ projectId }: Props) {
   const renderNode = (node: ProjectAssetNode) => {
     const updated = formatServerDateTime(node.updated_at, timezone);
     if (node.kind === "folder") {
+      // 042: folder rows are a container so the trash dropdown is not nested
+      // inside the open-folder button; opening stays the primary action.
       return (
-        <button
+        <div
           key={node.node_id}
-          type="button"
           data-testid={`project-asset-${node.node_id}`}
-          aria-label={t("projects.assets.openFolder", "进入文件夹：{{name}}", {
-            name: node.name,
-          })}
-          onClick={() => enterFolder(node)}
-          style={{ ...rowStyle, cursor: "pointer" }}
+          style={rowStyle}
         >
-          <Folder size={16} aria-hidden />
-          <span style={{ flex: 1, minWidth: 0, wordBreak: "break-word" }}>
-            {node.name}
-          </span>
-          <span style={secondaryStyle}>{updated}</span>
-          <ChevronRight size={14} aria-hidden />
-        </button>
+          <button
+            type="button"
+            aria-label={t("projects.assets.openFolder", "进入文件夹：{{name}}", {
+              name: node.name,
+            })}
+            onClick={() => enterFolder(node)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              flex: 1,
+              minWidth: 0,
+              padding: 0,
+              background: "transparent",
+              border: "none",
+              color: "inherit",
+              font: "inherit",
+              textAlign: "left",
+              cursor: "pointer",
+            }}
+          >
+            <Folder size={16} aria-hidden />
+            <span style={{ flex: 1, minWidth: 0, wordBreak: "break-word" }}>
+              {node.name}
+            </span>
+            <span style={secondaryStyle}>{updated}</span>
+            <ChevronRight size={14} aria-hidden />
+          </button>
+          <Dropdown
+            trigger={["click"]}
+            placement="bottomRight"
+            menu={{
+              items: [
+                {
+                  key: "trash",
+                  icon: <Trash2 size={14} />,
+                  danger: true,
+                  label: t("projects.assets.deleteToTrash", "移入回收站"),
+                  onClick: () => openDeleteModal(node),
+                },
+              ],
+            }}
+          >
+            <Button
+              size="small"
+              icon={<MoreHorizontal size={14} />}
+              aria-label={t("projects.assets.moreActions", "更多操作")}
+            />
+          </Dropdown>
+        </div>
       );
     }
     return (
@@ -679,6 +1072,14 @@ export default function ProjectAssets({ projectId }: Props) {
                 label: t("projects.assets.versionManage", "版本管理"),
                 onClick: () => openVersionModal(node),
               },
+              { type: "divider" as const },
+              {
+                key: "trash",
+                icon: <Trash2 size={14} />,
+                danger: true,
+                label: t("projects.assets.deleteToTrash", "移入回收站"),
+                onClick: () => openDeleteModal(node),
+              },
             ],
           }}
         >
@@ -688,6 +1089,77 @@ export default function ProjectAssets({ projectId }: Props) {
             aria-label={t("projects.assets.moreActions", "更多操作")}
           />
         </Dropdown>
+      </div>
+    );
+  };
+
+  /**
+   * 042 trash rows are inert: safe metadata only, never a download, preview
+   * or version action. Restore renders actionable only when the server says
+   * `can_restore`; otherwise a disabled button explains why.
+   */
+  const renderTrashItem = (item: ProjectAssetTrashItem) => {
+    const deletedAt = formatServerDateTime(item.deleted_at, timezone);
+    const kindLabel =
+      item.kind === "folder"
+        ? t("projects.assets.kindFolder", "文件夹")
+        : t("projects.assets.kindFile", "文件");
+    return (
+      <div
+        key={item.node_id}
+        data-testid={`project-asset-trash-${item.node_id}`}
+        style={rowStyle}
+      >
+        {item.kind === "folder" ? (
+          <Folder size={16} aria-hidden />
+        ) : (
+          <FileText size={16} aria-hidden />
+        )}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ wordBreak: "break-word" }}>{item.name}</div>
+          <div style={secondaryStyle}>
+            {kindLabel} ·{" "}
+            {t("projects.assets.trashOriginalPath", "原位置：{{path}}", {
+              path: item.original_path || "—",
+            })}{" "}
+            ·{" "}
+            {item.deleted_by_name
+              ? t(
+                  "projects.assets.trashDeletedMeta",
+                  "删除于 {{time}} · 删除人：{{who}}",
+                  { time: deletedAt, who: item.deleted_by_name },
+                )
+              : t(
+                  "projects.assets.trashDeletedMetaUnknown",
+                  "删除于 {{time}} · 删除人未知",
+                  { time: deletedAt },
+                )}
+          </div>
+        </div>
+        {item.can_restore ? (
+          <Button
+            size="small"
+            icon={<RotateCcw size={14} />}
+            loading={restoringId === item.node_id}
+            disabled={restoringId != null && restoringId !== item.node_id}
+            onClick={() => void handleRestore(item)}
+          >
+            {t("projects.assets.trashRestore", "恢复")}
+          </Button>
+        ) : (
+          <Tooltip
+            title={t(
+              "projects.assets.trashCannotRestore",
+              "你没有恢复此项目的权限；如需恢复请联系项目 owner 或管理员。",
+            )}
+          >
+            <span>
+              <Button size="small" icon={<RotateCcw size={14} />} disabled>
+                {t("projects.assets.trashRestore", "恢复")}
+              </Button>
+            </span>
+          </Tooltip>
+        )}
       </div>
     );
   };
@@ -753,12 +1225,109 @@ export default function ProjectAssets({ projectId }: Props) {
     );
   }
 
+  // 042: both counts are current versions only — visible files and what the
+  // trash still keeps. Neither is a quota, remaining space or freed disk.
   const usageText = usageValue
-    ? t("projects.assets.usage", "容量：{{count}} 个文件 · {{size}}", {
-        count: usageValue.file_count,
-        size: formatBytes(usageValue.total_bytes),
-      })
+    ? t(
+        "projects.assets.usageVisible",
+        "可见文件（仅当前版本）：{{count}} 个 · {{size}}",
+        {
+          count: usageValue.file_count,
+          size: formatBytes(usageValue.total_bytes),
+        },
+      )
     : t("projects.assets.usageUnavailable", "容量暂不可用");
+  const trashUsageText =
+    usageValue != null && usageValue.trash_file_count != null
+      ? t(
+          "projects.assets.usageTrash",
+          "回收站保留（仅当前版本）：{{count}} 个 · {{size}}",
+          {
+            count: usageValue.trash_file_count,
+            size: formatBytes(usageValue.trash_total_bytes),
+          },
+        )
+      : null;
+
+  const trashCurrent =
+    trashState != null && trashState.key === projectId ? trashState : null;
+
+  let trashBody: React.ReactNode;
+  if (
+    trashCurrent == null ||
+    (trashCurrent.loading && trashCurrent.items.length === 0)
+  ) {
+    trashBody = (
+      <div
+        data-testid="project-assets-trash-loading"
+        style={{ display: "flex", justifyContent: "center", padding: 32 }}
+      >
+        <Spin />
+      </div>
+    );
+  } else if (trashCurrent.error != null) {
+    trashBody = (
+      <EmptyState
+        variant="error"
+        title={t("projects.assets.trashLoadFailed", "加载回收站失败")}
+        description={apiErrorMessage(
+          trashCurrent.error,
+          t("projects.assets.trashLoadFailed", "加载回收站失败"),
+          t,
+        )}
+        actionLabel={t("common.retry", "重试")}
+        onAction={() => setTrashTick((tick) => tick + 1)}
+      />
+    );
+  } else if (trashCurrent.items.length === 0) {
+    trashBody = (
+      <EmptyState
+        variant="empty"
+        title={t("projects.assets.trashEmpty", "回收站为空")}
+        description={t(
+          "projects.assets.trashEmptyHint",
+          "移入回收站的项目会保留在这里，可随时恢复。",
+        )}
+      />
+    );
+  } else {
+    trashBody = (
+      <>
+        <Text type="secondary" style={secondaryStyle}>
+          {t("projects.assets.totalCount", "共 {{total}} 项", {
+            total: trashCurrent.total,
+          })}
+        </Text>
+        {trashCurrent.items.map(renderTrashItem)}
+        {trashCurrent.appendError != null && (
+          <Alert
+            type="error"
+            showIcon
+            message={apiErrorMessage(
+              trashCurrent.appendError,
+              t("projects.assets.trashLoadFailed", "加载回收站失败"),
+              t,
+            )}
+            action={
+              <Button size="small" onClick={() => void loadMoreTrash()}>
+                {t("common.retry", "重试")}
+              </Button>
+            }
+          />
+        )}
+        {trashCurrent.hasMore && (
+          <div style={{ textAlign: "center" }}>
+            <Button
+              loading={trashCurrent.loadingMore}
+              onClick={() => void loadMoreTrash()}
+            >
+              {t("projects.assets.loadMore", "加载更多")}
+            </Button>
+          </div>
+        )}
+      </>
+    );
+  }
 
   return (
     <div>
@@ -834,6 +1403,9 @@ export default function ProjectAssets({ projectId }: Props) {
                 onClick={reload}
               />
             </Tooltip>
+            <Button icon={<Trash2 size={14} />} onClick={openTrashModal}>
+              {t("projects.assets.trashEntry", "回收站")}
+            </Button>
             <Tooltip
               title={t(
                 "projects.assets.addToTaskReason",
@@ -860,6 +1432,11 @@ export default function ProjectAssets({ projectId }: Props) {
             <Text type="secondary" style={secondaryStyle}>
               {usageText}
             </Text>
+            {trashUsageText != null && (
+              <Text type="secondary" style={secondaryStyle}>
+                {trashUsageText}
+              </Text>
+            )}
             {!loading && error == null && (
               <Text type="secondary" style={secondaryStyle}>
                 {t("projects.assets.totalCount", "共 {{total}} 项", {
@@ -870,7 +1447,7 @@ export default function ProjectAssets({ projectId }: Props) {
             <Text type="secondary" style={secondaryStyle}>
               {t(
                 "projects.assets.batchHint",
-                "版本管理已开放；删除、回收与「添加到任务」将在后续批次提供。",
+                "版本管理与回收站已开放；「添加到任务」将在后续批次提供。",
               )}
             </Text>
           </div>
@@ -1009,6 +1586,83 @@ export default function ProjectAssets({ projectId }: Props) {
           />
         )}
       </Modal>
+
+      {deleteTarget?.projectId === projectId && (
+        <Modal
+          open
+          title={t("projects.assets.deleteConfirmTitle", "移入回收站")}
+          okText={t("projects.assets.deleteConfirmOk", "移入回收站")}
+          cancelText={t("common.cancel", "取消")}
+          okButtonProps={{ danger: true, loading: deleteSubmitting }}
+          cancelButtonProps={{ disabled: deleteSubmitting }}
+          maskClosable={false}
+          destroyOnHidden
+          onOk={() => void confirmDelete()}
+          onCancel={closeDeleteModal}
+        >
+          <p>
+            {t(
+              "projects.assets.deleteConfirmBody",
+              "将「{{name}}」移入回收站？之后可以从回收站恢复，原位置不再显示。",
+              { name: deleteTarget.node.name },
+            )}
+          </p>
+          {deleteTarget.node.kind === "folder" && (
+            <p style={secondaryStyle}>
+              {t(
+                "projects.assets.deleteConfirmFolderNote",
+                "文件夹会连同其中当前可见的内容一起移入回收站。",
+              )}
+            </p>
+          )}
+          {deleteError != null && (
+            <Alert
+              type="error"
+              showIcon
+              style={{ marginTop: 4 }}
+              message={deleteError}
+            />
+          )}
+        </Modal>
+      )}
+
+      {trashOpen && (
+        <Modal
+          open
+          title={t("projects.assets.trashTitle", "回收站")}
+          width="min(880px, calc(100vw - 32px))"
+          onCancel={closeTrashModal}
+          destroyOnHidden
+          footer={[
+            <Button key="close" onClick={closeTrashModal}>
+              {t("common.close", "关闭")}
+            </Button>,
+          ]}
+        >
+          <div
+            data-testid="project-assets-trash"
+            style={{ display: "flex", flexDirection: "column", gap: 8 }}
+          >
+            <Text type="secondary" style={secondaryStyle}>
+              {t(
+                "projects.assets.trashHint",
+                "回收站中的项目不能下载或预览；恢复后回到原位置。",
+              )}
+            </Text>
+            {trashBody}
+          </div>
+          {trashActionError != null && (
+            <Alert
+              type="error"
+              showIcon
+              closable
+              style={{ marginTop: 12 }}
+              message={trashActionError}
+              onClose={() => setTrashActionError(null)}
+            />
+          )}
+        </Modal>
+      )}
 
       {versionNode?.projectId === projectId && (
         <ProjectAssetVersions

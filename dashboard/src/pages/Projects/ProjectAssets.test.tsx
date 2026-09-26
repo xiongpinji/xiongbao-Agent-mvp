@@ -29,6 +29,9 @@ const {
   uploadVersion,
   restoreVersion,
   downloadVersion,
+  deleteToTrash,
+  listTrash,
+  restoreTrashed,
 } = vi.hoisted(() => ({
   list: vi.fn(),
   usage: vi.fn(),
@@ -39,6 +42,9 @@ const {
   uploadVersion: vi.fn(),
   restoreVersion: vi.fn(),
   downloadVersion: vi.fn(),
+  deleteToTrash: vi.fn(),
+  listTrash: vi.fn(),
+  restoreTrashed: vi.fn(),
 }));
 
 const { request, requestBlob, requestUpload } = vi.hoisted(() => ({
@@ -65,6 +71,9 @@ vi.mock("../../api/modules/projectAssets", async (importOriginal) => {
       uploadVersion,
       restoreVersion,
       downloadVersion,
+      deleteToTrash,
+      listTrash,
+      restoreTrashed,
     },
   };
 });
@@ -109,6 +118,7 @@ import {
   PROJECT_ASSETS_PAGE_SIZE,
   PROJECT_ASSET_VERSIONS_PAGE_SIZE,
   type ProjectAssetNode,
+  type ProjectAssetTrashItem,
   type ProjectAssetVersion,
 } from "../../api/modules/projectAssets";
 import { message } from "../../utils/antdMessage";
@@ -179,6 +189,43 @@ function listResponse(
   };
 }
 
+/** 042 trash root: a file the current member deleted and may restore. */
+const trashFile: ProjectAssetTrashItem = {
+  node_id: "trash-1",
+  parent_node_id: null,
+  kind: "file",
+  name: "旧方案.pdf",
+  original_path: "项目文件/设计稿",
+  deleted_at: 1_700_000_500,
+  deleted_by_name: "张三",
+  can_restore: true,
+};
+
+/** 042 trash root without restore permission: button must not be actionable. */
+const trashFolderLocked: ProjectAssetTrashItem = {
+  node_id: "trash-2",
+  parent_node_id: null,
+  kind: "folder",
+  name: "废弃资料",
+  original_path: "项目文件",
+  deleted_at: 1_700_000_600,
+  deleted_by_name: null,
+  can_restore: false,
+};
+
+function trashResponse(
+  items: ProjectAssetTrashItem[],
+  options: { total?: number; hasMore?: boolean; offset?: number } = {},
+) {
+  return {
+    items,
+    total: options.total ?? items.length,
+    limit: PROJECT_ASSETS_PAGE_SIZE,
+    offset: options.offset ?? 0,
+    has_more: options.hasMore ?? false,
+  };
+}
+
 let createObjectURL: ReturnType<typeof vi.fn>;
 let revokeObjectURL: ReturnType<typeof vi.fn>;
 let clickSpy: ReturnType<typeof vi.spyOn>;
@@ -206,6 +253,12 @@ beforeEach(() => {
   uploadVersion.mockReset();
   restoreVersion.mockReset();
   downloadVersion.mockReset();
+  deleteToTrash.mockReset();
+  deleteToTrash.mockResolvedValue(undefined);
+  listTrash.mockReset();
+  listTrash.mockResolvedValue(trashResponse([]));
+  restoreTrashed.mockReset();
+  restoreTrashed.mockResolvedValue({ ...fileSpec, node_id: "trash-1" });
 
   createObjectURL = vi.fn(() => "blob:mock");
   revokeObjectURL = vi.fn();
@@ -245,7 +298,9 @@ describe("ProjectAssets against the PS-06A / 023A contract", () => {
       offset: 0,
     });
     expect(usage).toHaveBeenCalledWith("p1");
-    expect(screen.getByText(/容量：2 个文件/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/可见文件（仅当前版本）：2 个/),
+    ).toBeInTheDocument();
     expect(screen.getByText(/共 2 项/)).toBeInTheDocument();
     expect(screen.getByText(/application\/pdf/)).toBeInTheDocument();
   });
@@ -547,9 +602,10 @@ describe("ProjectAssets against the PS-06A / 023A contract", () => {
     expect(
       await screen.findByText("项目不存在或你无权访问"),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/容量：/)).toBeNull();
+    expect(screen.queryByText(/可见文件/)).toBeNull();
     expect(screen.queryByRole("button", { name: "新建文件夹" })).toBeNull();
     expect(screen.queryByRole("button", { name: "上传" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "回收站" })).toBeNull();
     expect(screen.queryByRole("button", { name: "添加到任务" })).toBeNull();
   });
 
@@ -641,16 +697,19 @@ describe("ProjectAssets against the PS-06A / 023A contract", () => {
     expect(container.querySelectorAll("script")).toHaveLength(0);
   });
 
-  it("keeps later-batch controls unavailable while version management is live", async () => {
+  it("keeps later-batch controls unavailable while trash is live", async () => {
     renderAssets("p1");
     await screen.findByText("需求说明.pdf");
 
     const addToTask = screen.getByRole("button", { name: "添加到任务" });
     expect(addToTask).toBeDisabled();
-    expect(screen.queryByRole("button", { name: "删除" })).toBeNull();
+    // 042 ships recoverable trash only — no permanent delete or empty-trash.
+    expect(screen.queryByRole("button", { name: /永久删除/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /清空回收站/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "回收站" })).toBeEnabled();
     expect(
       screen.getByText(
-        "版本管理已开放；删除、回收与「添加到任务」将在后续批次提供。",
+        "版本管理与回收站已开放；「添加到任务」将在后续批次提供。",
       ),
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "版本管理" })).toBeNull();
@@ -662,16 +721,13 @@ describe("ProjectAssets against the PS-06A / 023A contract", () => {
     );
     expect(await screen.findByRole("menu")).toBeInTheDocument();
     expect(screen.getByText("版本管理")).toBeInTheDocument();
+    expect(screen.getByText("移入回收站")).toBeInTheDocument();
   });
 
-  it("opens version management from a file row and not from a folder row", async () => {
+  it("opens version management from a file row", async () => {
     const user = userEvent.setup();
     renderAssets("p1");
     const fileRow = await screen.findByTestId("project-asset-file-1");
-    const folderRow = screen.getByTestId("project-asset-folder-1");
-    expect(
-      within(folderRow).queryByRole("button", { name: "更多操作" }),
-    ).toBeNull();
 
     await user.click(within(fileRow).getByRole("button", { name: "更多操作" }));
     await user.click(
@@ -787,6 +843,414 @@ describe("ProjectAssets against the PS-06A / 023A contract", () => {
   });
 });
 
+describe("ProjectAssets 042 recoverable trash", () => {
+  async function openDeleteDialog(user: ReturnType<typeof userEvent.setup>, testId: string) {
+    const row = await screen.findByTestId(testId);
+    await user.click(within(row).getByRole("button", { name: "更多操作" }));
+    await user.click(
+      within(await screen.findByRole("menu")).getByText("移入回收站"),
+    );
+    return screen.findByRole("dialog");
+  }
+
+  async function openTrashDialog(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole("button", { name: "回收站" }));
+    return screen.findByRole("dialog");
+  }
+
+  it("opens the delete confirmation from the row menu and cancel mutates nothing", async () => {
+    const user = userEvent.setup();
+    renderAssets("p1");
+    const dialog = await openDeleteDialog(user, "project-asset-file-1");
+
+    expect(
+      within(dialog).getByText(/将「需求说明.pdf」移入回收站/),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/之后可以从回收站恢复/),
+    ).toBeInTheDocument();
+    expect(deleteToTrash).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByRole("button", { name: "取消" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(deleteToTrash).not.toHaveBeenCalled();
+    expect(message.success).not.toHaveBeenCalled();
+    expect(screen.getByTestId("project-asset-file-1")).toBeInTheDocument();
+  });
+
+  it("confirms delete with a real DELETE call and refreshes list and usage", async () => {
+    const user = userEvent.setup();
+    renderAssets("p1");
+    const listCalls = list.mock.calls.length;
+    const usageCalls = usage.mock.calls.length;
+    const dialog = await openDeleteDialog(user, "project-asset-file-1");
+
+    await user.click(
+      within(dialog).getByRole("button", { name: "移入回收站" }),
+    );
+
+    await waitFor(() =>
+      expect(deleteToTrash).toHaveBeenCalledWith("p1", "file-1"),
+    );
+    await waitFor(() =>
+      expect(list.mock.calls.length).toBeGreaterThan(listCalls),
+    );
+    await waitFor(() =>
+      expect(usage.mock.calls.length).toBeGreaterThan(usageCalls),
+    );
+    expect(message.success).toHaveBeenCalledWith("已移入回收站");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("offers only the trash action on folder rows, with the subtree note", async () => {
+    const user = userEvent.setup();
+    renderAssets("p1");
+    const folderRow = await screen.findByTestId("project-asset-folder-1");
+
+    await user.click(
+      within(folderRow).getByRole("button", { name: "更多操作" }),
+    );
+    const menu = await screen.findByRole("menu");
+    // Folder rows never expose version management or download.
+    expect(within(menu).queryByText("版本管理")).toBeNull();
+    expect(within(menu).queryByText("下载")).toBeNull();
+    await user.click(within(menu).getByText("移入回收站"));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByText(
+        /文件夹会连同其中当前可见的内容一起移入回收站/,
+      ),
+    ).toBeInTheDocument();
+    await user.click(
+      within(dialog).getByRole("button", { name: "移入回收站" }),
+    );
+
+    await waitFor(() =>
+      expect(deleteToTrash).toHaveBeenCalledWith("p1", "folder-1"),
+    );
+    expect(message.success).toHaveBeenCalledWith("已移入回收站");
+  });
+
+  it("keeps the row and shows a retryable error when delete fails", async () => {
+    const user = userEvent.setup();
+    deleteToTrash.mockRejectedValueOnce(new Error("500 - internal boom"));
+    renderAssets("p1");
+    const listCalls = list.mock.calls.length;
+    const dialog = await openDeleteDialog(user, "project-asset-file-1");
+
+    await user.click(
+      within(dialog).getByRole("button", { name: "移入回收站" }),
+    );
+
+    expect(await within(dialog).findByText("internal boom")).toBeInTheDocument();
+    expect(message.success).not.toHaveBeenCalled();
+    // The failed request never removes the row or reloads the directory.
+    expect(screen.getByTestId("project-asset-file-1")).toBeInTheDocument();
+    expect(list.mock.calls.length).toBe(listCalls);
+
+    // The dialog stays open; retrying after a transient failure succeeds.
+    await user.click(
+      within(dialog).getByRole("button", { name: "移入回收站" }),
+    );
+    await waitFor(() => expect(deleteToTrash).toHaveBeenCalledTimes(2));
+    expect(message.success).toHaveBeenCalledWith("已移入回收站");
+  });
+
+  it("explains an archived 403 delete without dropping the row", async () => {
+    const user = userEvent.setup();
+    deleteToTrash.mockRejectedValueOnce(
+      new Error('403 - {"error":{"code":"FORBIDDEN","message":"forbidden"}}'),
+    );
+    renderAssets("p1");
+    const dialog = await openDeleteDialog(user, "project-asset-file-1");
+
+    await user.click(
+      within(dialog).getByRole("button", { name: "移入回收站" }),
+    );
+
+    expect(
+      await within(dialog).findByText(
+        "项目已归档：回收站只读，无法删除或恢复。",
+      ),
+    ).toBeInTheDocument();
+    expect(message.success).not.toHaveBeenCalled();
+    expect(screen.getByTestId("project-asset-file-1")).toBeInTheDocument();
+  });
+
+  it("lists trash roots with safe metadata and gates restore on can_restore", async () => {
+    const user = userEvent.setup();
+    listTrash.mockResolvedValue(trashResponse([trashFile, trashFolderLocked]));
+    renderAssets("p1");
+    await screen.findByText("需求说明.pdf");
+
+    const dialog = await openTrashDialog(user);
+
+    await waitFor(() =>
+      expect(listTrash).toHaveBeenCalledWith("p1", {
+        limit: PROJECT_ASSETS_PAGE_SIZE,
+        offset: 0,
+      }),
+    );
+    const row1 = await within(dialog).findByTestId(
+      "project-asset-trash-trash-1",
+    );
+    expect(within(row1).getByText("旧方案.pdf")).toBeInTheDocument();
+    expect(
+      within(row1).getByText(/原位置：项目文件\/设计稿/),
+    ).toBeInTheDocument();
+    expect(within(row1).getByText(/删除人：张三/)).toBeInTheDocument();
+    expect(within(row1).getByRole("button", { name: "恢复" })).toBeEnabled();
+    // A trash row is inert: no download, no open, no version actions.
+    expect(within(row1).queryByRole("button", { name: "下载" })).toBeNull();
+    expect(within(row1).queryByRole("button", { name: "更多操作" })).toBeNull();
+    expect(download).not.toHaveBeenCalled();
+
+    const row2 = within(dialog).getByTestId("project-asset-trash-trash-2");
+    expect(within(row2).getByText(/删除人未知/)).toBeInTheDocument();
+    expect(within(row2).getByRole("button", { name: "恢复" })).toBeDisabled();
+  });
+
+  it("restores a trash root and refreshes trash, directory and usage", async () => {
+    const user = userEvent.setup();
+    listTrash.mockResolvedValue(trashResponse([trashFile]));
+    renderAssets("p1");
+    await screen.findByText("需求说明.pdf");
+    const dialog = await openTrashDialog(user);
+    const row = await within(dialog).findByTestId(
+      "project-asset-trash-trash-1",
+    );
+    const listCalls = list.mock.calls.length;
+    const usageCalls = usage.mock.calls.length;
+    const trashCalls = listTrash.mock.calls.length;
+
+    await user.click(within(row).getByRole("button", { name: "恢复" }));
+
+    await waitFor(() =>
+      expect(restoreTrashed).toHaveBeenCalledWith("p1", "trash-1"),
+    );
+    await waitFor(() =>
+      expect(list.mock.calls.length).toBeGreaterThan(listCalls),
+    );
+    await waitFor(() =>
+      expect(usage.mock.calls.length).toBeGreaterThan(usageCalls),
+    );
+    await waitFor(() =>
+      expect(listTrash.mock.calls.length).toBeGreaterThan(trashCalls),
+    );
+    expect(message.success).toHaveBeenCalledWith("已恢复到原位置");
+  });
+
+  it("keeps the trash row and explains a same-name restore conflict", async () => {
+    const user = userEvent.setup();
+    listTrash.mockResolvedValue(trashResponse([trashFile]));
+    restoreTrashed.mockRejectedValueOnce(
+      new Error(
+        '409 - {"error":{"code":"PROJECT_ASSET_NAME_CONFLICT","message":"conflict"}}',
+      ),
+    );
+    renderAssets("p1");
+    await screen.findByText("需求说明.pdf");
+    const dialog = await openTrashDialog(user);
+    const row = await within(dialog).findByTestId(
+      "project-asset-trash-trash-1",
+    );
+
+    await user.click(within(row).getByRole("button", { name: "恢复" }));
+
+    expect(
+      await within(dialog).findByText(/原位置已有同名文件或文件夹/),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText(/请先处理同名项/)).toBeInTheDocument();
+    expect(message.success).not.toHaveBeenCalled();
+    // 409 keeps the trash row exactly where it was.
+    expect(
+      within(dialog).getByTestId("project-asset-trash-trash-1"),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the trash row and asks to restore the parent first on a parent-in-trash 409", async () => {
+    const user = userEvent.setup();
+    listTrash.mockResolvedValue(trashResponse([trashFile]));
+    restoreTrashed.mockRejectedValueOnce(
+      new Error(
+        '409 - {"error":{"code":"PROJECT_ASSET_PARENT_IN_TRASH","message":"parent in trash"}}',
+      ),
+    );
+    renderAssets("p1");
+    await screen.findByText("需求说明.pdf");
+    const dialog = await openTrashDialog(user);
+    const row = await within(dialog).findByTestId(
+      "project-asset-trash-trash-1",
+    );
+
+    await user.click(within(row).getByRole("button", { name: "恢复" }));
+
+    expect(
+      await within(dialog).findByText(/原文件夹仍在回收站：请先恢复父级/),
+    ).toBeInTheDocument();
+    expect(message.success).not.toHaveBeenCalled();
+    expect(
+      within(dialog).getByTestId("project-asset-trash-trash-1"),
+    ).toBeInTheDocument();
+  });
+
+  it("pages the trash list with server offsets", async () => {
+    const user = userEvent.setup();
+    listTrash.mockResolvedValueOnce(
+      trashResponse([trashFile], { total: 2, hasMore: true }),
+    );
+    renderAssets("p1");
+    await screen.findByText("需求说明.pdf");
+    const dialog = await openTrashDialog(user);
+    await within(dialog).findByTestId("project-asset-trash-trash-1");
+
+    listTrash.mockResolvedValueOnce(
+      trashResponse([trashFolderLocked], { total: 2, offset: 1 }),
+    );
+    await user.click(
+      within(dialog).getByRole("button", { name: "加载更多" }),
+    );
+
+    await waitFor(() =>
+      expect(listTrash).toHaveBeenLastCalledWith("p1", {
+        limit: PROJECT_ASSETS_PAGE_SIZE,
+        offset: 1,
+      }),
+    );
+    expect(
+      await within(dialog).findByTestId("project-asset-trash-trash-2"),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByTestId("project-asset-trash-trash-1"),
+    ).toBeInTheDocument();
+  });
+
+  it("closes the delete confirmation on project switch without mutating", async () => {
+    const user = userEvent.setup();
+    const { rerender } = renderAssets("p1");
+    await screen.findByText("需求说明.pdf");
+    await openDeleteDialog(user, "project-asset-file-1");
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+
+    list.mockResolvedValue(
+      listResponse([{ ...fileSpec, name: "新项目.pdf" }]),
+    );
+    usage.mockResolvedValue({ file_count: 1, total_bytes: 1 });
+    rerender(<ProjectAssets projectId="p2" />);
+
+    expect(await screen.findByText("新项目.pdf")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(deleteToTrash).not.toHaveBeenCalled();
+  });
+
+  it("closes the trash view on project switch and ignores a late trash response", async () => {
+    const user = userEvent.setup();
+    let resolveTrash:
+      | ((value: ReturnType<typeof trashResponse>) => void)
+      | null = null;
+    listTrash.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveTrash = resolve)),
+    );
+    const { rerender } = renderAssets("p1");
+    await screen.findByText("需求说明.pdf");
+    await openTrashDialog(user);
+    await waitFor(() => expect(listTrash).toHaveBeenCalledTimes(1));
+
+    list.mockResolvedValue(
+      listResponse([{ ...fileSpec, name: "新项目.pdf" }]),
+    );
+    usage.mockResolvedValue({ file_count: 1, total_bytes: 1 });
+    rerender(<ProjectAssets projectId="p2" />);
+    expect(await screen.findByText("新项目.pdf")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    await act(async () => {
+      resolveTrash?.(trashResponse([trashFile]));
+      await Promise.resolve();
+    });
+    // The late p1 trash payload must never repopulate under p2.
+    expect(screen.queryByText("旧方案.pdf")).toBeNull();
+  });
+
+  it("clears rows, usage and the trash dialog when the trash list returns 404", async () => {
+    const user = userEvent.setup();
+    renderAssets("p1");
+    await screen.findByText("需求说明.pdf");
+    listTrash.mockRejectedValueOnce(
+      new Error('404 - {"error":{"code":"NOT_FOUND","message":"not found"}}'),
+    );
+
+    await user.click(screen.getByRole("button", { name: "回收站" }));
+
+    expect(
+      await screen.findByText("项目不存在或你无权访问"),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.queryByText("需求说明.pdf")).toBeNull();
+    expect(screen.queryByText(/可见文件/)).toBeNull();
+  });
+
+  it("ignores a late restore response from the previous project", async () => {
+    const user = userEvent.setup();
+    let resolveRestore: ((value: unknown) => void) | null = null;
+    listTrash.mockResolvedValue(trashResponse([trashFile]));
+    restoreTrashed.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveRestore = resolve)),
+    );
+    const { rerender } = renderAssets("p1");
+    await screen.findByText("需求说明.pdf");
+    const dialog = await openTrashDialog(user);
+    const row = await within(dialog).findByTestId(
+      "project-asset-trash-trash-1",
+    );
+    await user.click(within(row).getByRole("button", { name: "恢复" }));
+    await waitFor(() => expect(restoreTrashed).toHaveBeenCalledTimes(1));
+
+    list.mockResolvedValue(
+      listResponse([{ ...fileSpec, name: "新项目.pdf" }]),
+    );
+    usage.mockResolvedValue({ file_count: 1, total_bytes: 1 });
+    rerender(<ProjectAssets projectId="p2" />);
+    await screen.findByText("新项目.pdf");
+    const p2ListCalls = list.mock.calls.filter(
+      (call) => call[0] === "p2",
+    ).length;
+
+    await act(async () => {
+      resolveRestore?.({ ...fileSpec, node_id: "trash-1" });
+      await Promise.resolve();
+    });
+
+    expect(message.success).not.toHaveBeenCalled();
+    expect(list.mock.calls.filter((call) => call[0] === "p2")).toHaveLength(
+      p2ListCalls,
+    );
+  });
+
+  it("labels both usage counts as current versions only without inventing a quota", async () => {
+    usage.mockResolvedValue({
+      file_count: 2,
+      total_bytes: 2048,
+      trash_file_count: 1,
+      trash_total_bytes: 512,
+    });
+    const { container } = renderAssets("p1");
+    await screen.findByText("需求说明.pdf");
+
+    expect(
+      screen.getByText(/可见文件（仅当前版本）：2 个 · 2\.0 KB/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/回收站保留（仅当前版本）：1 个 · 512 B/),
+    ).toBeInTheDocument();
+    // No made-up quota, remaining-space or disk-freed claims on the page.
+    expect(container.textContent).not.toMatch(
+      /剩余|配额|可用空间|10 ?GB|释放磁盘/,
+    );
+  });
+});
+
 describe("projectAssetsApi path building", () => {
   let realApi: typeof import("../../api/modules/projectAssets").projectAssetsApi;
 
@@ -872,10 +1336,40 @@ describe("projectAssetsApi path building", () => {
       "/projects/p%201%2F2/assets/n%2F1/download",
     );
   });
+
+  it("moves an encoded node to the trash with a DELETE request", () => {
+    void realApi.deleteToTrash("p 1/2", "n/1");
+
+    expect(request).toHaveBeenCalledWith("/projects/p%201%2F2/assets/n%2F1", {
+      method: "DELETE",
+    });
+  });
+
+  it("lists trash roots for the encoded project with paging params", () => {
+    void realApi.listTrash("p 1/2", { limit: 20, offset: 40 });
+    expect(request).toHaveBeenCalledWith(
+      "/projects/p%201%2F2/assets/trash?limit=20&offset=40",
+    );
+
+    request.mockClear();
+    void realApi.listTrash("p1");
+    expect(request).toHaveBeenCalledWith(
+      `/projects/p1/assets/trash?limit=${PROJECT_ASSETS_PAGE_SIZE}&offset=0`,
+    );
+  });
+
+  it("posts restore for the encoded trash node", () => {
+    void realApi.restoreTrashed("p 1/2", "n/1");
+
+    expect(request).toHaveBeenCalledWith(
+      "/projects/p%201%2F2/assets/trash/n%2F1/restore",
+      { method: "POST" },
+    );
+  });
 });
 
 describe("project assets locale parity", () => {
-  it("has the same projects.assets keys in zh and en plus the three asset error codes", () => {
+  it("has the same projects.assets keys in zh and en plus the 042 asset error codes", () => {
     const zhAssets = Object.keys(zh.projects.assets).sort();
     const enAssets = Object.keys(en.projects.assets).sort();
     expect(zhAssets).toEqual(enAssets);
@@ -892,6 +1386,7 @@ describe("project assets locale parity", () => {
       "PROJECT_ASSET_NAME_CONFLICT",
       "PROJECT_ASSET_INVALID",
       "PROJECT_ASSET_TOO_LARGE",
+      "PROJECT_ASSET_PARENT_IN_TRASH",
     ] as const) {
       expect(zh.apiErrors[code]).toBeTruthy();
       expect(en.apiErrors[code]).toBeTruthy();

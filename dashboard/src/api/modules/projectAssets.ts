@@ -4,7 +4,8 @@ import type { UploadProgressHandler } from "../request";
 /**
  * Project asset API (PS-06A / 023A) — private project asset library.
  *
- * Contract (`PROJECT_ASSET_CONTRACT.md` + `PROJECT_ASSET_VERSIONS_CONTRACT.md`):
+ * Contract (`PROJECT_ASSET_CONTRACT.md` + `PROJECT_ASSET_VERSIONS_CONTRACT.md`
+ * + `PROJECT_ASSET_TRASH_042_DESIGN.md`):
  *   GET  /projects/{project_id}/assets?parent_id=&q=&kind=&limit=&offset=
  *   GET  /projects/{project_id}/assets/usage
  *   POST /projects/{project_id}/assets/folders  { parent_id?, name }
@@ -14,6 +15,9 @@ import type { UploadProgressHandler } from "../request";
  *   POST /projects/{project_id}/assets/{node_id}/versions   multipart file
  *   POST /projects/{project_id}/assets/{node_id}/versions/{version_id}/restore
  *   GET  /projects/{project_id}/assets/{node_id}/versions/{version_id}/download
+ *   DELETE /projects/{project_id}/assets/{node_id}                       → 204
+ *   GET  /projects/{project_id}/assets/trash?limit=&offset=
+ *   POST /projects/{project_id}/assets/trash/{node_id}/restore
  *
  * `request()` prepends `/api`. Only safe node/version metadata crosses the
  * wire — never `object_key`, object paths or credentials. `parent_id` omitted
@@ -26,6 +30,16 @@ import type { UploadProgressHandler } from "../request";
  * confirmed with the backend owner; `object_key` is never returned. Version
  * upload/restore reuse that shape; `version_id` — never the display-only
  * ordinal — selects and mutates a version.
+ *
+ * 042 recoverable trash: `DELETE …/assets/{node_id}` returns 204 and only
+ * means "atomically moved to the trash" — never a permanent delete. The trash
+ * list pages independent trash roots with safe metadata (no `object_key`, no
+ * private paths); trashed items cannot be downloaded or previewed. Restore
+ * returns the ordinary safe node; a same-name conflict is
+ * `PROJECT_ASSET_NAME_CONFLICT` (409) and a trashed original parent is
+ * `PROJECT_ASSET_PARENT_IN_TRASH` (409). Usage `file_count`/`total_bytes`
+ * count **visible current versions only**; the same response carries
+ * `trash_file_count`/`trash_total_bytes` for the trash's current versions.
  */
 
 export type ProjectAssetKind = "file" | "folder";
@@ -51,9 +65,49 @@ export interface ProjectAssetListResponse {
   has_more: boolean;
 }
 
+/**
+ * Usage totals. Both pairs count **current versions only** (042): the visible
+ * files/folders total and, separately, what the trash still keeps. Historical
+ * versions and any real physical quota are never part of these numbers.
+ */
 export interface ProjectAssetUsage {
   file_count: number;
   total_bytes: number;
+  /** 042 trash totals; optional so a pre-042 server response still parses. */
+  trash_file_count?: number;
+  trash_total_bytes?: number;
+}
+
+/**
+ * One trash root (042). Safe display metadata only — bytes, downloads and
+ * previews of trashed content are never exposed. `deleted_by_name` is the
+ * server-mapped member display name; null when unknown or deactivated.
+ */
+export interface ProjectAssetTrashItem {
+  node_id: string;
+  parent_node_id: string | null;
+  kind: ProjectAssetKind;
+  name: string;
+  /** Human-readable original location captured at deletion time. */
+  original_path: string;
+  /** Unix epoch seconds, matching the backend's now_ts() convention. */
+  deleted_at: number;
+  deleted_by_name: string | null;
+  /** Server-authoritative: only render an actionable restore when true. */
+  can_restore: boolean;
+}
+
+export interface ProjectAssetTrashListResponse {
+  items: ProjectAssetTrashItem[];
+  total: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+}
+
+export interface ProjectAssetTrashListParams {
+  limit?: number;
+  offset?: number;
 }
 
 export interface ProjectAssetVersionSummary {
@@ -137,6 +191,8 @@ const versionsBase = (projectId: string, nodeId: string) =>
 
 const versionBase = (projectId: string, nodeId: string, versionId: string) =>
   `${versionsBase(projectId, nodeId)}/${encodeURIComponent(versionId)}`;
+
+const trashBase = (projectId: string) => `${assetsBase(projectId)}/trash`;
 
 export const projectAssetsApi = {
   list: (projectId: string, params: ProjectAssetListParams = {}) => {
@@ -235,5 +291,30 @@ export const projectAssetsApi = {
       `${versionBase(projectId, nodeId, versionId)}/download`,
       options,
       onProgress,
+    ),
+  /**
+   * 042: atomically move a file/folder (with its visible subtree) to the
+   * trash. 204 means "in the trash, recoverable" — never permanently deleted.
+   */
+  deleteToTrash: (projectId: string, nodeId: string) =>
+    request<void>(nodeBase(projectId, nodeId), { method: "DELETE" }),
+  /** 042: page the independent trash roots (safe metadata only). */
+  listTrash: (projectId: string, params: ProjectAssetTrashListParams = {}) => {
+    const query = new URLSearchParams();
+    query.set("limit", String(params.limit ?? PROJECT_ASSETS_PAGE_SIZE));
+    query.set("offset", String(params.offset ?? 0));
+    return request<ProjectAssetTrashListResponse>(
+      `${trashBase(projectId)}?${query.toString()}`,
+    );
+  },
+  /**
+   * 042: restore one trash root to its original parent. Returns the ordinary
+   * safe node; 409 means a same-name conflict or a parent still in the trash,
+   * and the whole subtree stays trashed.
+   */
+  restoreTrashed: (projectId: string, nodeId: string) =>
+    request<ProjectAssetNode>(
+      `${trashBase(projectId)}/${encodeURIComponent(nodeId)}/restore`,
+      { method: "POST" },
     ),
 };
