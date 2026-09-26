@@ -6,6 +6,7 @@ import { message } from "@/utils/antdMessage";
 import { requestBlob } from "../../../api/request";
 import { isNotFoundApiError } from "../../../utils/apiError";
 import { fileTreeIcon } from "../../../utils/fileTreeIcon";
+import { withFromWorkspace } from "../../../utils/fromWorkspace";
 import {
   buildDockPathTree,
   collectDockFolderPaths,
@@ -13,6 +14,7 @@ import {
   listDockFilePathsForTree,
   mergeDockExpandedFolders,
   toDockWorkspaceApiPath,
+  toPrivateWorkspaceRelPath,
   type DockPathTreeNode,
 } from "../utils/dockFilePath";
 import styles from "../index.module.less";
@@ -20,6 +22,11 @@ import styles from "../index.module.less";
 interface ChatDockFileListProps {
   agentId: string;
   filePaths: string[];
+  /**
+   * Owner-private 030 file-task route: row downloads do true-mode
+   * (``from_workspace=true``) workspace I/O with managed-root-relative keys.
+   */
+  privateTask?: boolean;
   onOpenFile: (path: string) => void;
 }
 
@@ -167,12 +174,23 @@ function TreeNodes({
   );
 }
 
+/** File-leaf path of a single-file dock tree, or ``null`` when empty. */
+function firstTreeFilePath(nodes: DockPathTreeNode[]): string | null {
+  for (const node of nodes) {
+    if (!node.isDir) return node.path;
+    const inner = firstTreeFilePath(node.children);
+    if (inner) return inner;
+  }
+  return null;
+}
+
 /**
  * PR-style path tree of tool-produced workspace files (no checkboxes / dates).
  */
 export default function ChatDockFileList({
   agentId,
   filePaths,
+  privateTask = false,
   onOpenFile,
 }: ChatDockFileListProps) {
   const { t } = useTranslation();
@@ -184,6 +202,32 @@ export default function ChatDockFileList({
     () => buildDockPathTree(paths, agentId),
     [paths, agentId],
   );
+  /**
+   * Row path → managed-root-relative key converted from the original raw
+   * tool path (private mode only). The dock tree normalizes ``file://`` /
+   * UNC shapes before the row renders, so the conversion must see the raw
+   * path to refuse them instead of silently downloading a collapsed key.
+   *
+   * A displayed row reachable from several raw shapes is resolved
+   * fail-closed: any refused shape, or two shapes disagreeing on the key,
+   * stores ``null`` and the row downloads nothing.
+   */
+  const privateRelByRowPath = useMemo(() => {
+    const map = new Map<string, string | null>();
+    if (!privateTask) return map;
+    for (const raw of filePaths) {
+      const single = listDockFilePathsForTree([raw], agentId);
+      const rowPath = firstTreeFilePath(buildDockPathTree(single, agentId));
+      if (!rowPath) continue;
+      const rel = toPrivateWorkspaceRelPath(raw);
+      if (!map.has(rowPath)) {
+        map.set(rowPath, rel);
+      } else if (map.get(rowPath) !== rel) {
+        map.set(rowPath, null);
+      }
+    }
+    return map;
+  }, [privateTask, filePaths, agentId]);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [downloading, setDownloading] = useState<string | null>(null);
   const seenFoldersRef = useRef<Set<string>>(new Set());
@@ -214,15 +258,25 @@ export default function ChatDockFileList({
   const handleDownload = useCallback(
     async (path: string) => {
       if (!agentId || !path) return;
+      let apiPath: string;
+      if (privateTask) {
+        // 030A private runtime key resolved from the raw tool path behind
+        // the row (normalization strips ``file://`` / UNC shapes); refused
+        // or ambiguous shapes download nothing — the server stays the
+        // final authority.
+        const rel = privateRelByRowPath.get(path);
+        if (!rel) return;
+        apiPath = rel;
+      } else {
+        apiPath = toDockWorkspaceApiPath(path, agentId);
+      }
       setDownloading(path);
       try {
-        const blob = await requestBlob(
-          `/agents/${encodeURIComponent(
-            agentId,
-          )}/workspace/download?path=${encodeURIComponent(
-            toDockWorkspaceApiPath(path, agentId),
-          )}`,
-        );
+        const agentPart = encodeURIComponent(agentId);
+        const pathPart = encodeURIComponent(apiPath);
+        const url = `/agents/${agentPart}/workspace/download?path=${pathPart}`;
+        const downloadUrl = privateTask ? withFromWorkspace(url) : url;
+        const blob = await requestBlob(downloadUrl);
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
         a.download = dockFileBasename(path) || "download";
@@ -246,7 +300,7 @@ export default function ChatDockFileList({
         setDownloading(null);
       }
     },
-    [agentId, t],
+    [agentId, privateRelByRowPath, privateTask, t],
   );
 
   const listHint = (

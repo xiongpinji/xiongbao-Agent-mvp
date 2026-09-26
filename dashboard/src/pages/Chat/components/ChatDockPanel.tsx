@@ -597,6 +597,7 @@ const ChatDockPanel: React.FC<ChatDockPanelProps> = ({
             <ChatDockFileList
               agentId={agentId}
               filePaths={filePaths}
+              privateTask={privateTask}
               onOpenFile={onOpenFile}
             />
           </div>
