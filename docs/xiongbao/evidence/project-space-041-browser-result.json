@@ -1,0 +1,43 @@
+{
+  "interactions": [
+    {
+      "entry": "编辑项目资料",
+      "key": "Enter",
+      "dialog_title": "编辑项目资料",
+      "focus_before_escape": {
+        "tag": "DIV",
+        "text": "编辑项目资料项目名称名称 1–15 个字符 · 10/15描述隔离浏览器尺寸测试项目指令隔离测试指令，用于验证右侧配置滚动。\n隔离测试指令，用于验证右侧配置滚动",
+        "inDialog": true
+      },
+      "first_escape_closed": true,
+      "focus_after_escape": {
+        "tag": "BUTTON",
+        "text": "编辑项目资料",
+        "inDialog": false
+      }
+    },
+    {
+      "entry": "编辑指令",
+      "key": "Space",
+      "dialog_title": "编辑项目资料",
+      "focus_before_escape": {
+        "tag": "DIV",
+        "text": "编辑项目资料项目名称名称 1–15 个字符 · 10/15描述隔离浏览器尺寸测试项目指令隔离测试指令，用于验证右侧配置滚动。\n隔离测试指令，用于验证右侧配置滚动",
+        "inDialog": true
+      },
+      "first_escape_closed": true,
+      "focus_after_escape": {
+        "tag": "BUTTON",
+        "text": "编辑指令",
+        "inDialog": false
+      }
+    }
+  ],
+  "focus": {
+    "outline": "rgb(148, 163, 184) solid 2px",
+    "outlineColor": "rgb(148, 163, 184)",
+    "token": "#94a3b8",
+    "theme": "dark",
+    "palette": "slate"
+  }
+}

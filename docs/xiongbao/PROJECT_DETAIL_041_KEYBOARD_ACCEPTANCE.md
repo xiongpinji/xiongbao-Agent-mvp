@@ -5,3 +5,5 @@
 GLM-5.3 对固定候选只读审查 **GO，无 P0/P1**；它独立核对两个编辑入口与焦点对比度，未自行运行测试。Codex 检查三文件差异和干净固定 SHA，独立在隔离候选运行 Projects **237/237**、目标 ESLint/Prettier、`tsc -b`、Vite build 与差异检查。合入主线 `6bae9f39aa763c100a2dadbe72622cc45df45e31` 后，Windows Projects **241/241**、目标 ESLint/Prettier、`tsc -b`、Vite build 和差异检查通过；生产构建仍有既有的混合导入和大 chunk 提示。
 
 GLM 留下三个非阻塞 P2：焦点轮廓测试的正则只覆盖一种 CSS 写法；主题变量解析在未来重复选择器或注释含 `}` 时可能误读；“编辑指令”入口的 Space 键缺少对称用例。038 留下的全量双语键一致性与移动端信息面板随页头滚动问题仍开放。真实 AntD/浏览器辅助技术、移动端几何及 WorkBuddy 逐状态视觉未由 jsdom 证明；项目空间 11 条旅程的双重验收仍为 **0/11**，项目任务输入依旧禁用。
+
+合入后又在隔离测试账号与数据上用真实 Chrome（1273×634）复测。先用 Enter 展开项目信息，再分别用 Enter 打开“编辑项目资料”、用 Space 打开“编辑指令”：两个入口均先收起信息层，弹窗获得焦点后一次 Escape 关闭，焦点回到原入口。暗色 slate 主题下，“查看详情”聚焦轮廓计算为 `rgb(148, 163, 184) solid 2px`，对应 `--fn-border-focus: #94a3b8`。首轮探针在弹窗刚出现、尚未取得焦点时立即发送 Escape，曾出现弹窗不关闭；等待实际焦点进入弹窗后两条路径均通过，这属于探针时序限制，不能据此宣称 UI 缺陷。见 [1273×634 截图](evidence/project-space-041-slate-dark-focus.png) 和 [机器可读结果](evidence/project-space-041-browser-result.json)。此次实测只覆盖该尺寸、主题及两条键盘路径；屏幕阅读器、移动几何和 WorkBuddy 逐状态视觉仍未验收。
