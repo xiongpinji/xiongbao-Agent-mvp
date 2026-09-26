@@ -160,6 +160,8 @@ async def test_owner_positive_surface_stays_inside_managed_root(
         ("\\\\host\\share\\secret.txt", "false"),
         ("\\\\host\\share\\secret.txt", "true"),
         ("//host/share/secret.txt", "true"),
+        ("/\\host\\share\\secret.txt", "true"),
+        ("\\/host/share/secret.txt", "true"),
         ("~/.octop/db.sqlite3", "false"),
         ("~/.octop/db.sqlite3", "true"),
         ("sub/../../etc/passwd", "true"),

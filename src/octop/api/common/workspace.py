@@ -168,9 +168,13 @@ def project_task_file_io_path(root: Path, raw: str, *, from_workspace: bool) -> 
     """
     try:
         # The dashboard's single leading "/" denotes the managed root, but
-        # two leading slashes (POSIX UNC) or a leading backslash (Windows UNC)
-        # must be rejected before workspace_api_path erases their shape.
-        if from_workspace and str(raw).strip().startswith(("//", "\\")):
+        # two leading separators (including mixed POSIX/Windows UNC) or a
+        # leading backslash must be rejected before workspace_api_path erases
+        # their shape.
+        raw_text = str(raw).strip()
+        if from_workspace and (
+            raw_text.startswith("\\") or raw_text.replace("\\", "/").startswith("//")
+        ):
             raise ValueError("UNC and Windows-absolute paths are not allowed")
         text = workspace_api_path(raw) if from_workspace else str(raw)
         rel = normalize_project_task_io_path(text, from_workspace=from_workspace)
