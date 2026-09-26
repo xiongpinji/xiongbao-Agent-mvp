@@ -21,6 +21,7 @@ import { apiErrorMessage } from "../../utils/apiError";
 import { projectsApi, type ProjectRecord } from "../../api/modules/projects";
 
 const NAME_MAX = 15;
+const NAME_HELP_ID = "project-name-help";
 
 export interface TemplateSeed {
   id: string;
@@ -127,13 +128,23 @@ export default function CreateProjectModal({
   const [submitError, setSubmitError] = useState<string | null>(null);
   /** Tracks the previous `open` value to detect the closing → opening edge. */
   const wasOpenRef = useRef(false);
+  /** Project id the current draft was seeded from; null in create mode. */
+  const activeEditIdRef = useRef<string | null>(null);
+  /** Bumped on every open/close transition so stale callbacks can be ignored. */
+  const modalSessionRef = useRef(0);
 
   useEffect(() => {
     const justOpened = open && !wasOpenRef.current;
+    if (open !== wasOpenRef.current) modalSessionRef.current += 1;
     wasOpenRef.current = open;
-    // The initial seed is one opening event: a parent prop drift or a locale
-    // change while the modal stays open must not reset a draft in progress.
-    if (!justOpened) return;
+    if (!open) return;
+    const editId = editTarget ? editTarget.project_id : null;
+    if (!justOpened) {
+      // The initial seed is one opening event: a parent prop drift or a locale
+      // change while the modal stays open must not reset a draft in progress.
+      if (editId !== activeEditIdRef.current) onClose();
+      return;
+    }
     let initial: FormSnapshot = EMPTY_FORM;
     let templateId: string | null = null;
     if (editTarget) {
@@ -149,17 +160,19 @@ export default function CreateProjectModal({
         templateId = seed.id;
       }
     }
+    activeEditIdRef.current = editId;
     setForm(initial);
     setLastApplied(initial);
     setAppliedTemplate(templateId);
     setSubmitting(false);
     setSubmitError(null);
-  }, [open, editTarget, initialTemplateId, t]);
+  }, [open, editTarget, initialTemplateId, t, onClose]);
 
   const trimmedName = form.name.trim();
   const nameLength = Array.from(trimmedName).length;
   const nameTooLong = nameLength > NAME_MAX;
   const nameBlankTyped = form.name.length > 0 && trimmedName.length === 0;
+  const nameInvalid = nameTooLong || nameBlankTyped;
   const canSubmit = nameLength >= 1 && !nameTooLong && !submitting;
   const isDirty =
     form.name !== lastApplied.name ||
@@ -180,6 +193,7 @@ export default function CreateProjectModal({
   const handleTemplateClick = (tpl: TemplateSeed) => {
     if (appliedTemplate === tpl.id && !isDirty) return;
     if (isDirty) {
+      const confirmSession = modalSessionRef.current;
       Modal.confirm({
         title: t("projects.create.overwriteTitle", "覆盖未保存内容？"),
         content: t(
@@ -188,7 +202,10 @@ export default function CreateProjectModal({
         ),
         okText: t("projects.create.overwriteOk", "覆盖"),
         cancelText: t("projects.create.overwriteCancel", "保留当前内容"),
-        onOk: () => applyTemplate(tpl),
+        onOk: () => {
+          if (confirmSession !== modalSessionRef.current) return;
+          applyTemplate(tpl);
+        },
       });
       return;
     }
@@ -197,6 +214,11 @@ export default function CreateProjectModal({
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
+    const editId = editTarget ? editTarget.project_id : null;
+    if (editId !== activeEditIdRef.current) {
+      onClose();
+      return;
+    }
     setSubmitting(true);
     setSubmitError(null);
     const description = form.description.trim();
@@ -355,20 +377,30 @@ export default function CreateProjectModal({
         id="project-name-input"
         value={form.name}
         disabled={submitting}
+        required
+        aria-invalid={nameInvalid}
+        aria-describedby={NAME_HELP_ID}
         placeholder={t("projects.create.namePlaceholder", "例如：产品需求管理")}
         onChange={(e) => setField("name", e.target.value)}
         onPressEnter={() => void handleSubmit()}
       />
       {nameTooLong ? (
-        <div style={{ ...helpStyle, color: "var(--fn-color-danger, #cf1322)" }}>
+        <div
+          id={NAME_HELP_ID}
+          style={{ ...helpStyle, color: "var(--fn-color-danger, #cf1322)" }}
+        >
           {t("projects.create.nameTooLong", "名称最多 15 个字符")}
         </div>
       ) : nameBlankTyped ? (
-        <div style={{ ...helpStyle, color: "var(--fn-color-danger, #cf1322)" }}>
+        <div
+          id={NAME_HELP_ID}
+          style={{ ...helpStyle, color: "var(--fn-color-danger, #cf1322)" }}
+        >
           {t("projects.create.nameRequired", "请输入项目名称")}
         </div>
       ) : (
         <div
+          id={NAME_HELP_ID}
           style={{
             ...helpStyle,
             color: "var(--fn-text-tertiary, rgba(0,0,0,0.45))",

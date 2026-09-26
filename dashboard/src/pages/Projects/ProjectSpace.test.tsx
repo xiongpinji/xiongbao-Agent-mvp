@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Modal } from "antd";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -92,6 +93,9 @@ const TEMPLATE_COPY: Record<
       "每个缺陷记录复现步骤、影响范围、严重级别与修复状态，修复后回归验证。",
   },
 };
+
+/** Help element the name input must reference through aria-describedby. */
+const NAME_HELP_ID = "project-name-help";
 
 /** Silence the jsdom-only AntD modal measurement warning used by these tests. */
 function stubGetComputedStyle() {
@@ -880,6 +884,251 @@ describe("project-space pages against the real API response shapes", () => {
       }),
     );
     expect(onSaved).toHaveBeenCalledWith({ ...target, name: "更名项目" });
+  });
+
+  it("ties the name rule and error text to the input and exposes invalid typing", async () => {
+    stubGetComputedStyle();
+    const user = userEvent.setup();
+
+    render(<CreateProjectModal open onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    const name = screen.getByLabelText("项目名称");
+    expect(name).toBeRequired();
+    expect(name).toHaveAttribute("aria-describedby", NAME_HELP_ID);
+    const help = document.getElementById(NAME_HELP_ID);
+    expect(help).not.toBeNull();
+    expect(help).toHaveTextContent(/名称 1–15 个字符/);
+    expect(name).toHaveAccessibleDescription(/名称 1–15 个字符/);
+    expect(name).toHaveAttribute("aria-invalid", "false");
+
+    await user.type(name, "   ");
+    expect(name).toHaveAttribute("aria-invalid", "true");
+    expect(name).toHaveAccessibleDescription("请输入项目名称");
+    expect(screen.getByRole("button", { name: /创\s*建/ })).toBeDisabled();
+
+    await user.clear(name);
+    await user.type(name, "有效名称");
+    expect(name).toHaveAttribute("aria-invalid", "false");
+    expect(name).toHaveAccessibleDescription(/名称 1–15 个字符/);
+    expect(screen.getByRole("button", { name: /创\s*建/ })).toBeEnabled();
+
+    await user.clear(name);
+    await user.type(name, "1234567890123456");
+    expect(name).toHaveAttribute("aria-invalid", "true");
+    expect(name).toHaveAccessibleDescription("名称最多 15 个字符");
+    expect(screen.getByRole("button", { name: /创\s*建/ })).toBeDisabled();
+  });
+
+  it("closes instead of submitting a draft to a different edit target", async () => {
+    stubGetComputedStyle();
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const onSaved = vi.fn();
+    const targetA: ProjectRecord = {
+      ...summary,
+      project_id: "project-a",
+      name: "项目 A",
+      description: "A 描述",
+      instructions: "A 指令",
+      instructions_sha256: "sha-a",
+    };
+    const targetB: ProjectRecord = {
+      ...summary,
+      project_id: "project-b",
+      name: "项目 B",
+      description: "B 描述",
+      instructions: "B 指令",
+      instructions_sha256: "sha-b",
+    };
+    update.mockResolvedValue({ ...targetB, name: "B 改名" });
+
+    const { rerender } = render(
+      <CreateProjectModal
+        open
+        editTarget={targetA}
+        onClose={onClose}
+        onSaved={onSaved}
+      />,
+    );
+    const name = screen.getByLabelText("项目名称");
+    await user.clear(name);
+    await user.type(name, "A 改名草稿");
+
+    rerender(
+      <CreateProjectModal
+        open
+        editTarget={targetB}
+        onClose={onClose}
+        onSaved={onSaved}
+      />,
+    );
+
+    expect(onClose).toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+
+    // Even if the parent ignored onClose, save must not target B.
+    await user.click(screen.getByRole("button", { name: /保\s*存/ }));
+    expect(update).not.toHaveBeenCalled();
+
+    rerender(
+      <CreateProjectModal
+        open={false}
+        editTarget={targetB}
+        onClose={onClose}
+        onSaved={onSaved}
+      />,
+    );
+    rerender(
+      <CreateProjectModal
+        open
+        editTarget={targetB}
+        onClose={onClose}
+        onSaved={onSaved}
+      />,
+    );
+
+    const freshName = screen.getByLabelText("项目名称");
+    expect(freshName).toHaveValue("项目 B");
+    expect(screen.getByLabelText("描述")).toHaveValue("B 描述");
+    expect(screen.getByLabelText("项目指令")).toHaveValue("B 指令");
+
+    await user.clear(freshName);
+    await user.type(freshName, "B 改名");
+    await user.click(screen.getByRole("button", { name: /保\s*存/ }));
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith("project-b", {
+        name: "B 改名",
+        description: "B 描述",
+        instructions: "B 指令",
+      }),
+    );
+    expect(onSaved).toHaveBeenCalledWith({ ...targetB, name: "B 改名" });
+  });
+
+  it("keeps an open edit draft when the target is refreshed with the same id", async () => {
+    stubGetComputedStyle();
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const onSaved = vi.fn();
+    const targetA: ProjectRecord = {
+      ...summary,
+      project_id: "project-a",
+      name: "项目 A",
+      description: "A 描述",
+      instructions: "A 指令",
+      instructions_sha256: "sha-a",
+    };
+    const refreshedA: ProjectRecord = {
+      ...targetA,
+      name: "项目 A（服务端刷新）",
+      description: "A 描述（服务端刷新）",
+    };
+    update.mockResolvedValue({ ...refreshedA, name: "A 草稿" });
+
+    const { rerender } = render(
+      <CreateProjectModal
+        open
+        editTarget={targetA}
+        onClose={onClose}
+        onSaved={onSaved}
+      />,
+    );
+    const name = screen.getByLabelText("项目名称");
+    await user.clear(name);
+    await user.type(name, "A 草稿");
+
+    rerender(
+      <CreateProjectModal
+        open
+        editTarget={refreshedA}
+        onClose={onClose}
+        onSaved={onSaved}
+      />,
+    );
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(name).toHaveValue("A 草稿");
+    expect(screen.getByLabelText("描述")).toHaveValue("A 描述");
+
+    await user.click(screen.getByRole("button", { name: /保\s*存/ }));
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith("project-a", {
+        name: "A 草稿",
+        description: "A 描述",
+        instructions: "A 指令",
+      }),
+    );
+  });
+
+  it("ignores a stale overwrite confirmation from a previous modal session", async () => {
+    stubGetComputedStyle();
+    let staleOnOk: (() => void) | undefined;
+    const confirmSpy = vi
+      .spyOn(Modal, "confirm")
+      .mockImplementation((config) => {
+        staleOnOk = config.onOk;
+        return {
+          destroy: vi.fn(),
+          update: vi.fn(),
+        } as unknown as ReturnType<typeof Modal.confirm>;
+      });
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+
+    const { rerender } = render(
+      <CreateProjectModal
+        open
+        initialTemplateId="requirements"
+        onClose={onClose}
+        onSaved={vi.fn()}
+      />,
+    );
+
+    await user.type(screen.getByLabelText("项目名称"), "自定义项目");
+    await user.click(screen.getByRole("button", { name: /竞品分析/ }));
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(staleOnOk).toBeTypeOf("function");
+
+    rerender(
+      <CreateProjectModal
+        open={false}
+        initialTemplateId={null}
+        onClose={onClose}
+        onSaved={vi.fn()}
+      />,
+    );
+    rerender(
+      <CreateProjectModal
+        open
+        initialTemplateId="knowledge"
+        onClose={onClose}
+        onSaved={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText("描述")).toHaveValue(
+      TEMPLATE_COPY.knowledge.description,
+    );
+
+    act(() => {
+      staleOnOk?.();
+    });
+
+    expect(screen.getByLabelText("项目名称")).toHaveValue("");
+    expect(screen.getByLabelText("描述")).toHaveValue(
+      TEMPLATE_COPY.knowledge.description,
+    );
+    expect(screen.getByLabelText("项目指令")).toHaveValue(
+      TEMPLATE_COPY.knowledge.instructions,
+    );
+    expect(screen.getByRole("button", { name: /团队知识库/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: /竞品分析/ })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
   });
 
   it("frames the home introduction as one labelled region with a single h1", async () => {
