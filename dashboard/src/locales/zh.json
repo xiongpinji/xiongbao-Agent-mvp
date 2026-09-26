@@ -583,6 +583,7 @@
       "createInstructionNoticeFiles": "项目所有者或管理员编写的指令可能要求执行操作；受控文件任务只能使用 ls/read_file/write_file/edit_file/glob/grep，无终端、浏览器、连接器、子 Agent 或其他个人工具。",
       "createFilesSuccess": "已创建受控文件任务（无终端），正在前往任务。",
       "createFilesMissingRuntime": "服务端未返回私有任务运行标识，已取消跳转；请刷新列表后重试或联系管理员。",
+      "createFilesCapabilityLost": "受控文件任务（无终端）能力已失效，本次提交已阻止，未创建任何任务；正在重新检查能力，如改用普通对话任务请重新确认。",
       "filesTag": "受控文件任务（无终端）",
       "filesTaskHint": "仅本任务私有文件；无终端、浏览器、连接器或云端执行。",
       "filesCapabilityChecking": "正在检查受控文件任务能力…",

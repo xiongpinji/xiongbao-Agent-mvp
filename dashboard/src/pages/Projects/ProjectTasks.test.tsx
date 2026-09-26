@@ -2342,6 +2342,12 @@ describe("project task locale parity", () => {
     }
     expect(zh.projects.tasks.filesTag.trim().length).toBeGreaterThan(0);
     expect(en.projects.tasks.createModeFiles.trim().length).toBeGreaterThan(0);
+    expect(
+      zh.projects.tasks.createFilesCapabilityLost.trim().length,
+    ).toBeGreaterThan(0);
+    expect(
+      en.projects.tasks.createFilesCapabilityLost.trim().length,
+    ).toBeGreaterThan(0);
     expect(Object.keys(zh.projects.taskComposer).sort()).toEqual(
       Object.keys(en.projects.taskComposer).sort(),
     );

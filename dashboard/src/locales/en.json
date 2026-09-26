@@ -583,6 +583,7 @@
       "createInstructionNoticeFiles": "Project owners or admins may write instructions that ask you to execute actions; a controlled file task can only use ls/read_file/write_file/edit_file/glob/grep, with no terminal, browser, connectors, sub-agents or other personal tools.",
       "createFilesSuccess": "Controlled file task created. Opening the task.",
       "createFilesMissingRuntime": "The server did not return the private task runtime id, so navigation was cancelled. Refresh the list and retry, or contact an administrator.",
+      "createFilesCapabilityLost": "Controlled file task capability is no longer available. Nothing was created. Checking again; confirm again if you choose a standard chat task.",
       "filesTag": "Controlled file task (no terminal)",
       "filesTaskHint": "Only this task's private files; no terminal, browser, connectors or cloud execution.",
       "filesCapabilityChecking": "Checking controlled file task availability…",
