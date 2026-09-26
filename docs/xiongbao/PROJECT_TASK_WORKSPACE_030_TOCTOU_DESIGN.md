@@ -1,6 +1,6 @@
 # 030A · 路径检查-使用竞态（TOCTOU）与重解析点激活风险安全设计（仅设计）
 
-状态：**设计文档，不含任何生产代码或测试改动。** 固定基线 `f56c33472074bd1399cd94a3e5bc867ed8ca22e6`；本文件是该基线上唯一变更。`PROJECT_TASK_FILES_MODE_ENABLED = False`（`src/octop/infra/projects/file_tasks.py:22`）保持不变；普通 Agent 行为与功能开关不在本设计内改动。本设计**不是**完整 OS 沙箱方案，也不得被引用为沙箱证明。
+状态：**设计文档，不含任何生产代码或测试改动。** 首稿固定基线 `f56c33472074bd1399cd94a3e5bc867ed8ca22e6`；GLM 对首稿 `43fb1ac0` 判定 `repair design` 后，Codex 按其两项 P2 和安装版工具 schema 证据修订本文件。`PROJECT_TASK_FILES_MODE_ENABLED = False`（`src/octop/infra/projects/file_tasks.py:22`）保持不变；普通 Agent 行为与功能开关不在本设计内改动。本设计**不是**完整 OS 沙箱方案，也不得被引用为沙箱证明。
 
 **给 Codex / GLM 的决策摘要：**
 
@@ -26,7 +26,8 @@
 | `[DOC]` | 仓库内既有验收/审查文档记录（附文件名） |
 | `[DEP-TASK]` | 任务书提供的已安装依赖事实。**本会话无法读取安装源**（工作树无 `.venv`；`python3`/`uv run`/WebFetch 均被权限拒绝）——按任务指示采用并标注缺失源 |
 | `[DEP-TEST]` | 仓库测试对已安装依赖行为的实证（测试即证据，但未读依赖源码） |
-| `[PLATFORM]` | 公认操作系统/CPython 平台事实（本会话未执行验证；实现时按 §7.5 IT-2 复核） |
+| `[CODEX-DEP]` | Codex 在 Windows 固定 Python 3.12 环境直接读取安装版 `deepagents` 源码；原作者与 GLM 的首轮审查没有该源码访问，仍需在真实 harness 实例上核对 |
+| `[PLATFORM]` | 公认操作系统/CPython 平台事实（本会话未执行验证；实现时按 §6.2 IT-2 复核） |
 | `[PROPOSAL]` | 本设计提议的新行为（尚不存在） |
 | `[UNVERIFIED]` | 未验证假设，实现前必须核实 |
 
@@ -35,7 +36,7 @@
 - 版本钉住：`deepagents 0.7.9`（transitive-only）`[CODE uv.lock:858-872]`；`harness-agent 1.0.14` `[DOC M0_ACCEPTANCE]`；Python 3.12+ `[CODE AGENTS.md §3]`。
 - 检查时刻解析器：`resolve_project_task_workspace_path` 用 `Path(root).expanduser().resolve()` + `(root/rel).resolve()` + `relative_to` 包含证明 `[CODE src/octop/infra/backend/project_task_file_paths.py:58-78]`。
 - HTTP 严格入口：`project_task_file_io_path` 拒绝 `\\`、`//`、混合 UNC、`from_workspace=False`，再委托解析器 `[CODE src/octop/api/common/workspace.py:160-188]`。
-- 依赖行为（任务书事实）：已安装 `FilesystemBackend` resolve-first；POSIX 上对**部分最终文件**用 `os.open(O_NOFOLLOW)`；父路径/列举/glob/grep 与 Windows 存在缺口 `[DEP-TASK]`。**缺失源标注：本会话未能读取 `deepagents/backends/filesystem.py` 安装副本；逐方法防护覆盖度为 `[UNVERIFIED]`，由 §7.5 IT-1 在实现切片开工前补齐。**
+- 依赖行为（任务书事实）：已安装 `FilesystemBackend` resolve-first；POSIX 上对**部分最终文件**用 `os.open(O_NOFOLLOW)`；父路径/列举/glob/grep 与 Windows 存在缺口 `[DEP-TASK]`。原作者无法读取安装副本；Codex 后续已读取 `deepagents/backends/filesystem.py:182-224, 266, 414-617, 1272-1408` 与 `deepagents/middleware/filesystem.py:1102-1204` `[CODEX-DEP]`，但逐方法安全覆盖度与真实 harness 注入仍须按 IT-1 复核。
 - 依赖行为（仓库测试实证）：backend 拒绝 `..` 遍历（ValueError）`[DEP-TEST tests/unit/backend/test_project_task_file_paths.py:151-161]`；拒绝宿主绝对路径读 `[:164-176]`；POSIX symlink 逃逸读 → ValueError `[:179-191]`；Windows junction 逃逸读 → 拒绝或无 canary `[:194-210]`；`BackendWorkspace` 相对遍历 → PermissionError `[:213-224]`；POSIX 宿主绝对回退**能读到 canary**（因此必须由 Octop 解析器先拒）`[:227-241]`；`BackendWorkspace` symlink 逃逸 → PermissionError `[:244-257]`。
 - 已认证 HTTP junction 拒绝（真实 NTFS junction、fail-loud）`[CODE tests/integration/test_project_task_files_workspace.py:348-462]`；POSIX symlink HTTP 拒绝含写入无外侧副作用 `[:299-345]`。
 - glob 无 backend 内部包含证明（仓库自注）：`"globs have no containment proof inside the backend glob itself"` `[CODE src/octop/api/routers/workspace.py:582-585]`。
@@ -56,11 +57,11 @@
 
 | # | 主体 | 能力 | 信任级别 |
 |---|------|------|----------|
-| P1 | **不可信模型**（runtime 内的 LLM；可被任务内容、项目指令注入、读到的文件字节提示注入） | 仅可调用六工具（边界中间件在执行入口否决伪造调用 `[CODE boundary.py:107-142]`）；可用 `write_file/edit_file` 在根内创建/覆盖**常规文件**；可任选相对路径字符串（含 `..`、通配符）。**不能**经六工具或任何允许入口创建符号链接、junction、硬链接、FIFO、套接字（无此工具面；无 shell） | 敌对 |
+| P1 | **不可信模型**（runtime 内的 LLM；可被任务内容、项目指令注入、读到的文件字节提示注入） | 仅可调用六工具（边界中间件在执行入口否决伪造调用 `[CODE boundary.py:107-142]`）；可用 `write_file/edit_file` 在根内创建/覆盖**常规文件**；可任选虚拟路径字符串（工具 schema 要求单个前导 `/`，`glob/grep` 可省略基路径；见 S4）。**不能**经六工具或任何允许入口创建符号链接、junction、硬链接、FIFO、套接字（无此工具面；无 shell） | 敌对 |
 | P2 | **远程已认证 API 调用者——所有者本人** | 门禁允许清单上的 11 类路由（tree/file 读写/download/doc 读写/upload/glob/grep/preview/threads 历史）；可写入任意字节到根内常规文件。**不能**创建重解析点（无端点；mkdir/delete/move/archive 对内部 runtime 全员拒绝 `[CODE routers/workspace.py:45-56]`；聊天附件被 turn 预检与门禁双重拒绝） | 半信任（对自己的根有完全意图，但不能越出） |
 | P3 | **其他用户/管理员/`as_user`/项目成员/分享读者** | 内部 runtime 的默认拒绝门禁：非 owner 一律 403，管理员与代入亦拒 `[CODE project_task_file_gate.py:167-188]`；分享卡片不含文件 | 敌对（越权面） |
-| P4 | **同 OS 账户的其他本地进程** | 可在根内植入/交换 symlink、junction、硬链接、FIFO；可**直接**读写 `~/.octop` 全部字节（包括本根、数据库、其他任务根） | 合同明确排除在 030A 隔离声明之外 `[DOC CONTRACT L29]` |
-| P5 | **其他 OS 账户的本地进程** | POSIX：根 0700 且随建随 chmod `[CODE paths.py:123-129]` → 无法进入；Windows：根位于用户 profile 下，继承默认 ACL `[UNVERIFIED——Windows ACL 实测未做]`。若部署把 `~/.octop` 放到宽松 ACL 的共享存储，P5 退化为 P4 | 敌对（应被 OS 权限挡住） |
+| P4 | **同 OS 账户的其他进程**，包括普通 Octop Agent 的 shell/execute 子进程 | 可在根内植入/交换 symlink、junction、硬链接、FIFO；可**直接**读写 `~/.octop` 全部字节（包括本根、数据库、其他任务根）。普通 Agent 的用户可远程触发这类同账户进程，不能把 P4 简称为只有部署者能接触的“本地进程” | 合同明确排除在 030A 隔离声明之外 `[DOC CONTRACT L29]`；激活时须把这一可远程触发的事实交由所有者显式接受 |
+| P5 | **其他 OS 账户的本地进程** | POSIX：叶子任务根 0700 且随建随 chmod `[CODE paths.py:123-129]` → 无法进入；父目录由 `mkdir(parents=True)` 按 umask 建立，可能可枚举任务 ID。Windows：根位于用户 profile 下，继承默认 ACL `[UNVERIFIED——Windows ACL 实测未做]`。若部署把 `~/.octop` 放到宽松 ACL 的共享存储，P5 可能获得植入能力 | 敌对（应被 OS 权限挡住；ACL/部署根须实测） |
 
 **关键推论（诚实陈述）**：能制造“检查-使用交换”的主体只有 P4（P1/P2 无法创建重解析点，P3 无入口，P5 应被 OS 权限挡住）。而 P4 已经可以直接读取服务器进程能读的一切——TOCTOU 对 P4 **不产生权限增益**（confused-deputy 的收益上限 = P4 已有的同账户文件系统权限）。因此本竞态的实际安全意义是：(i) 防止**部署假设被打破**时（ACL 配置错误、共享 `~/.octop`、未来 030B 用户自选目录复用同一代码路径）检查时刻防线被绕过；(ii) 满足合同的显式激活条款（no-follow 或禁止不安全入口）；(iii) 把“持久植入”变为确定性拒绝，使植入行为可测、可审计、可 fail-closed，而不是依赖窗口输赢。
 
@@ -69,8 +70,8 @@
 **B+ 落地后能声明（可证伪，见 §6.3 验收表）：**
 
 - C1 非 owner（含管理员/`as_user`/分享读者）对内部 runtime 的全部 HTTP/WS 面默认拒绝。
-- C2 路径形状包含：宿主绝对/驱动器/UNC/`file://`/`~`/`..`/NUL/编码遍历形状在触达 backend 前被拒（两平台）。
-- C3 **确定性重解析拒绝**：任何已存在的 symlink/junction 出现在操作路径的任一**字面**组件（含根本身）⇒ 该操作被拒（HTTP 403 internal / 工具 error ToolMessage），零外侧字节服务、零外侧副作用（两平台）。
+- C2 路径形状包含：HTTP 宿主绝对/驱动器/UNC/`file://`/`~`/`..`/NUL/编码遍历形状在触达 backend 前被拒；工具侧的**单个前导 `/` 是根内虚拟路径**，须保留其合法语义并单独拒绝双前导分隔符与宿主路径（两平台）。
+- C3 **检查时刻的确定性重解析拒绝**：在文件系统保持稳定的前提下，任何已存在的 symlink/junction 出现在操作路径的任一**字面**组件（含运行中被顶替的根本身）⇒ 该操作被拒（HTTP 403 internal / 工具 error ToolMessage），零外侧字节服务、零外侧副作用（两平台）。瞬时替换仍属 N3，不得把 C3 写成 use-time 证明。
 - C4 列举类操作（`ls`/tree/glob/grep）要求请求基子树在检查时刻**无重解析点**（有界扫描，超限 fail-closed 拒绝），否则整体拒绝。
 - C5 内容操作的最终组件必须是常规文件或目录（FIFO/套接字/设备文件拒绝——POSIX；Windows 对应非常规属性拒绝）。
 - C6 托管根创建与启动验证证明根是**真实目录**（非 junction/symlink 顶替）。
@@ -82,9 +83,9 @@
 - N1 **Windows 上无 use-time 竞态免疫**：Python stdlib 在 Windows 无 `O_NOFOLLOW`、无 `dir_fd` 家族 `[PLATFORM os.supports_dir_fd 在 Windows 为空]`；已安装 backend 按路径打开（跟随重解析）。B+ 的检查同样是检查时刻。
 - N2 **POSIX 上父组件与列举无 use-time 免疫**：依赖仅对部分最终文件 `O_NOFOLLOW` `[DEP-TASK]`（具体哪些方法 `[UNVERIFIED]`）；父目录组件替换、`ls/glob/grep` 行走替换仍是窗口。
 - N3 瞬时替换竞态（P4 在检查与打开之间并发交换）未被消灭，仅被收窄为“必须赢得 OS 级竞态且逐操作重复赢”，且利用者被限定为合同排除的 P4。
-- N4 不是 OS 沙箱；不隔离 P4；不覆盖硬链接内容的**语义**防护为可选项（§6.1 S7，默认关）。
+- N4 不是 OS 沙箱；不隔离 P4；硬链接内容的语义防护按 §5.2 S7 **默认开**，若目标平台无法可靠验证链接计数则 fail-closed，不静默降级。
 - N5 重解析点矩阵不完整：本设计测试目录 junction、目录/文件 symlink；卷挂载点（Volume Mount Point）、GUID 卷路径、WSL drvfs/9p 跨界链接、NTFS 压缩/加密属性交互未测（属独立门禁“完整重解析点矩阵”）。
-- N6 已安装依赖逐方法内部行为未读源确认（IT-1 前置义务）。
+- N6 Codex 已读取安装版源码与六工具 schema，但逐方法 `O_NOFOLLOW` 覆盖、真实 harness 构造与目标平台语义仍须完成 IT-1/IT-2，不能凭文档推断通过。
 
 ---
 
@@ -113,7 +114,7 @@ HTTP 面:  raw query/body
 
 ### 3.2 工具面逐操作 trace（六工具）
 
-实参名以安装版 schema 为准；`write_file` 已有 `file_path` 证据 `[DEP-TEST boundary 测试:347]`，其余 `[UNVERIFIED→IT-1]`。最终 OS 操作按依赖任务事实与仓库测试推断，标注等级。
+实参名以安装版 schema 为准；`write_file` 的 `file_path` 有仓库测试证据 `[DEP-TEST boundary 测试:347]`，六工具字段与可选性又由 Codex 直接读安装版 schema `[CODEX-DEP middleware/filesystem.py:1102-1204]`；真实 harness 构造仍待 IT-1 核对。最终 OS 操作按依赖任务事实与仓库测试推断，标注等级。
 
 | 工具 | 原始输入 | Octop 现有检查 | 依赖内部（推断） | 最终 OS 操作 | 依赖 use-time 防护 | 窗口 |
 |------|----------|----------------|------------------|--------------|--------------------|------|
@@ -121,8 +122,8 @@ HTTP 面:  raw query/body
 | `read_file(path)` | 相对片段 | 仅名字白名单 | resolve-first；POSIX 部分最终文件 `os.open(O_NOFOLLOW)` `[DEP-TASK]` | `open`+`read` | POSIX 末组件（若此方法在“部分”之列 `[UNVERIFIED]`）；Windows 无 | L5→open（POSIX 父组件仍开） |
 | `write_file(path,content)` | 相对片段+字节 | 仅名字白名单 | resolve-first；创建父目录与否 `[UNVERIFIED]`；O_NOFOLLOW 覆盖 `[UNVERIFIED]` | `open(O_WRONLY\|O_CREAT…)`+`write` | 同上未验证 | L5→open/create；父目录 mkdir 序列 |
 | `edit_file(path,old,new)` | 相对片段+串 | 仅名字白名单 | 读-替换-写；原子性（temp+rename 还是就地 truncate）`[UNVERIFIED]` | 至少两次打开（读、写） | 同上未验证 | 读窗口 + 写窗口（两个独立 check→use） |
-| `glob(pattern,path)` | 通配模式+基路径 | 仅名字白名单 | resolve-first；**glob 行走无包含证明** `[CODE routers/workspace.py:582-585 自注]` | 递归枚举 + fnmatch（`**` 是否进入 symlink 目录 `[UNVERIFIED]`） | 无 | 整个行走 |
-| `grep(pattern,path)` | 正则+基路径 | 仅名字白名单 | 行走 + 逐候选文件读取 | 枚举 + 每文件 `open`+`read` | 逐文件同 read（未验证） | 行走 + 每文件打开 |
+| `glob(pattern,path?)` | 通配模式+可选基路径；省略即 backend 根 | 仅名字白名单 | resolve-first；**glob 行走无包含证明** `[CODE routers/workspace.py:582-585 自注]` | 递归枚举 + fnmatch（`**` 是否进入 symlink 目录 `[UNVERIFIED]`） | 无 | 整个行走 |
+| `grep(pattern,path?)` | 文字模式+可选基路径；省略即 backend 根 | 仅名字白名单 | 行走 + 逐候选文件读取 | 枚举 + 每文件 `open`+`read` | 逐文件同 read（未验证） | 行走 + 每文件打开 |
 
 **工具面结论**：Octop 目前在工具面对路径**零检查**（白名单只管名字）；唯一防线全在安装依赖内部（三层检查时刻 + 不确定的 POSIX 末组件 use-time）。B+ 的 S4（工具路径否决）是首次把 L3 级严格策略带到工具面。
 
@@ -199,16 +200,16 @@ HTTP 面:  raw query/body
 
 规则（全部为 Octop 代码、纯 lstat/stat 级、双平台同一实现）：
 
-- **S1 逐组件拒绝**：对操作相对片段的每个**字面**组件做无跟随检测（POSIX：`os.lstat` + `S_ISLNK`；Windows：`st_reparse_tag != 0` 或 `is_symlink()/is_junction()`）；任一组件是重解析点 ⇒ `ProjectTaskPathError` ⇒ HTTP 403 internal / 工具 error ToolMessage。
+- **S1 根优先的逐组件拒绝**：**每次** HTTP/工具操作在 `root.resolve()` 之前先 `lstat` 验证托管根本身及其受管父目录是真实目录，再从该根对操作相对片段的每个**字面**组件做无跟随检测（POSIX：`os.lstat` + `S_ISLNK`；Windows：`st_reparse_tag != 0` 为主，辅以 `is_junction()`；不能只用 `is_symlink()`，它不等于 junction 检测）。任何重解析点、探测错误或不可证明类型 ⇒ fail-closed；运行中根被替换也必须在下次操作的第一道检查被拒。创建新文件/父目录时第一个 `ENOENT` 结束现存组件行走，后续组件在此检查时刻不存在；不能把缺失路径当成已经证明可安全打开。所有检查仍有 N3 瞬时竞态。
 - **S2 最终组件类型核对**：内容操作（read/write/edit/download/doc/preview/upload）最终组件若存在，必须是常规文件（POSIX `S_ISREG`；Windows 无目录/重解析属性）；目录操作必须是真实目录。FIFO/套接字/设备/链接一律拒绝。
-- **S3 列举证明**：`ls`/tree/glob/grep 在派发前对请求基子树做**无跟随有界扫描**（`os.scandir` + `entry.is_symlink(follow_symlinks=False)`/`DirEntry.stat(follow_symlinks=False)` + Windows reparse 属性；条目上限如 50 000，超限 fail-closed 503）；发现任何重解析点 ⇒ 整体拒绝。通配 pattern 无法逐组件 lstat 的问题由本子树扫描覆盖（扫描的是基路径子树，pattern 只在其中匹配）。
-- **S4 工具路径否决**：边界中间件在名字白名单之后增加路径否决——按 IT-1 钉住的真实 schema 提取各工具路径参数，逐个执行 normalize + resolve + S1/S2（列举类另加 S3）；**无法识别的实参形状 fail-closed 拒绝**（新的伪造面不能因 schema 漂移而放行）。中间件构造时注入 root（`apply_project_task_file_boundary` 已持有 root_dir `[CODE boundary.py:145-180]`）。
-- **S5 根建立验证**：`ensure_project_task_file_runtime_dir` 建成后 lstat 验证根为真实目录（非重解析、正确类型；POSIX 另以 `O_DIRECTORY|O_NOFOLLOW` 打开探针 + fstat，复用 `_ensure_private_dir` 语义 `[CODE asset_storage.py:108-130]`——因 utils 不得 import projects `[CODE AGENTS.md §5 硬禁令]`，抽取到新 `infra/utils/safe_dirs.py`，asset_storage 本次**不**重构）。`exist_ok` 命中既存路径时同样验证，失败 ⇒ 抛错 ⇒ 创建流程走既有补偿。
+- **S3 列举证明**：`ls`/tree/glob/grep 在派发前对请求基子树做**无跟随有界扫描**（`os.scandir` + `entry.is_symlink()`，无 `follow_symlinks` 参数；`DirEntry.stat(follow_symlinks=False)` + Windows `st_reparse_tag`/junction 核对；条目上限如 50 000，超限 fail-closed 503）；发现任何重解析点 ⇒ 整体拒绝。Windows junction 不能只靠 `is_symlink()`。通配 pattern 无法逐组件 lstat 的问题由本子树扫描覆盖（扫描的是基路径子树，pattern 只在其中匹配）。HTTP `/workspace/glob` 的 `("**/*.md", "*.md")` 快捷分支调用 `ws.als(".")`，也必须在分支前完成 S3，不能只保护 `ws.aglob`。
+- **S4 工具路径否决**：边界中间件在名字白名单之后增加路径否决，但**工具虚拟路径与 HTTP 路径是不同合同**。Codex 已从安装版 `deepagents/middleware/filesystem.py:1102-1204` 核出：`ls.path`、`read_file/write_file/edit_file.file_path` 需要单前导 `/` 的虚拟绝对路径；`glob.path`、`grep.path` 为可选 `None`（省略时为 backend 根），`glob.pattern` 的前导 `/` 是虚拟搜索根锚点；`grep.glob` 也是 glob 过滤模式而不是待打开路径。先按工具名识别合法参数及类型：一个前导 `/` 转成根内相对片段，`/` 仅可作为目录/搜索根；省略可选 `glob/grep.path` 映射根；双前导分隔符、反斜杠/UNC、驱动器、`file://`、`~`、独立 `..` 组件、NUL 和未知/错误类型均拒绝。仅 `glob.pattern`/`grep.glob` 做与虚拟路径语义相符的模式/遍历检查；`grep.pattern` 是文字内容，**不得**当文件路径检查。模式字段不能送入文件路径 normalizer；转换后的路径才执行 S1/S2/S3。保留 HTTP 的独立 `project_task_file_io_path` 规则，不能把现有拒绝单前导 `/` 的 `normalize_project_task_io_path` 原样套到工具参数，否则六工具合法调用会被误拒。中间件构造时注入 root（`apply_project_task_file_boundary` 已持有 root_dir `[CODE boundary.py:145-180]`）。
+- **S5 根建立验证**：`ensure_project_task_file_runtime_dir` 建成后 lstat 验证根及受管父目录是真实目录（非重解析、正确类型；POSIX 另以 `O_DIRECTORY|O_NOFOLLOW` 打开探针 + fstat，复用 `_ensure_private_dir` 语义 `[CODE asset_storage.py:108-130]`——因 utils 不得 import projects `[CODE AGENTS.md §5 硬禁令]`，抽取到新 `infra/utils/safe_dirs.py`，asset_storage 本次**不**重构）。`exist_ok` 命中既存路径时同样验证。验证失败须抛 `OSError` 子类（如 `NotADirectoryError`），与 `manager.py:833-843` 的补偿捕获合同一致；若另选异常类型，必须同步修补创建与重启两处捕获，不能留下 500/孤儿行。
 - **S6 启动验证增强**：`_verify_project_task_runtime` 增加根 lstat 真实目录核对（失败 ⇒ False ⇒ 既有补偿路径）。
 - **S7 硬链接拒绝（默认开，决策点）**：内容操作最终组件 `st_nlink > 1` ⇒ 拒绝。根内无任何合法产生 nlink>1 的入口，误报面为零；防 P4 硬链接植入在部署假设破裂时变成读通道。
 - **S8 删除安全测试化**：不改 `rmtree` 调用（语义已正确 `[PLATFORM]`），补 RD-6 确定性证明。
 
-**B+ 确定性消灭**：持久植入类（含根本体顶替、列举穿链、非常规文件、硬链接[若 S7 开]）——两表面、两平台、可测。
+**B+ 在稳定文件系统下确定性拒绝**：持久植入类（含运行中的根本体顶替、列举穿链、非常规文件、硬链接[若 S7 开]）——两表面、两平台、可测；瞬时替换不在这一保证内。
 **B+ 残余**：瞬时替换竞态（仅 P4 可利用，合同排除）；Windows 与 POSIX 列举/父组件无 use-time 防护（N1/N2 原样成立）。
 **成本**：内容操作 +O(深度) 次 lstat；列举 +O(子树) 次无跟随 stat（有上限）。任务根为个人任务目录，规模小；深扫描按 AGENTS.md“async 内不做阻塞 I/O”规则可入 executor（与现有解析器内联 `resolve()` 的既有模式一致，浅操作可内联）。
 **平台覆盖**：S1-S7 只依赖 `os.lstat/os.scandir/stat` 常量与 3.12 的 `is_junction`——Linux 与 Windows 行为一致；不可检测平台 ⇒ fail-closed（§8.3）。
@@ -239,9 +240,9 @@ HTTP 面:  raw query/body
 
 | # | 文件 | 变更 | 边界合规 |
 |---|------|------|----------|
-| S1/S2/S3 | `src/octop/infra/backend/project_task_file_paths.py` | 新增 `assert_plain_components(root, rel, *, wildcard_tail=False)`、`assert_plain_final(root, rel, kind)`、`assert_listing_subtree_reparse_free(base, *, max_entries)`；`resolve_project_task_workspace_path` 末尾默认调用 S1（对既有测试向后兼容：拒绝用例仍抛 `ProjectTaskPathError`，正例树是干净的） | infra/backend，纯 stdlib ✅ |
-| S3 调用点 | `src/octop/api/routers/workspace.py`（tree :201-211、glob :567-604、grep :607-625）与 `src/octop/api/common/workspace.py`（`project_task_file_io_path` 保持签名，内部获得 S1/S2） | 列举路由在 `ws.als/aglob/agrep` 前调用列举证明（仅 `root is not None` 分支） | api 薄层调 infra ✅ |
-| S4 | `src/octop/infra/agents/project_task_file_boundary.py` | `ProjectTaskFileToolBoundaryMiddleware.__init__(root)`；`_path_veto(request)` 按 IT-1 钉住的 schema 提取路径参数并执行 normalize+resolve+S1/S2（+S3 对 ls/glob/grep）；未识别形状 ⇒ 拒绝；`apply_project_task_file_boundary` 传入 root | infra/agents ✅（manager.py 构造处一行改动） |
+| S1/S2/S3 | `src/octop/infra/backend/project_task_file_paths.py` | 新增根优先的 `assert_plain_components(root, rel, *, wildcard_tail=False)`、`assert_plain_final(root, rel, kind)`、`assert_listing_subtree_reparse_free(base, *, max_entries)`；`resolve_project_task_workspace_path` 在 `root.resolve()` **之前**调用 S1（对既有测试向后兼容：拒绝用例仍抛 `ProjectTaskPathError`，正例树是干净的） | infra/backend，纯 stdlib ✅ |
+| S3 调用点 | `src/octop/api/routers/workspace.py`（tree :201-211、glob :567-604、grep :607-625）与 `src/octop/api/common/workspace.py`（`project_task_file_io_path` 保持签名，内部获得 S1/S2） | 列举路由在 `ws.als/aglob/agrep` **及 glob 的 md 快捷 `ws.als`** 前调用列举证明（仅 `root is not None` 分支） | api 薄层调 infra ✅ |
+| S4 | `src/octop/infra/agents/project_task_file_boundary.py` | `ProjectTaskFileToolBoundaryMiddleware.__init__(root)`；`_path_veto(request)` 按 S4 的真实 schema 将单前导 `/` 虚拟路径或可选默认根转为根内片段，再执行 S1/S2（+S3 对 ls/glob/grep）；未知形状 ⇒ 拒绝；`apply_project_task_file_boundary` 传入 root | infra/agents ✅（manager.py 构造处一行改动） |
 | S5 | 新 `src/octop/infra/utils/safe_dirs.py` + `src/octop/infra/utils/paths.py:123-129` | `assert_plain_directory(path)`（lstat 类型+重解析核对；POSIX 加 O_NOFOLLOW 目录探针）；`ensure_project_task_file_runtime_dir` 建成后调用 | utils 仅 stdlib ✅ |
 | S6 | `src/octop/infra/agents/manager.py:989-1073` | `_verify_project_task_runtime` 增加根 lstat 真实目录核对（失败→False→既有补偿） | ✅ |
 | S7 | 并入 S2 的最终组件核对 | `st_nlink>1` 拒绝（决策点：Codex 可裁撤） | ✅ |
@@ -250,7 +251,7 @@ HTTP 面:  raw query/body
 
 ### 6.2 实现时核实义务（先于任何 RED→GREEN）
 
-- **IT-1（缺失源补齐）**：在可运行 venv 的环境读取安装的 `deepagents/backends/filesystem.py`（0.7.9）与 harness 六工具 schema：钉住 (a) 哪些方法用 `O_NOFOLLOW`；(b) ls/glob/grep 的枚举与 stat 跟随性；(c) write 是否创建父目录；(d) edit 的原子性；(e) 六工具真实参数名/必填性。任何与 `[DEP-TASK]` 事实的偏差 ⇒ 回报 Codex，重开本设计对应行。
+- **IT-1（安装源码与调用合同）**：Codex 在 Windows 固定 Python 3.12 venv 已读取安装的 `deepagents/backends/filesystem.py` 与 `deepagents/middleware/filesystem.py`，核出了 §5.2 S4 的六工具字段、单前导 `/` 虚拟路径及可选 `glob/grep.path`；这些事实来自安装源码检查，不是该文档原作者或 GLM 的实测。实现前还须在实际构造的 harness 工具上断言 schema，并补齐 (a) 各方法 `O_NOFOLLOW` 覆盖；(b) ls/glob/grep 枚举与 stat 跟随性；(c) write 是否创建父目录；(d) edit 的原子性。任何与 `[DEP-TASK]` 事实的偏差 ⇒ 回报 Codex，重开对应设计行。
 - **IT-2**：确认目标 Python（≥3.12）上 `Path.is_junction()`、`os.lstat().st_reparse_tag`、Windows `st_ino/st_dev` 填充行为 `[PLATFORM 标签复核]`。
 
 ### 6.3 逐操作验收表（可证伪；两平台；“植入”=在所述位置预先创建持久 symlink[POSIX]/junction[Windows，fail-loud helper]）
@@ -264,7 +265,7 @@ HTTP 面:  raw query/body
 | A3 | `write_file`/`edit_file`（工具） | 中间或最终组件链接 | TM-err；外侧无新文件/字节不变 | 同左 | 干净写/编辑成功且落根内 |
 | A4 | `ls`（工具）/ tree（HTTP） | 基子树内**任意位置**有链接 | TM-err / 403i（S3 扫描命中，即使链接不在请求路径字面组件上） | 同左 | 干净树列举成功；**兄弟子树**有链接不影响本子树列举（防过度拒绝） |
 | A5 | `glob`/`grep`（工具与 HTTP） | 基子树内有链接；或 pattern 字面前缀组件是链接 | TM-err / 403i | 同左 | 干净匹配成功；`**` 不穿出根 |
-| A6 | 工具实参形状 | 未知/缺失路径参数、绝对路径、`..`、UNC、NUL | TM-err（fail-closed，schema 漂移不放行） | 同左 | 已知形状正常派发 |
+| A6 | 工具实参形状 | 未知/错误类型/必填路径缺失、双前导分隔符、驱动器、`..`、UNC、NUL | TM-err（fail-closed，schema 漂移不放行） | 同左 | 单前导 `/note.txt` 等合法虚拟路径正常派发；`glob/grep` 省略可选 `path` 在根内正常搜索；`glob.pattern` 前导 `/` 仍表示虚拟根锚定 |
 | A7 | GET `/workspace/file`、`/download`、`/doc`、`/media/preview`（HTTP，owner 认证） | 最终/中间组件链接 | 403i；响应无 canary | 同左 | 200 + 正确字节 |
 | A8 | PUT `/workspace/file`、`/doc`、POST `/upload`（HTTP） | 目标路径经链接指外侧（含“外侧已存在文件覆盖写”——补 GLM P3 #3 缺口） | 403i；外侧文件字节不变；无新建 | 同左 | 200/201 + 字节落根内 |
 | A9 | 任一内容操作 | 最终组件 = FIFO/套接字（POSIX）；nlink>1 硬链接（S7，两平台） | 403i / TM-err | 硬链接形态同左（FIFO 不适用，标 skip） | 常规文件正常 |
@@ -273,6 +274,7 @@ HTTP 面:  raw query/body
 | A12 | 整任务删除/补偿 | 根内有链接 | rmtree 只删链接；外侧树完整（canary 在）；根消失 | 同左（junction） | 干净根整树删除 |
 | A13 | 列举扫描上限 | 子树条目 > 上限 | 503u（fail-closed，不静默放行） | 同左 | 上限内正常 |
 | A14 | 普通 Agent 回归 | 普通 workspace 内有 symlink | **行为不变**（不因 B+ 拒绝；legacy 映射分支零改动） | 同左 | 既有套件全绿 |
+| A15 | **运行中的根顶替**（HTTP 与六工具） | 创建/启动验证后，根本身被稳定替换为 junction/symlink 指向外侧；随后分别执行读、写、ls、glob | 403i / TM-err；响应无 canary、外侧零副作用 | 同左 | 摘除链接并恢复真实根后，干净操作恢复成功 |
 
 每行都是确定性断言（植入持久存在，检查与使用时刻都能看见）——这正是 B+ 的可证伪声明边界；瞬时竞态行不存在于验收表（见 §7.3 分类）。
 
@@ -285,20 +287,20 @@ HTTP 面:  raw query/body
 ### 7.1 确定性单元/集成（门禁级，RED 先行）
 
 - **RD-1 解析器组件拒绝矩阵**（`tests/unit/backend/test_project_task_file_paths.py` 扩展）：S1/S2/S7 对中间组件链接、最终组件链接、FIFO、硬链接、干净正例；A13 上限。
-- **RD-2 HTTP 全路由植入拒绝 + 正例**（`tests/integration/test_project_task_files_workspace.py` 扩展，复用 `_ws_ctx/_forbidden/_never_served`）：A7/A8 全部路由 × {最终组件链接、中间组件链接}，断言 403i、canary 缺席、外侧零副作用；随后移除植入断言 200 正例（证明拒绝不是把功能弄坏）。**补 GLM P3 #3**：junction 下外侧**已存在**文件的覆盖写拒绝。
+- **RD-2 HTTP 全路由植入拒绝 + 正例**（`tests/integration/test_project_task_files_workspace.py` 扩展，复用 `_ws_ctx/_forbidden/_never_served`）：A7/A8 全部路由 × {最终组件链接、中间组件链接}，以及 A15 **运行中根顶替**，断言 403i、canary 缺席、外侧零副作用；随后移除植入断言 200 正例（证明拒绝不是把功能弄坏）。**补 GLM P3 #3**：junction 下外侧**已存在**文件的覆盖写拒绝。
 - **RD-3 列举证明**：A4/A5，含“兄弟子树链接不拒绝”防过度拒绝用例。
-- **RD-4 工具边界路径否决**（`tests/unit/agents/test_project_task_file_boundary.py` 扩展 + 以真实 harness 工具集构造的集成用例，无 live provider）：A1-A6、A9；handler spy 未执行断言沿用既有模式 `[:230-238]`；实参 schema 以 IT-1 钉住值参数化，另加“未知 schema ⇒ 拒绝”用例。
+- **RD-4 工具边界路径否决**（`tests/unit/agents/test_project_task_file_boundary.py` 扩展 + 以真实 harness 工具集构造的集成用例，无 live provider）：A1-A6、A9、A15；handler spy 未执行断言沿用既有模式 `[:230-238]`；六工具实参以安装 schema 钉住值参数化，**合法单前导 `/`、`glob/grep.path=None`、根锚定 glob pattern 必须为正例**，再加未知 schema ⇒ 拒绝用例。
 - **RD-5 根创建验证**：A10（`tests/unit/agents/test_project_task_file_runtime.py` 扩展 + paths 单测）。
 - **RD-6 清理不跟随**：A12。
 - **RD-7 普通 Agent 不受影响**：A14（既有兼容用例保持 + 新增“普通 workspace symlink 行为不变”显式断言）。
 
 ### 7.2 检查→使用接缝的确定性替换钩子（可行范围内）
 
-真实“检查后、打开前”替换在**不打桩生产代码**的前提下可用**测试侧调用序钩子**确定化：monkeypatch `os.open`（POSIX）为包装器——在“L3/L5 检查已完成、目标名首次被打开”这一确定调用点执行替换（常规文件→symlink / 目录→不可行则用预置双目录+rename 交换），再委托真实 `os.open`。断言：POSIX 上安装 backend 的 O_NOFOLLOW 方法以 ELOOP 失败或 B+ 前置拒绝，canary 永不出现。Windows 版：包装 `os.open`/`CreateFileW` 不可直接触达 CRT，退而包装 B+ 自己的 lstat 行走**之后**的 backend 调用入口（`FilesystemBackend.read` 等方法级 patch，方法进入即交换目录↔junction）——文件 symlink 变体在无特权/非开发者模式机器按规则条件跳过并如实标注。这些钩子打桩的是**依赖/stdlib 调用点**（测试专属），不修改任何生产源文件；它们证明的是“交换被 use-time 防护（POSIX O_NOFOLLOW 覆盖处）或 fail-closed 拒绝（B+ 覆盖处）接住”，并**如实记录哪些方法在 Windows 上接不住**（该结果本身是激活决策证据）。
+真实“检查后、打开前”替换在**不打桩生产代码**的前提下可用**测试侧调用序钩子**确定化：monkeypatch `os.open`（POSIX）为包装器——在“L3/L5/S1-S4 检查已完成、目标名首次被打开”这一确定调用点执行替换（常规文件→symlink / 预置双目录+rename 交换父组件），再委托真实 `os.open`。预期必须按场景分开：**只有** IT-1 已确认使用 `O_NOFOLLOW` 的 POSIX 末组件打开可将 ELOOP 拒绝作为门禁断言；POSIX 父组件交换与 Windows 任意组件交换均是 B+ 明确保留的 N1/N2/N3 窗口，测试只记录实际 canary/外侧副作用/拒绝结果，作为**非门禁的激活风险证据**，不能断言“B+ 前置拒绝”会在交换发生后接住。Windows 版可在 B+ 的 lstat 行走结束后、backend 方法进入时交换目录↔junction；不能把方法入口钩子误称为 OS 打开时刻证明。稳定植入的 RD-1..RD-7（含 A15）仍必须断言零 canary/零外侧副作用。若确定性瞬时交换暴露外侧字节，文档直接保留失败样例和 P4 威胁边界，不得删测或把它写成 B+ 已消灭竞态。
 
 ### 7.3 非确定性压测（证据级，永不作门禁）
 
-- **ST-1 并发交换压测**：交换线程在 dir↔junction（Windows）/ dir↔symlink（POSIX）间翻转，工作线程并发跑六工具与 HTTP 面 N 轮；断言“canary 从未出现在任何响应/工具结果/外侧新文件”；输出轮数与命中拒绝计数。归类：非确定性、允许 flake 重跑、不进 ship gate；其价值是量化窗口宽度，不是证明。
+- **ST-1 并发交换压测**：交换线程在 dir↔junction（Windows）/ dir↔symlink（POSIX）间翻转，工作线程并发跑六工具与 HTTP 面 N 轮；**记录** canary 出现次数、外侧副作用、拒绝次数与总轮数，不设“零泄漏即证明安全”的门禁断言。归类：非确定性、不进 ship gate；观察到逃逸时必须保留证据并在激活评审中说明，未观察到逃逸也不构成安全证明。
 
 ### 7.4 正例与外侧零副作用断言（全计划通用）
 
@@ -323,15 +325,15 @@ HTTP 面:  raw query/body
 
 ### 8.4 不随本设计核销的独立门禁（原样保留）
 
-真实 PostgreSQL 迁移与配额并发；已认证浏览器创建—读写—重启—撤权旅程；真实 provider 下模型可见工具与调用边界；完整 OS 级重解析点矩阵（卷挂载点、GUID 卷路径、文件 symlink 特权形态、drvfs/9p）；WorkBuddy UI 验收与 25 项总矩阵、PS-08。GLM 其余 P3（类名核对 P3 #2、前端 `my:file.txt` 不一致 P3 #4、typecheck/Chat 基线红 P3 #5）不属本设计，状态不变。**`PROJECT_TASK_FILES_MODE_ENABLED = False` 贯穿本设计与 B+ 实现切片；翻开关是另行决策。**
+真实 PostgreSQL 迁移与配额并发；已认证浏览器创建—读写—重启—撤权旅程；真实 provider 下模型可见工具与调用边界；完整 OS 级重解析点矩阵（卷挂载点、GUID 卷路径、文件 symlink 特权形态、drvfs/9p）；WorkBuddy UI 验收与 25 项总矩阵、PS-08。GLM 其余 P3 中，类名核对与前端 `my:file.txt` 不一致不属本设计；既有 typecheck/Chat 两处基线失败已由后续 `e79536c0` 修正，并在当前集成树通过双平台严格 mypy、Windows Chat 604/604 与前端构建，这些检查不构成文件模式激活证据。**`PROJECT_TASK_FILES_MODE_ENABLED = False` 贯穿本设计与 B+ 实现切片；翻开关是另行决策。**
 
 ---
 
 ## 9. 诚实声明与未验证假设汇总
 
 1. 本设计不是完整 OS 沙箱，B+ 落地后也永远不能这样称呼（合同条款）。
-2. 安装依赖源在本会话不可达（无 venv、python/网络被权限拒绝）：`FilesystemBackend` 的 resolve-first、POSIX 部分末组件 `O_NOFOLLOW`、父路径/列举/glob/grep 与 Windows 缺口均为 `[DEP-TASK]` 转述 + `[DEP-TEST]` 局部实证；逐方法覆盖度 `[UNVERIFIED]`，IT-1 是硬前置。
-3. 六工具中仅 `write_file` 的实参形状有仓库测试证据；其余 schema `[UNVERIFIED]`，S4 以 fail-closed 兜底。
+2. 原作者会话无法访问安装依赖源；Codex 后续直接读取了 Windows 固定环境的 `FilesystemBackend` 和六工具 schema `[CODEX-DEP]`。逐方法 `O_NOFOLLOW` 覆盖、真实 harness 工具构造及 Linux/Windows 运行差异仍 `[UNVERIFIED]`，IT-1 是硬前置。
+3. 六工具实参形状由 Codex 安装源码检查补齐：单前导 `/` 是合法虚拟路径，`glob/grep.path` 可省略。实施时须以真实构造工具的 schema/调用正例与未知形状拒绝用例验证，不能以拒绝所有绝对路径或所有缺失路径冒充 fail-closed。
 4. `HarnessAgentConfig.backend` 能否接受自定义实例未验证——这只影响被否掉的 A-TOOL 路线，不影响 B+。
 5. Windows 根目录 ACL 隔离（P5 阻断）未实测 `[UNVERIFIED]`。
 6. `[PLATFORM]` 标签的 CPython/Win32 事实（supports_dir_fd、GetFinalPathNameByHandleW、is_junction/st_reparse_tag、rmtree junction 语义、/proc/self/fd 重开）在实现时以 IT-2 在目标平台复核。
