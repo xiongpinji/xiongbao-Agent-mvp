@@ -7,3 +7,5 @@
 Codex 在隔离工作树复跑 ProjectSpace 与 ProjectDetail **43/43**；此前同一候选的 Projects **214/214**、定向 ESLint/Prettier、TypeScript 生产构建和差异检查通过。合成 API Chrome 在 1273×634 与 390×844 验证空名称/禁用提交、保留/覆盖、手动命名后创建、普通入口空表单和横向溢出。合并 035/036 后的主线 Projects 测试 **219/219**，`tsc -b && vite build` 通过；构建仍有既有动态/静态导入和大 chunk 提示。上述均为本地合成数据，不等于真实多用户权限或 WorkBuddy 全旅程验收。
 
 GLM 留下两项 P2：名称校验提示尚未用 `aria-describedby`/`aria-invalid` 与输入框关联；未来若父级在编辑弹窗保持开启时切换 `editTarget.project_id`，现有开启边沿门控可能保留旧表单并向新 ID 提交，当前产品入口没有该触发路径。命令式覆盖确认在弹窗被外部强关再重开时也存在理论上的陈旧回调风险。后续处理这些健壮性和可访问性细节，不据此核销 PS-01；PS-07 项目资源授权及 PS-08 任务执行仍待实现。
+
+后续 [039 固定提交验收](PROJECT_TEMPLATE_039_GUARD_ACCEPTANCE.md)已关闭上述输入关联、跨目标误提交和关闭重开旧确认三项；本段保留 037 当时审查的原始记录。
