@@ -206,6 +206,13 @@ class CreateFolderBody(BaseModel):
     name: str
 
 
+class UpdateAssetBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = None
+    parent_id: str | None = None
+
+
 def _download_chunks(stream: BinaryIO) -> Iterator[bytes]:
     while chunk := stream.read(256 * 1024):
         yield chunk
@@ -518,6 +525,38 @@ async def restore_trashed_asset(
     view = await loop.run_in_executor(
         None,
         partial(service.restore_trashed_asset, project_id, user_id=user.id, node_id=node_id),
+    )
+    return _node_payload(view)
+
+
+@router.patch(
+    "/assets/{node_id}",
+    response_model=AssetNodeResponse,
+    summary="Move or rename one active asset node within its project",
+)
+async def update_asset(
+    project_id: str,
+    node_id: str,
+    body: UpdateAssetBody,
+    server: OctopServer = Depends(get_server),
+    user: User = Depends(current_user),
+) -> AssetNodeResponse:
+    supplied = body.model_fields_set
+    if not supplied or ("name" in supplied and body.name is None):
+        raise OctopError(ErrorCode.PROJECT_ASSET_INVALID, "name or parent_id is required")
+    service = _asset_service(server)
+    loop = asyncio.get_running_loop()
+    view = await loop.run_in_executor(
+        None,
+        partial(
+            service.update_asset,
+            project_id,
+            user_id=user.id,
+            node_id=node_id,
+            name=body.name,
+            parent_id=body.parent_id,
+            change_parent="parent_id" in supplied,
+        ),
     )
     return _node_payload(view)
 

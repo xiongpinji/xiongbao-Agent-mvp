@@ -310,6 +310,8 @@ def test_migration_023_shape(db: SqlitePool) -> None:
         "deleted_by",
         "trash_root_id",
         "original_name_key",
+        # 045 deletion-time path snapshot (v30).
+        "deleted_from_path",
     }
     assert version_cols == {
         "version_id",
@@ -3532,6 +3534,511 @@ def test_migration_029_pg_pair_declares_same_shape() -> None:
     assert statements[-1] == "UPDATE _schema_version SET version = 29"
 
 
+def test_migration_030_fresh_shape_and_sql_pair(db: SqlitePool) -> None:
+    assert "deleted_from_path" in _columns(db, "project_asset_nodes")
+    sqlite_sql = (MIGRATIONS / "030_project_asset_move_rename.sql").read_text(encoding="utf-8")
+    pg_sql = (MIGRATIONS / "030_project_asset_move_rename.pg.sql").read_text(encoding="utf-8")
+    for token in (
+        "ADD COLUMN deleted_from_path TEXT",
+        "WITH RECURSIVE paths",
+        "UPDATE _schema_version SET version = 30",
+    ):
+        assert token in sqlite_sql
+        assert token in pg_sql
+    assert "trash_root_id = node_id" in sqlite_sql
+    assert "node.trash_root_id = node.node_id" in pg_sql
+    assert _split_pg_sql(pg_sql)[-1] == "UPDATE _schema_version SET version = 30"
+
+
+def test_migration_030_backfills_independent_trash_under_trashed_ancestor(
+    db: SqlitePool, repo: ProjectAssetRepo, pid: str, owner_id: int
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    folder = repo.create_folder(
+        project_id=pid,
+        actor_user_id=owner_id,
+        parent_node_id=root,
+        name="旧目录",
+        name_key="旧目录",
+    )
+    assert folder.row is not None
+    file = _commit_file(repo, pid, owner_id, folder.row.node_id, name="旧稿.txt")
+    file_id = file.node.node_id
+    folder_id = folder.row.node_id
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=owner_id, node_id=file_id).outcome
+        == "trashed"
+    )
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=owner_id, node_id=folder_id).outcome
+        == "trashed"
+    )
+
+    # Reconstruct an actual v29 layout, before deletion-time snapshots existed.
+    with db.connect() as conn:
+        conn.executescript(
+            "ALTER TABLE project_asset_nodes DROP COLUMN deleted_from_path;"
+            "UPDATE _schema_version SET version = 29;"
+        )
+    run_migrations(db)
+
+    assert _watermark(db) == 30
+    with db.connect() as conn:
+        rows = conn.execute(
+            "SELECT node_id, deleted_from_path FROM project_asset_nodes "
+            "WHERE project_id = ? AND node_id IN (?, ?)",
+            (pid, folder_id, file_id),
+        ).fetchall()
+    snapshots = {str(row["node_id"]): row["deleted_from_path"] for row in rows}
+    assert snapshots == {folder_id: "旧目录", file_id: "旧目录/旧稿.txt"}
+
+
+def test_migration_030_replays_column_added_before_watermark(
+    db: SqlitePool, repo: ProjectAssetRepo, pid: str, owner_id: int
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    file = _commit_file(repo, pid, owner_id, root, name="半途.txt")
+    node_id = file.node.node_id
+    assert (
+        repo.trash_node(project_id=pid, actor_user_id=owner_id, node_id=node_id).outcome
+        == "trashed"
+    )
+    with db.transaction() as conn:
+        conn.execute(
+            "UPDATE project_asset_nodes SET deleted_from_path = NULL "
+            "WHERE project_id = ? AND node_id = ?",
+            (pid, node_id),
+        )
+        conn.execute("UPDATE _schema_version SET version = 29")
+    run_migrations(db)
+    assert _watermark(db) == 30
+    with db.connect() as conn:
+        row = conn.execute(
+            "SELECT deleted_from_path FROM project_asset_nodes "
+            "WHERE project_id = ? AND node_id = ?",
+            (pid, node_id),
+        ).fetchone()
+    assert row["deleted_from_path"] == "半途.txt"
+
+
+def test_update_node_moves_to_root_without_changing_versions(
+    db: SqlitePool, repo: ProjectAssetRepo, pid: str, owner_id: int
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    folder = repo.create_folder(
+        project_id=pid,
+        actor_user_id=owner_id,
+        parent_node_id=root,
+        name="旧目录",
+        name_key="旧目录",
+    )
+    assert folder.row is not None
+    file = _commit_file(repo, pid, owner_id, folder.row.node_id, name="Report.txt")
+    before_versions = _version_snapshot(db, pid)
+    before = file.node
+
+    no_change = repo.update_node(
+        project_id=pid,
+        actor_user_id=owner_id,
+        node_id=before.node_id,
+        name=None,
+        name_key=None,
+        parent_node_id=None,
+        change_parent=False,
+    )
+    assert no_change.outcome == "updated"
+    assert no_change.node is not None
+    assert no_change.node.updated_at == before.updated_at
+
+    moved = repo.update_node(
+        project_id=pid,
+        actor_user_id=owner_id,
+        node_id=before.node_id,
+        name="report.txt",
+        name_key="report.txt",
+        parent_node_id=None,
+        change_parent=True,
+    )
+    assert moved.outcome == "updated"
+    assert moved.node is not None
+    assert moved.node.node_id == before.node_id
+    assert moved.node.parent_node_id == root
+    assert moved.node.name == "report.txt"
+    assert moved.node.created_at == before.created_at
+    assert moved.size_bytes == 5
+    assert _version_snapshot(db, pid) == before_versions
+
+
+def test_update_node_conflict_cycle_and_hidden_root_leave_tree_unchanged(
+    db: SqlitePool, repo: ProjectAssetRepo, pid: str, owner_id: int
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    parent = repo.create_folder(
+        project_id=pid,
+        actor_user_id=owner_id,
+        parent_node_id=root,
+        name="Alpha",
+        name_key="alpha",
+    ).row
+    assert parent is not None
+    child = repo.create_folder(
+        project_id=pid,
+        actor_user_id=owner_id,
+        parent_node_id=parent.node_id,
+        name="Child",
+        name_key="child",
+    ).row
+    assert child is not None
+    sibling = repo.create_folder(
+        project_id=pid,
+        actor_user_id=owner_id,
+        parent_node_id=root,
+        name="Beta",
+        name_key="beta",
+    ).row
+    assert sibling is not None
+    before = _node_rows(db, pid)
+    assert (
+        repo.update_node(
+            project_id=pid,
+            actor_user_id=owner_id,
+            node_id=parent.node_id,
+            name="BETA",
+            name_key="beta",
+            parent_node_id=None,
+            change_parent=False,
+        ).outcome
+        == "name_conflict"
+    )
+    assert (
+        repo.update_node(
+            project_id=pid,
+            actor_user_id=owner_id,
+            node_id=parent.node_id,
+            name=None,
+            name_key=None,
+            parent_node_id=child.node_id,
+            change_parent=True,
+        ).outcome
+        == "invalid_tree"
+    )
+    assert (
+        repo.update_node(
+            project_id=pid,
+            actor_user_id=owner_id,
+            node_id=root,
+            name="root",
+            name_key="root",
+            parent_node_id=None,
+            change_parent=False,
+        ).outcome
+        == "node_missing"
+    )
+    assert _node_rows(db, pid) == before
+
+
+def test_member_update_folder_checks_independent_trash_and_deleter(
+    db: SqlitePool,
+    repo: ProjectAssetRepo,
+    pid: str,
+    member_id: int,
+    other_member_id: int,
+    owner_id: int,
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    folder = repo.create_folder(
+        project_id=pid,
+        actor_user_id=member_id,
+        parent_node_id=root,
+        name="Mine",
+        name_key="mine",
+    ).row
+    assert folder is not None
+    own_file = _commit_file(repo, pid, member_id, folder.node_id, name="own.txt")
+    assert (
+        repo.trash_node(
+            project_id=pid,
+            actor_user_id=owner_id,
+            node_id=own_file.node.node_id,
+        ).outcome
+        == "trashed"
+    )
+    assert (
+        repo.update_node(
+            project_id=pid,
+            actor_user_id=member_id,
+            node_id=folder.node_id,
+            name="Renamed",
+            name_key="renamed",
+            parent_node_id=None,
+            change_parent=False,
+        ).outcome
+        == "forbidden"
+    )
+    assert (
+        repo.update_node(
+            project_id=pid,
+            actor_user_id=owner_id,
+            node_id=folder.node_id,
+            name="Renamed",
+            name_key="renamed",
+            parent_node_id=None,
+            change_parent=False,
+        ).outcome
+        == "updated"
+    )
+    other_file = _commit_file(repo, pid, other_member_id, folder.node_id, name="other.txt")
+    assert (
+        repo.update_node(
+            project_id=pid,
+            actor_user_id=member_id,
+            node_id=folder.node_id,
+            name="Mine",
+            name_key="mine",
+            parent_node_id=None,
+            change_parent=False,
+        ).outcome
+        == "forbidden"
+    )
+    assert other_file.node.parent_node_id == folder.node_id
+
+
+def test_trash_path_stays_frozen_after_ancestor_update(
+    db: SqlitePool, repo: ProjectAssetRepo, pid: str, owner_id: int
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    folder = repo.create_folder(
+        project_id=pid,
+        actor_user_id=owner_id,
+        parent_node_id=root,
+        name="Before",
+        name_key="before",
+    ).row
+    assert folder is not None
+    file = _commit_file(repo, pid, owner_id, folder.node_id, name="one.txt")
+    assert (
+        repo.trash_node(
+            project_id=pid,
+            actor_user_id=owner_id,
+            node_id=file.node.node_id,
+        ).outcome
+        == "trashed"
+    )
+    assert (
+        repo.update_node(
+            project_id=pid,
+            actor_user_id=owner_id,
+            node_id=folder.node_id,
+            name="After",
+            name_key="after",
+            parent_node_id=None,
+            change_parent=False,
+        ).outcome
+        == "updated"
+    )
+    page = repo.list_trash(pid, user_id=owner_id, limit=10, offset=0)
+    assert page is not None
+    assert page[0][0].original_path == "Before/one.txt"
+    restored = repo.restore_trashed(
+        project_id=pid,
+        actor_user_id=owner_id,
+        node_id=file.node.node_id,
+    )
+    assert restored.outcome == "restored"
+    assert restored.node is not None
+    assert restored.node.parent_node_id == folder.node_id
+    with db.connect() as conn:
+        row = conn.execute(
+            "SELECT deleted_from_path FROM project_asset_nodes WHERE node_id = ?",
+            (file.node.node_id,),
+        ).fetchone()
+    assert row["deleted_from_path"] is None
+
+
+def test_concurrent_opposite_folder_moves_cannot_form_cycle(
+    db: SqlitePool, repo: ProjectAssetRepo, pid: str, owner_id: int
+) -> None:
+    """The SQLite writer lock serializes two individually valid old-chain reads."""
+    root = repo.ensure_root(pid)
+    assert root is not None
+    left = repo.create_folder(
+        project_id=pid,
+        actor_user_id=owner_id,
+        parent_node_id=root,
+        name="Left",
+        name_key="left",
+    ).row
+    right = repo.create_folder(
+        project_id=pid,
+        actor_user_id=owner_id,
+        parent_node_id=root,
+        name="Right",
+        name_key="right",
+    ).row
+    assert left is not None and right is not None
+    barrier = Barrier(2)
+
+    def move(node_id: str, parent_id: str) -> str:
+        barrier.wait(timeout=10)
+        return repo.update_node(
+            project_id=pid,
+            actor_user_id=owner_id,
+            node_id=node_id,
+            name=None,
+            name_key=None,
+            parent_node_id=parent_id,
+            change_parent=True,
+        ).outcome
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        one = executor.submit(move, left.node_id, right.node_id)
+        two = executor.submit(move, right.node_id, left.node_id)
+        outcomes = sorted((one.result(timeout=20), two.result(timeout=20)))
+    assert outcomes == ["invalid_tree", "updated"]
+    after_left = repo.get_node(pid, left.node_id)
+    after_right = repo.get_node(pid, right.node_id)
+    assert after_left is not None and after_right is not None
+    assert (after_left.parent_node_id == right.node_id) != (
+        after_right.parent_node_id == left.node_id
+    )
+
+
+def test_concurrent_restore_and_ancestor_move_keep_stable_parent(
+    db: SqlitePool, repo: ProjectAssetRepo, pid: str, owner_id: int
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    folder = repo.create_folder(
+        project_id=pid,
+        actor_user_id=owner_id,
+        parent_node_id=root,
+        name="Before",
+        name_key="before",
+    ).row
+    destination = repo.create_folder(
+        project_id=pid,
+        actor_user_id=owner_id,
+        parent_node_id=root,
+        name="Destination",
+        name_key="destination",
+    ).row
+    assert folder is not None and destination is not None
+    file = _commit_file(repo, pid, owner_id, folder.node_id, name="report.txt")
+    assert (
+        repo.trash_node(
+            project_id=pid,
+            actor_user_id=owner_id,
+            node_id=file.node.node_id,
+        ).outcome
+        == "trashed"
+    )
+    barrier = Barrier(2)
+
+    def restore() -> str:
+        barrier.wait(timeout=10)
+        return repo.restore_trashed(
+            project_id=pid,
+            actor_user_id=owner_id,
+            node_id=file.node.node_id,
+        ).outcome
+
+    def move() -> str:
+        barrier.wait(timeout=10)
+        return repo.update_node(
+            project_id=pid,
+            actor_user_id=owner_id,
+            node_id=folder.node_id,
+            name="After",
+            name_key="after",
+            parent_node_id=destination.node_id,
+            change_parent=True,
+        ).outcome
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        restored = executor.submit(restore)
+        moved = executor.submit(move)
+        assert restored.result(timeout=20) == "restored"
+        assert moved.result(timeout=20) == "updated"
+    after_folder = repo.get_node(pid, folder.node_id)
+    after_file = repo.get_node(pid, file.node.node_id)
+    assert after_folder is not None and after_file is not None
+    assert after_folder.parent_node_id == destination.node_id
+    assert after_file.parent_node_id == folder.node_id
+    page = repo.list_trash(pid, user_id=owner_id, limit=10, offset=0)
+    assert page is not None and page[1] == 0
+
+
+def test_concurrent_delete_and_move_never_leave_active_child_in_trash(
+    db: SqlitePool, repo: ProjectAssetRepo, pid: str, owner_id: int
+) -> None:
+    root = repo.ensure_root(pid)
+    assert root is not None
+    source = repo.create_folder(
+        project_id=pid,
+        actor_user_id=owner_id,
+        parent_node_id=root,
+        name="Source",
+        name_key="source",
+    ).row
+    destination = repo.create_folder(
+        project_id=pid,
+        actor_user_id=owner_id,
+        parent_node_id=root,
+        name="Destination",
+        name_key="destination",
+    ).row
+    assert source is not None and destination is not None
+    file = _commit_file(repo, pid, owner_id, source.node_id, name="one.txt")
+    barrier = Barrier(2)
+
+    def delete() -> str:
+        barrier.wait(timeout=10)
+        return repo.trash_node(
+            project_id=pid,
+            actor_user_id=owner_id,
+            node_id=source.node_id,
+        ).outcome
+
+    def move() -> str:
+        barrier.wait(timeout=10)
+        return repo.update_node(
+            project_id=pid,
+            actor_user_id=owner_id,
+            node_id=file.node.node_id,
+            name=None,
+            name_key=None,
+            parent_node_id=destination.node_id,
+            change_parent=True,
+        ).outcome
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        deleted = executor.submit(delete)
+        moved = executor.submit(move)
+        assert deleted.result(timeout=20) == "trashed"
+        move_outcome = moved.result(timeout=20)
+    assert move_outcome in ("updated", "node_missing")
+    with db.connect() as conn:
+        row = conn.execute(
+            "SELECT parent_node_id, deleted_at, trash_root_id "
+            "FROM project_asset_nodes WHERE project_id = ? AND node_id = ?",
+            (pid, file.node.node_id),
+        ).fetchone()
+    assert row is not None
+    if move_outcome == "updated":
+        assert row["parent_node_id"] == destination.node_id
+        assert row["deleted_at"] is None
+    else:
+        assert row["parent_node_id"] == source.node_id
+        assert row["deleted_at"] is not None
+        assert row["trash_root_id"] == source.node_id
+
+
 def test_user_delete_nulls_deleted_by(db: SqlitePool, repo: ProjectAssetRepo, pid: str) -> None:
     users = UserRepo(db)
     actor = users.create(username="deleter42", password_hash="h", role="user")
@@ -4972,6 +5479,8 @@ class _TrashConn:
             return _SwitchCursor({"role": self._role})
         if "FROM project_spaces" in sql:
             return _SwitchCursor({"archived": 0})
+        if "SELECT node_id FROM project_asset_nodes" in sql and "parent_node_id IS NULL" in sql:
+            return _SwitchCursor({"node_id": _FAKE_TRASH_PARENT})
         if sql.lstrip().startswith("SELECT node_id, created_by"):
             return _SwitchCursor(None)  # no active descendants
         if sql.lstrip().startswith("SELECT 1 FROM project_asset_nodes"):
@@ -5003,8 +5512,8 @@ class _TrashConn:
 _FAKE_TRASH_PARENT = new_ulid()
 
 
-def test_postgres_trash_lock_order_member_then_node_for_update() -> None:
-    """PG trash: member row FOR SHARE → target node FOR UPDATE → archived →
+def test_postgres_trash_lock_order_member_root_then_node_for_update() -> None:
+    """PG trash: member row FOR SHARE → hidden root FOR UPDATE → target → archived →
     descendant sweep → one guarded mark UPDATE → root rename.
 
     NOTE: static dual-dialect assertion only — no live PostgreSQL was run.
@@ -5015,17 +5524,21 @@ def test_postgres_trash_lock_order_member_then_node_for_update() -> None:
     assert result.outcome == "trashed"
     stmts = conn.statements
     i_member = _first_index(stmts, "FROM project_members")
-    i_node = _first_index(stmts, "FROM project_asset_nodes")
+    i_structural_root = next(
+        i for i, s in enumerate(stmts) if "parent_node_id IS NULL" in s and s.endswith("FOR UPDATE")
+    )
+    i_node = _first_index(stmts, "SELECT node_id, project_id, parent_node_id")
     i_archived = _first_index(stmts, "FROM project_spaces")
     i_desc = _first_index(stmts, "SELECT node_id, created_by")
     i_mark = _first_index(stmts, "SET deleted_at = ?")
     i_rename = _first_index(stmts, "SET original_name_key = name_key")
     assert stmts[i_member].endswith("FOR SHARE")
+    assert stmts[i_structural_root].endswith("FOR UPDATE")
     assert stmts[i_node].endswith("FOR UPDATE")
     # Lock each descendant before enumerating its children. Otherwise an
     # upload can attach a new child after the traversal captured its IDs.
     assert stmts[i_desc].endswith("FOR UPDATE")
-    assert i_member < i_node < i_archived < i_desc < i_mark < i_rename
+    assert i_member < i_structural_root < i_node < i_archived < i_desc < i_mark < i_rename
     # The mark UPDATE stays guarded so a concurrent racer cannot re-trash.
     assert "deleted_at IS NULL" in stmts[i_mark]
 
@@ -5041,7 +5554,7 @@ def test_postgres_asset_creation_locks_and_rechecks_explicit_parent() -> None:
 
 
 def test_postgres_restore_lock_order_parent_check_then_updates() -> None:
-    """PG restore: member → trash-root node FOR UPDATE → archived → parent
+    """PG restore: member → hidden root → trash-root node → archived → parent
     FOR UPDATE → name pre-check → root rename back → subtree clear."""
     node_row = {
         **_FAKE_NODE_ROW,
@@ -5069,7 +5582,10 @@ def test_postgres_restore_lock_order_parent_check_then_updates() -> None:
     assert result.outcome == "restored"
     stmts = conn.statements
     i_member = _first_index(stmts, "FROM project_members")
-    i_node = _first_index(stmts, "FROM project_asset_nodes")
+    i_structural_root = next(
+        i for i, s in enumerate(stmts) if "parent_node_id IS NULL" in s and s.endswith("FOR UPDATE")
+    )
+    i_node = _first_index(stmts, "SELECT node_id, project_id, parent_node_id")
     i_archived = _first_index(stmts, "FROM project_spaces")
     i_parent = next(
         i for i, s in enumerate(stmts) if "FROM project_asset_nodes" in s and i > i_node
@@ -5078,9 +5594,19 @@ def test_postgres_restore_lock_order_parent_check_then_updates() -> None:
     i_root = _first_index(stmts, "original_name_key = NULL")
     i_subtree = _first_index(stmts, "trash_root_id = ?")
     assert stmts[i_member].endswith("FOR SHARE")
+    assert stmts[i_structural_root].endswith("FOR UPDATE")
     assert stmts[i_node].endswith("FOR UPDATE")
     assert stmts[i_parent].endswith("FOR UPDATE")
-    assert i_member < i_node < i_archived < i_parent < i_conflict < i_root < i_subtree
+    assert (
+        i_member
+        < i_structural_root
+        < i_node
+        < i_archived
+        < i_parent
+        < i_conflict
+        < i_root
+        < i_subtree
+    )
 
 
 def test_sqlite_trash_restore_use_no_row_lock_clauses() -> None:

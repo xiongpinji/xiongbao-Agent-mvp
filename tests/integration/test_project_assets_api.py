@@ -1256,6 +1256,98 @@ async def _restore_node(
     )
 
 
+async def _patch_node(
+    ctx: dict[str, Any],
+    auth: dict[str, str],
+    node_id: str,
+    body: dict[str, Any],
+    *,
+    pid: str | None = None,
+) -> Any:
+    return await ctx["client"].patch(
+        f"/api/projects/{pid or ctx['pid']}/assets/{node_id}",
+        headers=auth,
+        json=body,
+    )
+
+
+async def test_move_rename_patch_preserves_download_and_freezes_trash_path(
+    env_with_provider: Any,
+) -> None:
+    ctx = await _base(env_with_provider)
+    parent = await _mkfolder(ctx, ctx["owner_auth"], name="Before")
+    assert parent.status_code == 201, parent.text
+    folder_id = parent.json()["node_id"]
+    file = await _upload(
+        ctx,
+        ctx["owner_auth"],
+        name="Report.txt",
+        data=b"stable",
+        parent_id=folder_id,
+    )
+    assert file.status_code == 201, file.text
+    node_id = file.json()["node_id"]
+    version_id = file.json()["version"]["version_id"]
+    original_created = file.json()["created_at"]
+    no_change = await _patch_node(ctx, ctx["owner_auth"], node_id, {"name": "Report.txt"})
+    assert no_change.status_code == 200, no_change.text
+    assert no_change.json()["updated_at"] == file.json()["updated_at"]
+    renamed = await _patch_node(ctx, ctx["owner_auth"], node_id, {"name": "report.txt"})
+    assert renamed.status_code == 200, renamed.text
+    assert set(renamed.json()) == _ITEM_KEYS
+    assert renamed.json()["created_at"] == original_created
+    assert renamed.json()["updated_at"] > no_change.json()["updated_at"]
+    assert renamed.json()["size_bytes"] == 6
+    assert renamed.json()["node_id"] == node_id
+    assert (await _download(ctx, ctx["owner_auth"], node_id)).content == b"stable"
+    assert (await _delete(ctx, ctx["owner_auth"], node_id)).status_code == 204
+    moved_parent = await _patch_node(ctx, ctx["owner_auth"], folder_id, {"name": "After"})
+    assert moved_parent.status_code == 200, moved_parent.text
+    trash = await _trash_list(ctx, ctx["owner_auth"])
+    assert trash.status_code == 200, trash.text
+    assert trash.json()["items"][0]["original_path"] == "Before/report.txt"
+    assert (await _patch_node(ctx, ctx["owner_auth"], node_id, {"name": "No"})).status_code == 404
+    restored = await _restore_node(ctx, ctx["owner_auth"], node_id)
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["parent_node_id"] == folder_id
+    versions = await ctx["client"].get(
+        f"/api/projects/{ctx['pid']}/assets/{node_id}/versions",
+        headers=ctx["owner_auth"],
+    )
+    assert versions.status_code == 200
+    assert versions.json()["items"][0]["version_id"] == version_id
+
+
+async def test_move_rename_patch_validates_body_permissions_and_destination(
+    env_with_provider: Any,
+) -> None:
+    ctx = await _base(env_with_provider)
+    a = await _mkfolder(ctx, ctx["owner_auth"], name="A")
+    b = await _mkfolder(ctx, ctx["owner_auth"], name="B")
+    assert a.status_code == b.status_code == 201
+    a_id = a.json()["node_id"]
+    b_id = b.json()["node_id"]
+    child = await _mkfolder(ctx, ctx["owner_auth"], name="C", parent_id=a_id)
+    assert child.status_code == 201
+    child_id = child.json()["node_id"]
+    for body in ({}, {"name": None}, {"name": ""}, {"name": "x", "extra": 1}, {"parent_id": 123}):
+        response = await _patch_node(ctx, ctx["owner_auth"], a_id, body)
+        assert response.status_code == 422, (body, response.text)
+    assert (
+        await _patch_node(ctx, ctx["owner_auth"], a_id, {"parent_id": child_id})
+    ).status_code == 422
+    assert (await _patch_node(ctx, ctx["owner_auth"], a_id, {"name": "b"})).status_code == 409
+    assert (await _patch_node(ctx, ctx["member_auth"], a_id, {"name": "Mine"})).status_code == 403
+    assert (await _patch_node(ctx, ctx["outsider_auth"], a_id, {"name": "Mine"})).status_code == 404
+    assert (
+        await _patch_node(ctx, ctx["owner_auth"], a_id, {"parent_id": "unknown"})
+    ).status_code == 404
+    moved = await _patch_node(ctx, ctx["owner_auth"], child_id, {"parent_id": None})
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["parent_node_id"] == a.json()["parent_node_id"]
+    assert (await _patch_node(ctx, ctx["owner_auth"], b_id, {"name": "b"})).status_code == 200
+
+
 async def test_trash_openapi_surface_and_static_route_order(env_with_provider: Any) -> None:
     _client, srv, _admin_auth = env_with_provider
     app = build_app(srv)

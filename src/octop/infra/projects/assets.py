@@ -366,6 +366,23 @@ class ProjectAssetService:
             )
         raise OctopError(ErrorCode.INTERNAL_ERROR, f"unexpected trash outcome: {outcome}")
 
+    def _raise_for_update_outcome(self, outcome: str) -> NoReturn:
+        if outcome == "not_member":
+            raise self._project_not_found()
+        if outcome == "archived":
+            raise self._archived_error()
+        if outcome in ("node_missing", "parent_missing"):
+            raise self._asset_not_found()
+        if outcome == "forbidden":
+            raise OctopError(ErrorCode.FORBIDDEN, "no permission to manage this asset")
+        if outcome == "parent_not_folder":
+            raise self._invalid("parent is not a folder")
+        if outcome == "invalid_tree":
+            raise self._invalid("folder cannot be moved into itself or a descendant")
+        if outcome == "name_conflict":
+            raise self._conflict()
+        raise OctopError(ErrorCode.INTERNAL_ERROR, f"unexpected asset outcome: {outcome}")
+
     def _uploaded_view(self, node: Any, version: Any) -> UploadedAssetView:
         """Safe node+version DTO shared by upload and version-switch routes.
 
@@ -837,6 +854,49 @@ class ProjectAssetService:
         if commit.outcome != "committed" or commit.node is None or commit.version is None:
             self._raise_for_version_outcome(commit.outcome)
         return self._uploaded_view(commit.node, commit.version)
+
+    # ------------------------------------------------------------ move/rename (045)
+
+    def update_asset(
+        self,
+        project_id: str,
+        *,
+        user_id: int,
+        node_id: str,
+        name: str | None,
+        parent_id: str | None,
+        change_parent: bool,
+    ) -> AssetNodeView:
+        """Validate a metadata-only update; the repository authorizes atomically."""
+        clean: str | None = None
+        if name is not None:
+            try:
+                clean = validate_asset_name(name)
+            except ValueError as exc:
+                raise self._invalid(str(exc)) from exc
+        self._require_writable(project_id, user_id)
+        result = self._repo.update_node(
+            project_id=project_id,
+            actor_user_id=user_id,
+            node_id=node_id,
+            name=clean,
+            name_key=None if clean is None else asset_name_key(clean),
+            parent_node_id=parent_id,
+            change_parent=change_parent,
+        )
+        if result.outcome != "updated" or result.node is None:
+            self._raise_for_update_outcome(result.outcome)
+        node = result.node
+        return AssetNodeView(
+            node_id=node.node_id,
+            parent_node_id=node.parent_node_id,
+            kind=node.kind,
+            name=node.name,
+            size_bytes=result.size_bytes,
+            media_type=result.media_type,
+            created_at=node.created_at,
+            updated_at=node.updated_at,
+        )
 
     # ------------------------------------------------------------ trash (042)
 

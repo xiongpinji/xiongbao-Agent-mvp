@@ -1685,6 +1685,41 @@ def _ensure_project_asset_trash_v29(db: DatabasePool) -> None:
         conn.execute("UPDATE _schema_version SET version = 29")
 
 
+def _ensure_project_asset_move_rename_v30(db: DatabasePool) -> None:
+    """Apply the SQLite v30 column, path backfill and watermark atomically.
+
+    A previous interrupted upgrade may have added the column but left the
+    watermark at 29. Only missing snapshots are backfilled on replay.
+    """
+    with db.transaction() as conn:
+        node_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(project_asset_nodes)")
+        }
+        if "deleted_from_path" not in node_columns:
+            conn.execute("ALTER TABLE project_asset_nodes ADD COLUMN deleted_from_path TEXT")
+        conn.execute(
+            "WITH RECURSIVE paths(project_id, node_id, path) AS ("
+            "SELECT project_id, node_id, '' FROM project_asset_nodes "
+            "WHERE parent_node_id IS NULL "
+            "UNION ALL "
+            "SELECT child.project_id, child.node_id, "
+            "CASE WHEN parent.path = '' THEN child.name "
+            "ELSE parent.path || '/' || child.name END "
+            "FROM project_asset_nodes child "
+            "JOIN paths parent ON parent.project_id = child.project_id "
+            "AND parent.node_id = child.parent_node_id"
+            ") "
+            "UPDATE project_asset_nodes SET deleted_from_path = ("
+            "SELECT path FROM paths "
+            "WHERE paths.project_id = project_asset_nodes.project_id "
+            "AND paths.node_id = project_asset_nodes.node_id"
+            ") "
+            "WHERE deleted_at IS NOT NULL AND trash_root_id = node_id "
+            "AND deleted_from_path IS NULL"
+        )
+        conn.execute("UPDATE _schema_version SET version = 30")
+
+
 def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
     """Apply one SQLite migration.
 
@@ -1843,6 +1878,9 @@ def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
         return
     if version == 29:
         _ensure_project_asset_trash_v29(db)
+        return
+    if version == 30:
+        _ensure_project_asset_move_rename_v30(db)
         return
     sql = path.read_text(encoding="utf-8")
     with db.connect() as conn:

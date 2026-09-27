@@ -321,6 +321,16 @@ class TrashRestoration:
 
 
 @dataclass(frozen=True)
+class NodeUpdate:
+    """Atomic asset move/rename result with safe current-version metadata."""
+
+    outcome: str
+    node: AssetNodeRow | None = None
+    size_bytes: int | None = None
+    media_type: str | None = None
+
+
+@dataclass(frozen=True)
 class TrashListRow:
     """One trash-root listing row (042 frozen UI DTO source).
 
@@ -516,7 +526,7 @@ def _restore_root_name_key(
     conn.execute(
         "UPDATE project_asset_nodes "
         "SET deleted_at = NULL, deleted_by = NULL, trash_root_id = NULL, "
-        "name_key = ?, original_name_key = NULL, updated_at = ? "
+        "name_key = ?, original_name_key = NULL, deleted_from_path = NULL, updated_at = ? "
         "WHERE project_id = ? AND node_id = ?",
         (name_key, ts, project_id, node_id),
     )
@@ -532,7 +542,8 @@ def _clear_subtree_trash(conn: Any, *, project_id: str, root_id: str, ts: int) -
     """
     conn.execute(
         "UPDATE project_asset_nodes "
-        "SET deleted_at = NULL, deleted_by = NULL, trash_root_id = NULL, updated_at = ? "
+        "SET deleted_at = NULL, deleted_by = NULL, trash_root_id = NULL, "
+        "deleted_from_path = NULL, updated_at = ? "
         "WHERE project_id = ? AND trash_root_id = ?",
         (ts, project_id, root_id),
     )
@@ -636,6 +647,16 @@ class ProjectAssetRepo:
         row = conn.execute(_ROOT_SELECT, (project_id,)).fetchone()
         return None if row is None else str(row["node_id"])
 
+    def _structural_root_locked(self, conn: Any, project_id: str) -> str:
+        """Serialize move, trash and restore before locking any other asset row."""
+        root = self._ensure_root_locked(conn, project_id)
+        if root is None:
+            raise _AssetConflict("not_member")
+        row = conn.execute(_ROOT_SELECT + self._node_update_lock(), (project_id,)).fetchone()
+        if row is None:
+            raise _AssetConflict("not_member")
+        return str(row["node_id"])
+
     def _resolve_parent_locked(self, conn: Any, project_id: str, parent_node_id: str | None) -> str:
         """Resolve the write parent or raise the matching conflict outcome.
 
@@ -708,6 +729,30 @@ class ProjectAssetRepo:
                 break
             rows.extend(batch)
             frontier = [str(row["node_id"]) for row in batch]
+        return rows
+
+    def _all_descendant_rows(self, conn: Any, project_id: str, root_id: str) -> list[Any]:
+        """Lock every descendant, including independently trashed subtrees."""
+        rows: list[Any] = []
+        frontier = [root_id]
+        visited = {root_id}
+        while frontier:
+            placeholders = ", ".join("?" for _ in frontier)
+            batch = conn.execute(
+                "SELECT node_id, created_by, deleted_at, deleted_by, trash_root_id "
+                "FROM project_asset_nodes WHERE project_id = ? "
+                f"AND parent_node_id IN ({placeholders})" + self._node_update_lock(),
+                (project_id, *frontier),
+            ).fetchall()
+            next_frontier: list[str] = []
+            for row in batch:
+                child_id = str(row["node_id"])
+                if child_id in visited:
+                    raise _AssetConflict("invalid_tree")
+                visited.add(child_id)
+                rows.append(row)
+                next_frontier.append(child_id)
+            frontier = next_frontier
         return rows
 
     def _node_version_row(
@@ -1211,6 +1256,124 @@ class ProjectAssetRepo:
                 return None
             return node, version
 
+    # ------------------------------------------------------------ move/rename (045)
+
+    def update_node(
+        self,
+        *,
+        project_id: str,
+        actor_user_id: int,
+        node_id: str,
+        name: str | None,
+        name_key: str | None,
+        parent_node_id: str | None,
+        change_parent: bool,
+    ) -> NodeUpdate:
+        """Move/rename one active node without changing its versions or bytes."""
+        try:
+            with self._db.transaction() as conn:
+                role = self._member_role_locked(conn, project_id, actor_user_id)
+                if role is None:
+                    raise _AssetConflict("not_member")
+                root_id = self._structural_root_locked(conn, project_id)
+                node = self._node_locked(conn, project_id, node_id)
+                archived = self._project_archived(conn, project_id)
+                if archived is None:
+                    raise _AssetConflict("not_member")
+                if archived:
+                    raise _AssetConflict("archived")
+                if node is None or node.parent_node_id is None:
+                    raise _AssetConflict("node_missing")
+
+                if role not in ("owner", "admin"):
+                    if node.created_by != actor_user_id:
+                        raise _AssetConflict("forbidden")
+                    if node.kind == "folder":
+                        for child in self._all_descendant_rows(conn, project_id, node_id):
+                            if child["created_by"] != actor_user_id:
+                                raise _AssetConflict("forbidden")
+                            if (
+                                child["deleted_at"] is not None
+                                and str(child["trash_root_id"]) == str(child["node_id"])
+                                and child["deleted_by"] != actor_user_id
+                            ):
+                                raise _AssetConflict("forbidden")
+
+                destination_id = node.parent_node_id
+                if change_parent:
+                    destination_id = root_id if parent_node_id is None else parent_node_id
+                    parent = self._node_locked(conn, project_id, destination_id)
+                    if parent is None:
+                        raise _AssetConflict("parent_missing")
+                    if parent.kind != "folder":
+                        raise _AssetConflict("parent_not_folder")
+                    # Re-read and lock the current parent chain after acquiring
+                    # the project structural lock. Existing corrupt cycles fail
+                    # closed, even if they do not include the moving node.
+                    cursor: AssetNodeRow | None = parent
+                    seen: set[str] = set()
+                    while cursor is not None:
+                        if cursor.node_id == node_id or cursor.node_id in seen:
+                            raise _AssetConflict("invalid_tree")
+                        seen.add(cursor.node_id)
+                        if cursor.parent_node_id is None:
+                            if cursor.node_id != root_id:
+                                raise _AssetConflict("invalid_tree")
+                            break
+                        cursor = self._node_locked(conn, project_id, cursor.parent_node_id)
+                        if cursor is None:
+                            raise _AssetConflict("parent_missing")
+
+                final_name = node.name if name is None else name
+                final_key = node.name_key if name_key is None else name_key
+                if destination_id is None:
+                    raise _AssetConflict("parent_missing")
+                if final_name != node.name or destination_id != node.parent_node_id:
+                    occupied = conn.execute(
+                        "SELECT 1 FROM project_asset_nodes WHERE project_id = ? "
+                        "AND parent_node_id = ? AND name_key = ? "
+                        "AND deleted_at IS NULL AND node_id <> ?",
+                        (project_id, destination_id, final_key, node_id),
+                    ).fetchone()
+                    if occupied is not None:
+                        raise _AssetConflict("name_conflict")
+                    ts = max(now_ts(), node.updated_at + 1)
+                    try:
+                        conn.execute(
+                            "UPDATE project_asset_nodes SET name = ?, name_key = ?, "
+                            "parent_node_id = ?, updated_at = ? "
+                            "WHERE project_id = ? AND node_id = ? AND deleted_at IS NULL",
+                            (final_name, final_key, destination_id, ts, project_id, node_id),
+                        )
+                    except Exception as exc:  # pragma: no branch - dialect errors
+                        if _is_unique_violation(exc):
+                            raise _AssetConflict("name_conflict") from exc
+                        raise
+                    node = self._node_locked(conn, project_id, node_id)
+                    if node is None:
+                        raise RuntimeError("updated asset vanished inside the write transaction")
+
+                size_bytes: int | None = None
+                media_type: str | None = None
+                if node.kind == "file":
+                    version = conn.execute(
+                        "SELECT size_bytes, media_type FROM project_asset_versions "
+                        "WHERE project_id = ? AND node_id = ? AND is_current = 1",
+                        (project_id, node_id),
+                    ).fetchone()
+                    if version is not None:
+                        size_bytes = int(version["size_bytes"])
+                        media = version["media_type"]
+                        media_type = None if media is None else str(media)
+                return NodeUpdate(
+                    outcome="updated",
+                    node=node,
+                    size_bytes=size_bytes,
+                    media_type=media_type,
+                )
+        except _AssetConflict as conflict:
+            return NodeUpdate(outcome=conflict.outcome)
+
     # ------------------------------------------------------------ trash (042)
 
     def trash_node(self, *, project_id: str, actor_user_id: int, node_id: str) -> TrashDeletion:
@@ -1232,6 +1395,7 @@ class ProjectAssetRepo:
                 role = self._member_role_locked(conn, project_id, actor_user_id)
                 if role is None:
                     raise _AssetConflict("not_member")
+                self._structural_root_locked(conn, project_id)
                 node = self._node_locked_with_trash(conn, project_id, node_id)
                 archived = self._project_archived(conn, project_id)
                 if archived is None:
@@ -1252,6 +1416,17 @@ class ProjectAssetRepo:
                         if creator is None or int(creator) != actor_user_id:
                             raise _AssetConflict("forbidden")
                 subtree_ids = [node_id, *(str(row["node_id"]) for row in descendants)]
+                path = self._original_path(
+                    conn,
+                    project_id,
+                    {"name": node.name, "parent_node_id": node.parent_node_id},
+                    {},
+                )
+                conn.execute(
+                    "UPDATE project_asset_nodes SET deleted_from_path = ? "
+                    "WHERE project_id = ? AND node_id = ?",
+                    (path, project_id, node_id),
+                )
                 _mark_subtree_trashed(
                     conn,
                     project_id=project_id,
@@ -1315,6 +1490,7 @@ class ProjectAssetRepo:
                 role = self._member_role_locked(conn, project_id, actor_user_id)
                 if role is None:
                     raise _AssetConflict("not_member")
+                self._structural_root_locked(conn, project_id)
                 node = self._node_locked_with_trash(conn, project_id, node_id)
                 archived = self._project_archived(conn, project_id)
                 if archived is None:
@@ -1447,7 +1623,7 @@ class ProjectAssetRepo:
                 (project_id,),
             ).fetchone()
             rows = conn.execute(
-                "SELECT n.node_id, n.parent_node_id, n.kind, n.name, "
+                "SELECT n.node_id, n.parent_node_id, n.kind, n.name, n.deleted_from_path, "
                 "n.deleted_at, n.deleted_by, u.display_name, u.username "
                 "FROM project_asset_nodes n "
                 "LEFT JOIN users u ON u.id = n.deleted_by "
@@ -1458,7 +1634,6 @@ class ProjectAssetRepo:
             ).fetchall()
             total = int(total_row["n"]) if total_row is not None else 0
             can_manage = role in ("owner", "admin")
-            path_cache: dict[str, tuple[str | None, str]] = {}
             items: list[TrashListRow] = []
             for row in rows:
                 parent = row["parent_node_id"]
@@ -1477,7 +1652,7 @@ class ProjectAssetRepo:
                         parent_node_id=None if parent is None else str(parent),
                         kind=str(row["kind"]),
                         name=str(row["name"]),
-                        original_path=self._original_path(conn, project_id, row, path_cache),
+                        original_path=str(row["deleted_from_path"] or row["name"]),
                         deleted_at=int(row["deleted_at"]),
                         deleted_by=None if deleted_by is None else int(deleted_by),
                         deleted_by_name=deleted_by_name,
