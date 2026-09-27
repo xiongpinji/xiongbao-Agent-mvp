@@ -1,0 +1,185 @@
+{
+  "source": "44a2fd47f863700d9d4a50df2e51047887a53353",
+  "projectId": "01M3JJT3CHNQD4WZB7WDN8P9PZ",
+  "expertId": "XX13Z9",
+  "task": {
+    "threadId": "thr_01M3JJT75F8MA3EGNM4R31HP7M",
+    "runtimeId": "ptf90674G9E7BXJHJHA",
+    "sourceExpert": "XX13Z9"
+  },
+  "checks": {
+    "fixtureFilesCapability": true,
+    "createTaskUi201": true
+  },
+  "browserResponses": [
+    {
+      "method": "GET",
+      "path": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/i18n/tools",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/i18n/skills",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/settings/capabilities",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/agents",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/settings/timezone",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/01M3JJT3CHNQD4WZB7WDN8P9PZ",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/01M3JJT3CHNQD4WZB7WDN8P9PZ/members",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/01M3JJT3CHNQD4WZB7WDN8P9PZ/activity?scope=related&limit=20",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/01M3JJT3CHNQD4WZB7WDN8P9PZ/experts",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/task-capabilities",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/01M3JJT3CHNQD4WZB7WDN8P9PZ/tasks?scope=own&limit=50&offset=0",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/01M3JJT3CHNQD4WZB7WDN8P9PZ/experts",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/update/status",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/update/status",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/01M3JJT3CHNQD4WZB7WDN8P9PZ/tasks",
+      "status": 201
+    },
+    {
+      "method": "GET",
+      "path": "/api/voice/active",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/settings/upload",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/slash/commands?origin=ui",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/providers/resolved",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/providers/active-model",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/preferences",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/browser/record-replay/status",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/agents",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/agents",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/agents/ptf90674G9E7BXJHJHA/chat/welcome",
+      "status": 403
+    },
+    {
+      "method": "GET",
+      "path": "/api/agents/ptf90674G9E7BXJHJHA/threads/thr_01M3JJT75F8MA3EGNM4R31HP7M/history?limit=1&offset=0",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/agents/ptf90674G9E7BXJHJHA/threads?limit=11",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/agents/ptf90674G9E7BXJHJHA/threads/thr_01M3JJT75F8MA3EGNM4R31HP7M/history?limit=25&offset=0",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/agents",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/agents",
+      "status": 200
+    }
+  ],
+  "pageErrors": [],
+  "originalOutcome": "FAILED",
+  "originalFailure": "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: '工作区', exact: true }) to be visible\u001b[22m\n\n    at main (C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\playwright\\ps08-current-44a2fd47-20260928\\browser_probe.cjs:184:25)",
+  "note": "Task creation passed UI 201; this original harness then timed out before closing the default overview. The corrected continuation-result verifies the drawer separately."
+}

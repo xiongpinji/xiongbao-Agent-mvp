@@ -1,0 +1,11 @@
+{
+  "checkedAtUtc": "2026-09-27T23:34:06.4581499Z",
+  "ports": [
+    18781,
+    5197
+  ],
+  "listening": [],
+  "backendStop": "Ctrl-C on exec session 80018; terminal exit code 1 from KeyboardInterrupt",
+  "frontendStop": "Ctrl-C on exec session 34464; terminal exit code 1",
+  "removedExistingData": false
+}

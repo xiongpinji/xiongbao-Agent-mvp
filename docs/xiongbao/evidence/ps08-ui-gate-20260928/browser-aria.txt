@@ -1,0 +1,57 @@
+- button "熊宝-Agent"
+- text: v1.0.1
+- button "对话"
+- button "项目"
+- button "专家"
+- button "自动化"
+- button "Token 统计"
+- button "设置" [expanded]
+- button "个性化"
+- button "通道"
+- button "连接器"
+- button "技能包"
+- button "知识库"
+- button "P ps08_member"
+- button "收起面板"
+- button "PS08 本人专家 新建对话 —":
+  - text: PS08 本人专家
+  - button "新建对话"
+  - text: —
+- separator "调整侧栏宽度"
+- button "收起面板"
+- main:
+  - heading "嗨！你专属的智能伙伴来啦～" [level=1]
+  - paragraph: "@task-file-19tvqa 无论工作还是生活，说出你的想法"
+  - tablist "任务场景":
+    - tab "日常办公" [selected]
+    - tab "代码开发"
+    - tab "设计创意"
+  - tabpanel "日常办公":
+    - button "整理会议纪要"
+    - button "写一份周报"
+    - button "起草商务邮件"
+    - button "分析数据报表"
+  - textbox "和 AI 小助手说点什么吧～"
+  - 'button "对话模式: Craft模式"'
+  - 'button "工具审批策略: 每次审批"'
+  - button "选择模型"
+  - button
+  - button
+  - progressbar "上下文占用 0 / 128k · 0%（最近一次模型请求）": "0"
+  - button
+  - button
+  - button "发送" [disabled]
+  - paragraph: AI 生成内容，请注意甄别
+  - tablist:
+    - tab "工作空间文件 关闭" [selected]:
+      - button "工作空间文件"
+      - button "关闭"
+  - button "添加面板"
+  - button "面板布局"
+  - button "关闭"
+  - button "刷新"
+  - button "导出压缩包"
+  - button "导入压缩包"
+  - button "上传"
+  - img "exclamation-circle"
+  - text: 请先选择一个专家

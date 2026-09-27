@@ -19,10 +19,14 @@
 
 产品代码基线 `89026e51d31ef8fe58bf186ec4b5da7173bd1dcc` 上，同一测试文件新增独立的绑定线程 WebSocket 用例。它只用本地脚本模型，通过真实 ASGI WebSocket、Gateway 与 Harness 图实际执行 `write_file`，并让伪造的 `execute` 得到错误工具结果；每轮模型可见名称集合恰为批准的六个文件工具。两条贯通用例合跑 **2 passed、3 条依赖弃用警告**，Ruff 检查与格式检查通过。独立只读复核对新增差异无 P0/P1/P2，审查者另行复跑新用例 **1 passed**。这补强的是运行时调用链，不是付费模型或浏览器验收。
 
+## 后续 TCP 浏览器 RED
+
+绑定 `44a2fd47f863700d9d4a50df2e51047887a53353` 的真实 Chrome 与 TCP 后端夹具已执行：界面创建本人文件任务 201、已有 thread history 200，独立 HTTP 读写/下载/列举 200，project owner、outsider 和 admin 的 tree/download/history 共 9 次 403。打开工作区却显示“请先选择一个专家”，10 秒观察窗口内未收到匹配的根目录树响应，结果为 RED，不能算工作区验收通过。原始脚本未独立采集请求事件，不能据 `rootRequested=false` 宣称零请求。开关仅临时进程打开，产品默认仍为 False，最终模型推理次数为 0。完整边界、失败脚本修正和截图见[本轮浏览器记录](PROJECT_TASK_WORKSPACE_030_PS08_TCP_BROWSER_RED_20260928.md)。
+
 ## 尚未核销
 
 - 已确定一个前端断链：内部 runtime 被普通 Agent 列表过滤后，`WorkspaceDrawer` 始终误判未就绪。标记正例的行为 RED 失败、普通入口负例通过；两条实现路由分别零输出超时和月额度 429，目前无候选，见[本片实施状态](PROJECT_TASK_WORKSPACE_030_UI_GATE_EXECUTION_STATUS_20260928.md)。
-- `PROJECT_TASK_FILES_MODE_ENABLED = False` 仍是产品默认值；本轮没有运行开关开启后的登录态浏览器旅程，也没有启用生产文件模式。
+- `PROJECT_TASK_FILES_MODE_ENABLED = False` 仍是产品默认值；后续临时进程开启的登录态浏览器旅程复现了工作区 RED，刷新/重启/撤权的浏览器矩阵仍未核销，也没有启用生产文件模式。
 - PostgreSQL 专项不是完整 PostgreSQL HTTP/浏览器创建—读写—重启—撤权矩阵，也不是历史生产库升级演练。
 - Windows junction/hardlink HTTP 用例与真实 runtime 贯通用例是分开的；尚缺真实 runtime 下的重解析点执行时竞争验证与明确的 TOCTOU 风险结论。
 - 本地录制模型只在 WebSocket 旅程中实际执行了 `write_file`，没有逐个执行其余五个文件工具；也没有证明真实供应商模型的调用质量或 WorkBuddy 本地/云端能力对齐。GLM 固定 SHA 补审和 WorkBuddy 逐状态视觉对照另列待办。

@@ -1,0 +1,102 @@
+[
+  {
+    "method": "POST",
+    "route": "/auth/login",
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "route": "/auth/login",
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "route": "/auth/login",
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "route": "/auth/login",
+    "status": 200
+  },
+  {
+    "method": "PUT",
+    "route": "/agents/ptf90674G9E7BXJHJHA/workspace/file?path=notes%2Fbrief.txt&from_workspace=true",
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "route": "/agents/ptf90674G9E7BXJHJHA/workspace/file?path=notes%2Fbrief.txt&from_workspace=true",
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "route": "/agents/ptf90674G9E7BXJHJHA/workspace/download?path=notes%2Fbrief.txt&from_workspace=true",
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "route": "/agents/ptf90674G9E7BXJHJHA/workspace/tree?path=%2F&from_workspace=true",
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "route": "/agents/ptf90674G9E7BXJHJHA/workspace/tree?path=%2F&from_workspace=true",
+    "status": 403
+  },
+  {
+    "method": "GET",
+    "route": "/agents/ptf90674G9E7BXJHJHA/workspace/download?path=notes%2Fbrief.txt&from_workspace=true",
+    "status": 403
+  },
+  {
+    "method": "GET",
+    "route": "/agents/ptf90674G9E7BXJHJHA/threads/thr_01M3JJT75F8MA3EGNM4R31HP7M/history?limit=1&offset=0",
+    "status": 403
+  },
+  {
+    "method": "GET",
+    "route": "/agents/ptf90674G9E7BXJHJHA/workspace/tree?path=%2F&from_workspace=true",
+    "status": 403
+  },
+  {
+    "method": "GET",
+    "route": "/agents/ptf90674G9E7BXJHJHA/workspace/download?path=notes%2Fbrief.txt&from_workspace=true",
+    "status": 403
+  },
+  {
+    "method": "GET",
+    "route": "/agents/ptf90674G9E7BXJHJHA/threads/thr_01M3JJT75F8MA3EGNM4R31HP7M/history?limit=1&offset=0",
+    "status": 403
+  },
+  {
+    "method": "GET",
+    "route": "/agents/ptf90674G9E7BXJHJHA/workspace/tree?path=%2F&from_workspace=true",
+    "status": 403
+  },
+  {
+    "method": "GET",
+    "route": "/agents/ptf90674G9E7BXJHJHA/workspace/download?path=notes%2Fbrief.txt&from_workspace=true",
+    "status": 403
+  },
+  {
+    "method": "GET",
+    "route": "/agents/ptf90674G9E7BXJHJHA/threads/thr_01M3JJT75F8MA3EGNM4R31HP7M/history?limit=1&offset=0",
+    "status": 403
+  },
+  {
+    "method": "GET",
+    "route": "/projects/01M3JJT3CHNQD4WZB7WDN8P9PZ",
+    "status": 404
+  },
+  {
+    "method": "GET",
+    "route": "/projects/01M3JJT3CHNQD4WZB7WDN8P9PZ/tasks",
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "route": "/agents",
+    "status": 200
+  }
+]
