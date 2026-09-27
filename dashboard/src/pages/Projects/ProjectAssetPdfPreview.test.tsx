@@ -3,7 +3,10 @@ import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { downloadVersion } = vi.hoisted(() => ({ downloadVersion: vi.fn() }));
+const { download, downloadVersion } = vi.hoisted(() => ({
+  download: vi.fn(),
+  downloadVersion: vi.fn(),
+}));
 
 const coreHarness = vi.hoisted(() => ({
   fail: false,
@@ -19,7 +22,7 @@ vi.mock("../../api/modules/projectAssets", async (importOriginal) => {
   >();
   return {
     ...actual,
-    projectAssetsApi: { downloadVersion },
+    projectAssetsApi: { download, downloadVersion },
   };
 });
 
@@ -113,6 +116,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   downloadVersion.mockReset();
   downloadVersion.mockResolvedValue(pdfBlob());
+  download.mockReset();
+  download.mockResolvedValue(pdfBlob());
   onAccessLost = vi.fn();
   coreHarness.fail = false;
   coreHarness.onProgress = null;
@@ -122,6 +127,40 @@ beforeEach(() => {
 });
 
 describe("ProjectAssetPdfPreview", () => {
+  it("fetches the current PDF through the current download endpoint", async () => {
+    renderPreview({ versionId: null });
+
+    await waitFor(() => expect(download).toHaveBeenCalledTimes(1));
+    const [projectId, nodeId, options, onProgress] = download.mock.calls[0] as [
+      string,
+      string,
+      RequestInit,
+      (loaded: number, total: number) => void,
+    ];
+    expect([projectId, nodeId]).toEqual(["p1", "file-1"]);
+    expect(options.signal).toBe(coreHarness.signal);
+    expect(onProgress).toBe(coreHarness.onProgress);
+    expect(downloadVersion).not.toHaveBeenCalled();
+    await waitFor(() => expect(coreHarness.result).not.toBeNull());
+  });
+
+  it("drops a late current PDF 404 after unmount", async () => {
+    let rejectBlob: ((reason: unknown) => void) | null = null;
+    download.mockImplementationOnce(
+      () => new Promise((_resolve, reject) => (rejectBlob = reject)),
+    );
+    const { unmount } = renderPreview({ versionId: null });
+    await waitFor(() => expect(download).toHaveBeenCalledTimes(1));
+
+    unmount();
+    expect(coreHarness.signal?.aborted).toBe(true);
+    await act(async () => {
+      rejectBlob?.(notFoundError());
+      await Promise.resolve();
+    });
+    expect(onAccessLost).not.toHaveBeenCalled();
+  });
+
   it("loads the core on demand and fetches the exact version with signal and progress", async () => {
     renderPreview();
 

@@ -40,6 +40,7 @@ import {
   Alert,
   Breadcrumb,
   Button,
+  Drawer,
   Dropdown,
   Input,
   Modal,
@@ -57,6 +58,8 @@ import {
   FolderPlus,
   History,
   ListPlus,
+  Maximize2,
+  Minimize2,
   MoreHorizontal,
   RefreshCw,
   RotateCcw,
@@ -65,6 +68,9 @@ import {
 } from "lucide-react";
 import { EmptyState } from "../../components/EmptyState";
 import ProjectAssetVersions from "./ProjectAssetVersions";
+import ProjectAssetPdfPreview, {
+  PROJECT_ASSET_PDF_PREVIEW_MAX_BYTES,
+} from "./ProjectAssetPdfPreview";
 import {
   PROJECT_ASSETS_PAGE_SIZE,
   projectAssetsApi,
@@ -236,6 +242,19 @@ function httpStatus(error: unknown): number | null {
   return match ? Number(match[1]) : null;
 }
 
+function isCurrentPdfPreviewable(node: ProjectAssetNode): boolean {
+  const size = node.size_bytes;
+  return (
+    node.kind === "file" &&
+    node.name.toLowerCase().endsWith(".pdf") &&
+    node.media_type === "application/pdf" &&
+    size != null &&
+    Number.isFinite(size) &&
+    size > 0 &&
+    size <= PROJECT_ASSET_PDF_PREVIEW_MAX_BYTES
+  );
+}
+
 export default function ProjectAssets({ projectId }: Props) {
   const { t } = useTranslation();
   const timezone = useServerTimezone();
@@ -263,6 +282,11 @@ export default function ProjectAssets({ projectId }: Props) {
     projectId: string;
     node: ProjectAssetNode;
   } | null>(null);
+  const [previewNode, setPreviewNode] = useState<{
+    projectId: string;
+    node: ProjectAssetNode;
+  } | null>(null);
+  const [previewExpanded, setPreviewExpanded] = useState(false);
 
   /** 042: node pending the “移入回收站” confirmation; cancel mutates nothing. */
   const [deleteTarget, setDeleteTarget] = useState<{
@@ -323,6 +347,8 @@ export default function ProjectAssets({ projectId }: Props) {
     setActionError(null);
     setDownloadingId(null);
     setVersionNode(null);
+    setPreviewNode(null);
+    setPreviewExpanded(false);
     clearTrashAndDeleteState();
     fetchSeq.current += 1;
     usageSeq.current += 1;
@@ -451,6 +477,8 @@ export default function ProjectAssets({ projectId }: Props) {
       setFolderSubmitting(false);
       setDownloadingId(null);
       setVersionNode(null);
+      setPreviewNode(null);
+      setPreviewExpanded(false);
       // 042: a revocation also clears the trash rows and closes the
       // delete/trash modals; their late responses stay invalidated.
       clearTrashAndDeleteState();
@@ -519,11 +547,18 @@ export default function ProjectAssets({ projectId }: Props) {
     [projectId],
   );
   const closeVersionModal = useCallback(() => setVersionNode(null), []);
+  const closePreview = useCallback(() => {
+    setPreviewNode(null);
+    setPreviewExpanded(false);
+  }, []);
   const handleVersionChanged = useCallback(
     (originProjectId: string) => {
-      if (originProjectId === currentProjectId.current) reload();
+      if (originProjectId === currentProjectId.current) {
+        closePreview();
+        reload();
+      }
     },
-    [reload],
+    [closePreview, reload],
   );
   const handleVersionAccessLost = useCallback(
     (err: unknown, originProjectId: string) => {
@@ -717,6 +752,13 @@ export default function ProjectAssets({ projectId }: Props) {
       setDeleteTarget(null);
       // The trashed node must not keep an open version modal alive.
       setVersionNode((previous) =>
+        previous != null &&
+        previous.projectId === submittedProjectId &&
+        previous.node.node_id === target.node.node_id
+          ? null
+          : previous,
+      );
+      setPreviewNode((previous) =>
         previous != null &&
         previous.projectId === submittedProjectId &&
         previous.node.node_id === target.node.node_id
@@ -1040,16 +1082,41 @@ export default function ProjectAssets({ projectId }: Props) {
         data-testid={`project-asset-${node.node_id}`}
         style={rowStyle}
       >
-        <FileText size={16} aria-hidden />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ wordBreak: "break-word" }}>{node.name}</div>
-          <div style={secondaryStyle}>
-            {formatBytes(node.size_bytes)} ·{" "}
-            {node.media_type ??
-              t("projects.assets.fileTypeUnknown", "未知类型")}{" "}
-            · {updated}
+        <button
+          type="button"
+          aria-label={t("projects.assets.previewFile", "预览：{{name}}", {
+            name: node.name,
+          })}
+          onClick={() => {
+            setPreviewNode({ projectId, node });
+            setPreviewExpanded(false);
+          }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            flex: 1,
+            minWidth: 0,
+            padding: 0,
+            background: "transparent",
+            border: "none",
+            color: "inherit",
+            font: "inherit",
+            textAlign: "left",
+            cursor: "pointer",
+          }}
+        >
+          <FileText size={16} aria-hidden />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ wordBreak: "break-word" }}>{node.name}</div>
+            <div style={secondaryStyle}>
+              {formatBytes(node.size_bytes)} ·{" "}
+              {node.media_type ??
+                t("projects.assets.fileTypeUnknown", "未知类型")}{" "}
+              · {updated}
+            </div>
           </div>
-        </div>
+        </button>
         <Button
           size="small"
           icon={<Download size={14} />}
@@ -1532,6 +1599,113 @@ export default function ProjectAssets({ projectId }: Props) {
       )}
 
       {body}
+
+      {previewNode?.projectId === projectId && (
+        <Drawer
+          open
+          placement="right"
+          width={
+            previewExpanded
+              ? "calc(100vw - 56px)"
+              : "min(760px, calc(100vw - 24px))"
+          }
+          onClose={closePreview}
+          destroyOnHidden
+          title={
+            <div style={{ minWidth: 0 }}>
+              <div style={{ overflowWrap: "anywhere" }}>
+                {previewNode.node.name}
+              </div>
+              <div style={secondaryStyle}>
+                {formatServerDateTime(previewNode.node.updated_at, timezone)}
+                {" · "}
+                {formatBytes(previewNode.node.size_bytes)}
+              </div>
+            </div>
+          }
+          extra={
+            <div style={{ display: "flex", gap: 4 }}>
+              <Button
+                type="text"
+                size="small"
+                icon={<Download size={16} />}
+                aria-label={t("projects.assets.download", "下载")}
+                onClick={() => void handleDownload(previewNode.node)}
+              />
+              <Button
+                type="text"
+                size="small"
+                icon={<History size={16} />}
+                aria-label={t("projects.assets.versionManage", "版本管理")}
+                onClick={() => openVersionModal(previewNode.node)}
+              />
+              <Button
+                type="text"
+                size="small"
+                danger
+                icon={<Trash2 size={16} />}
+                aria-label={t("projects.assets.deleteToTrash", "移入回收站")}
+                onClick={() => openDeleteModal(previewNode.node)}
+              />
+              <Button
+                type="text"
+                size="small"
+                icon={
+                  previewExpanded ? (
+                    <Minimize2 size={16} />
+                  ) : (
+                    <Maximize2 size={16} />
+                  )
+                }
+                aria-label={t(
+                  previewExpanded
+                    ? "projects.assets.previewRestoreSize"
+                    : "projects.assets.previewExpand",
+                  previewExpanded ? "恢复预览宽度" : "放大预览",
+                )}
+                onClick={() => setPreviewExpanded((value) => !value)}
+              />
+            </div>
+          }
+        >
+          <div data-testid="project-asset-current-preview">
+            {isCurrentPdfPreviewable(previewNode.node) ? (
+              <ProjectAssetPdfPreview
+                key={`${projectId}\u0000${previewNode.node.node_id}`}
+                projectId={projectId}
+                nodeId={previewNode.node.node_id}
+                versionId={null}
+                filename={previewNode.node.name}
+                onAccessLost={(err) => handleVersionAccessLost(err, projectId)}
+              />
+            ) : (
+              <div
+                data-testid="project-asset-preview-unsupported"
+                style={{
+                  ...rowStyle,
+                  minHeight: 260,
+                  justifyContent: "center",
+                  flexDirection: "column",
+                }}
+              >
+                <FileText size={36} aria-hidden />
+                <Text>
+                  {t(
+                    "projects.assets.previewUnsupported",
+                    "此类型暂不支持在线预览，请下载后查看。",
+                  )}
+                </Text>
+                <Button
+                  icon={<Download size={14} />}
+                  onClick={() => void handleDownload(previewNode.node)}
+                >
+                  {t("projects.assets.download", "下载")}
+                </Button>
+              </div>
+            )}
+          </div>
+        </Drawer>
+      )}
 
       {hasMore && !notFound && error == null && items.length > 0 && (
         <div style={{ textAlign: "center", marginTop: 12 }}>

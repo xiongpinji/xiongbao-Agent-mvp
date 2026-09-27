@@ -113,6 +113,45 @@ vi.mock("../../components/EmptyState", () => ({
   ),
 }));
 
+// The PDF.js core has its own focused tests; this exercises the asset page's
+// current-version wiring and drawer lifetime without loading a canvas in jsdom.
+vi.mock("./ProjectAssetPdfPreview", async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import("./ProjectAssetPdfPreview")
+  >();
+  const React = await import("react");
+  function PdfPreviewHarness({
+    projectId,
+    nodeId,
+    versionId,
+    onAccessLost,
+  }: {
+    projectId: string;
+    nodeId: string;
+    versionId: string | null;
+    onAccessLost: (error: unknown) => void;
+  }) {
+    React.useEffect(() => {
+      if (versionId !== null) return;
+      const controller = new AbortController();
+      Promise.resolve(
+        download(projectId, nodeId, { signal: controller.signal }, vi.fn()),
+      ).catch((error: unknown) => {
+        if (!controller.signal.aborted) onAccessLost(error);
+      });
+      return () => controller.abort();
+      // The parent callback is intentionally not an effect dependency:
+      // a list refresh must not restart a live current-version download.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [projectId, nodeId, versionId]);
+    return <div data-testid="project-asset-version-pdf-preview" />;
+  }
+  return {
+    ...actual,
+    default: PdfPreviewHarness,
+  };
+});
+
 import ProjectAssets from "./ProjectAssets";
 import {
   PROJECT_ASSETS_PAGE_SIZE,
@@ -843,6 +882,129 @@ describe("ProjectAssets against the PS-06A / 023A contract", () => {
   });
 });
 
+describe("ProjectAssets 043 current file preview", () => {
+  it("opens the PDF row in a right drawer without listing versions", async () => {
+    const user = userEvent.setup();
+    download.mockResolvedValueOnce(
+      new Blob(["%PDF-1.4\n"], { type: "application/pdf" }),
+    );
+    renderAssets();
+    const row = await screen.findByTestId("project-asset-file-1");
+
+    await user.click(
+      within(row).getByRole("button", { name: "预览：需求说明.pdf" }),
+    );
+
+    expect(
+      await screen.findByTestId("project-asset-current-preview"),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(download).toHaveBeenCalledWith(
+        "p1",
+        "file-1",
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+        expect.any(Function),
+      ),
+    );
+    expect(listVersions).not.toHaveBeenCalled();
+    expect(downloadVersion).not.toHaveBeenCalled();
+  });
+
+  it("shows a local unsupported placeholder without fetching bytes", async () => {
+    const user = userEvent.setup();
+    list.mockResolvedValueOnce(listResponse([fileEmpty]));
+    renderAssets();
+    const row = await screen.findByTestId("project-asset-file-2");
+
+    await user.click(
+      within(row).getByRole("button", { name: "预览：空文件.txt" }),
+    );
+
+    expect(
+      await screen.findByTestId("project-asset-preview-unsupported"),
+    ).toBeInTheDocument();
+    expect(download).not.toHaveBeenCalled();
+    expect(listVersions).not.toHaveBeenCalled();
+  });
+
+  it("closes an open preview on project switch and ignores late bytes", async () => {
+    const user = userEvent.setup();
+    let resolveBlob: ((blob: Blob) => void) | null = null;
+    download.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveBlob = resolve)),
+    );
+    const { rerender } = renderAssets("p1");
+    const row = await screen.findByTestId("project-asset-file-1");
+    await user.click(
+      within(row).getByRole("button", { name: "预览：需求说明.pdf" }),
+    );
+    await waitFor(() => expect(download).toHaveBeenCalledTimes(1));
+    const signal = (download.mock.calls[0][2] as RequestInit).signal;
+
+    list.mockResolvedValue(listResponse([{ ...fileSpec, name: "新项目.pdf" }]));
+    rerender(<ProjectAssets projectId="p2" />);
+    await waitFor(() =>
+      expect(screen.queryByTestId("project-asset-current-preview")).toBeNull(),
+    );
+    expect(signal?.aborted).toBe(true);
+    await act(async () => {
+      resolveBlob?.(new Blob(["%PDF-1.4\n"], { type: "application/pdf" }));
+      await Promise.resolve();
+    });
+    expect(screen.queryByTestId("project-asset-current-preview")).toBeNull();
+  });
+
+  it("aborts a closed drawer and ignores a late 404", async () => {
+    const user = userEvent.setup();
+    let rejectBlob: ((error: unknown) => void) | null = null;
+    download.mockImplementationOnce(
+      () => new Promise((_resolve, reject) => (rejectBlob = reject)),
+    );
+    renderAssets();
+    const row = await screen.findByTestId("project-asset-file-1");
+    await user.click(
+      within(row).getByRole("button", { name: "预览：需求说明.pdf" }),
+    );
+    await waitFor(() => expect(download).toHaveBeenCalledTimes(1));
+    const signal = (download.mock.calls[0][2] as RequestInit).signal;
+
+    await user.click(
+      document.querySelector<HTMLButtonElement>(".ant-drawer-close")!,
+    );
+    await waitFor(() =>
+      expect(screen.queryByTestId("project-asset-current-preview")).toBeNull(),
+    );
+    expect(signal?.aborted).toBe(true);
+    await act(async () => {
+      rejectBlob?.(
+        new Error('404 - {"error":{"code":"NOT_FOUND","message":"late"}}'),
+      );
+      await Promise.resolve();
+    });
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("project-asset-file-1")).toBeInTheDocument();
+  });
+
+  it("rechecks the project after a live current-file 404", async () => {
+    const user = userEvent.setup();
+    download.mockRejectedValueOnce(
+      new Error('404 - {"error":{"code":"NOT_FOUND","message":"missing"}}'),
+    );
+    renderAssets();
+    const row = await screen.findByTestId("project-asset-file-1");
+    await user.click(
+      within(row).getByRole("button", { name: "预览：需求说明.pdf" }),
+    );
+
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+    expect(screen.queryByTestId("project-asset-current-preview")).toBeNull();
+    expect(
+      await screen.findByTestId("project-asset-file-1"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("项目不存在或你无权访问")).toBeNull();
+  });
+});
+
 describe("ProjectAssets 042 recoverable trash", () => {
   async function openDeleteDialog(
     user: ReturnType<typeof userEvent.setup>,
@@ -1327,6 +1489,23 @@ describe("projectAssetsApi path building", () => {
 
     expect(requestBlob).toHaveBeenCalledWith(
       "/projects/p%201%2F2/assets/n%2F1/download",
+    );
+  });
+
+  it("passes abort and progress through the current download endpoint", () => {
+    const controller = new AbortController();
+    const progress = vi.fn();
+    void realApi.download(
+      "p 1/2",
+      "n/1",
+      { signal: controller.signal },
+      progress,
+    );
+
+    expect(requestBlob).toHaveBeenCalledWith(
+      "/projects/p%201%2F2/assets/n%2F1/download",
+      { signal: controller.signal },
+      progress,
     );
   });
 

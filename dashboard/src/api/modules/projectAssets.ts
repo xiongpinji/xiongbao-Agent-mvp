@@ -234,8 +234,18 @@ export const projectAssetsApi = {
       onProgress,
     );
   },
-  download: (projectId: string, nodeId: string) =>
-    requestBlob(`${nodeBase(projectId, nodeId)}/download`),
+  download: (
+    projectId: string,
+    nodeId: string,
+    options?: RequestInit,
+    onProgress?: (loaded: number, total: number) => void,
+  ) => {
+    const path = `${nodeBase(projectId, nodeId)}/download`;
+    // Keep the existing two-argument download call shape intact.
+    return options == null && onProgress == null
+      ? requestBlob(path)
+      : requestBlob(path, options ?? {}, onProgress);
+  },
   listVersions: (
     projectId: string,
     nodeId: string,

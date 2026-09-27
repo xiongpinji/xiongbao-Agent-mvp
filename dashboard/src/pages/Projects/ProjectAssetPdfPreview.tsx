@@ -1,9 +1,9 @@
 /**
- * ProjectAssetPdfPreview — authenticated, version-keyed PDF preview for the
- * project version-management modal (027).
+ * ProjectAssetPdfPreview — authenticated PDF preview for the selected
+ * historical version (027) or the current asset (043).
  *
- * Only the selected authorized historical version is fetched, through the
- * existing authenticated project-asset download endpoint, and rendered by the
+ * Only the selected authorized bytes are fetched through the existing
+ * authenticated project-asset download endpoint and rendered by the
  * existing local PDF.js core. The core is imported on demand so unrelated
  * project screens never pull the PDF bundle. No third-party preview service,
  * no public file URL and no uploaded HTML/SVG is ever rendered.
@@ -82,7 +82,8 @@ function readPdfSignature(blob: Blob): Promise<boolean> {
 interface Props {
   projectId: string;
   nodeId: string;
-  versionId: string;
+  /** null selects the current file; a nonempty ID selects one historical version. */
+  versionId: string | null;
   filename: string;
   /** 404 on the authorized download: missing object or revoked membership. */
   onAccessLost: (error: unknown) => void;
@@ -140,13 +141,21 @@ export default function ProjectAssetPdfPreview({
 
       let blob: Blob;
       try {
-        blob = await projectAssetsApi.downloadVersion(
-          projectId,
-          nodeId,
-          versionId,
-          signal ? { signal } : {},
-          onProgress,
-        );
+        blob =
+          versionId === null
+            ? await projectAssetsApi.download(
+                projectId,
+                nodeId,
+                signal ? { signal } : {},
+                onProgress,
+              )
+            : await projectAssetsApi.downloadVersion(
+                projectId,
+                nodeId,
+                versionId,
+                signal ? { signal } : {},
+                onProgress,
+              );
       } catch (error) {
         if (signal?.aborted || isAbortError(error) || !aliveRef.current) {
           return rejectAborted();
@@ -201,7 +210,14 @@ export default function ProjectAssetPdfPreview({
   }
 
   return (
-    <div data-testid="project-asset-version-pdf-preview" style={containerStyle}>
+    <div
+      data-testid="project-asset-version-pdf-preview"
+      style={
+        versionId === null
+          ? { ...containerStyle, height: "calc(100vh - 235px)", minHeight: 300 }
+          : containerStyle
+      }
+    >
       {content}
     </div>
   );
