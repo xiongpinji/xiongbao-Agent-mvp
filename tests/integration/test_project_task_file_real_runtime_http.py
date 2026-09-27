@@ -17,10 +17,11 @@ from typing import Any
 import httpx
 import pytest
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from pydantic import PrivateAttr
 
+from octop.infra.agents.project_task_file_boundary import PROJECT_TASK_FILE_TOOLS
 from octop.infra.projects import file_tasks
 from octop.infra.projects.tasks import instructions_sha256
 from tests.support.app import octop_client
@@ -32,6 +33,7 @@ from tests.support.auth import (
     resolve_user_id,
     seed_openai_provider,
 )
+from tests.support.http import chat_ws_path, ws_connect
 
 OWNER = "rt_owner"
 MEMBER = "rt_member"
@@ -43,7 +45,9 @@ INSTRUCTIONS = "真实运行体文件任务：只在本人受控目录内读写�
 class _RecordingChatModel(BaseChatModel):
     """Local model stand-in; startup may bind it, but no network is used."""
 
+    scripts: list[AIMessage] = []
     invocations: list[list[str]] = []
+    tool_messages_seen: list[tuple[str, str, str]] = []
     _pending: list[str] = PrivateAttr(default_factory=list)
 
     @property
@@ -65,22 +69,32 @@ class _RecordingChatModel(BaseChatModel):
         self, messages: Any, stop: Any = None, run_manager: Any = None, **kwargs: Any
     ) -> ChatResult:
         self.invocations.append(list(self._pending))
-        return ChatResult(generations=[ChatGeneration(message=AIMessage(content="recorded"))])
+        self.tool_messages_seen.extend(
+            (str(message.name), str(message.status), str(message.content))
+            for message in messages
+            if isinstance(message, ToolMessage)
+        )
+        reply = (
+            self.scripts[min(len(self.invocations) - 1, len(self.scripts) - 1)]
+            if self.scripts
+            else AIMessage(content="recorded")
+        )
+        return ChatResult(generations=[ChatGeneration(message=reply)])
 
 
 @asynccontextmanager
 async def _real_runtime_client(
-    home: Path, monkeypatch: pytest.MonkeyPatch
-) -> AsyncIterator[tuple[httpx.AsyncClient, Any]]:
+    home: Path, monkeypatch: pytest.MonkeyPatch, *, scripts: list[AIMessage] | None = None
+) -> AsyncIterator[tuple[httpx.AsyncClient, Any, _RecordingChatModel]]:
     """ASGI client with real AgentManager/Harness runtime and a local model fake."""
 
-    recording_model = _RecordingChatModel()
+    recording_model = _RecordingChatModel(scripts=scripts or [])
     monkeypatch.setattr(
         "harness_agent.llm.factory.ChatModelFactory.get_chat_model",
         lambda self, model_ref: recording_model,
     )
     async with octop_client(home, patch_llm=False) as (client, srv):
-        yield client, srv
+        yield client, srv, recording_model
 
 
 async def _bootstrap_workspace_project(
@@ -130,7 +144,7 @@ async def test_files_task_uses_real_runtime_http_workspace_and_survives_restart(
 ) -> None:
     monkeypatch.setattr(file_tasks, "PROJECT_TASK_FILES_MODE_ENABLED", True)
 
-    async with _real_runtime_client(tmp_octop_home, monkeypatch) as (client, srv):
+    async with _real_runtime_client(tmp_octop_home, monkeypatch) as (client, srv, _model):
         ctx = await _bootstrap_workspace_project(client, srv, tmp_octop_home)
         create_resp = await client.post(
             f"/api/projects/{ctx['project_id']}/tasks",
@@ -198,7 +212,7 @@ async def test_files_task_uses_real_runtime_http_workspace_and_survives_restart(
         )
         _assert_internal_forbidden(outsider_resp)
 
-    async with _real_runtime_client(tmp_octop_home, monkeypatch) as (client, srv):
+    async with _real_runtime_client(tmp_octop_home, monkeypatch) as (client, srv, _model):
         member_auth = await auth_header(client, username=MEMBER, password=PASSWORD)
         outsider_auth = await auth_header(client, username=OUTSIDER, password=PASSWORD)
 
@@ -255,3 +269,74 @@ async def test_files_task_uses_real_runtime_http_workspace_and_survives_restart(
         )
         assert private_after_removal.status_code == 200, private_after_removal.text
         assert private_after_removal.json()["content"] == "private workspace bytes"
+
+
+async def test_files_task_real_ws_turn_runs_file_tool_and_vetoes_forged_execute(
+    tmp_octop_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One bound-thread turn reaches the real graph; only the model is local."""
+    monkeypatch.setattr(file_tasks, "PROJECT_TASK_FILES_MODE_ENABLED", True)
+    scripts = [
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "write_file",
+                    "args": {"file_path": "model.txt", "content": "written by real tool"},
+                    "id": "call_write",
+                    "type": "tool_call",
+                }
+            ],
+        ),
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "execute",
+                    "args": {"command": "echo forbidden"},
+                    "id": "call_execute",
+                    "type": "tool_call",
+                }
+            ],
+        ),
+        AIMessage(content="done"),
+    ]
+    async with _real_runtime_client(tmp_octop_home, monkeypatch, scripts=scripts) as (
+        client,
+        srv,
+        model,
+    ):
+        ctx = await _bootstrap_workspace_project(client, srv, tmp_octop_home)
+        created = await client.post(
+            f"/api/projects/{ctx['project_id']}/tasks",
+            headers=ctx["member_auth"],
+            json={
+                "agent_id": ctx["source_agent"],
+                "expected_instructions_sha256": instructions_sha256(INSTRUCTIONS),
+                "mode": "files",
+            },
+        )
+        assert created.status_code == 201, created.text
+        runtime_id = created.json()["chat_agent_id"]
+        thread_id = created.json()["thread_id"]
+        app = client._octop_app  # type: ignore[attr-defined]
+        async with ws_connect(app, chat_ws_path(runtime_id, ctx["member_auth"])) as ws:
+            await ws.send_json(
+                {
+                    "type": "user_turn",
+                    "text": "Write a private file",
+                    "thread_id": thread_id,
+                    "messages": [{"role": "user", "content": "Write a private file"}],
+                }
+            )
+            frames = await ws.drain_turn(timeout=40)
+
+        assert frames[-1]["type"] == "done", frames
+        root = srv.services.paths.project_task_file_runtime_dir(runtime_id)
+        assert (root / "model.txt").read_text(encoding="utf-8") == "written by real tool"
+        assert len(model.invocations) >= 3
+        assert all(set(names) == PROJECT_TASK_FILE_TOOLS for names in model.invocations)
+        assert any(
+            name == "execute" and status == "error" and "not available" in content
+            for name, status, content in model.tool_messages_seen
+        )
