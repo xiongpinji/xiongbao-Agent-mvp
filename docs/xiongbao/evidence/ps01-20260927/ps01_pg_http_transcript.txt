@@ -1,0 +1,20 @@
+{
+  "result": "PASS",
+  "source_sha": "7bbbe222eaa54f98bc685f266e4aa49144a8388f",
+  "octop_import": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\__init__.py",
+  "database_driver": "postgresql",
+  "database_host": "127.0.0.1",
+  "database_port": 39152,
+  "database_name": "ps01_http_final",
+  "migration_version": 30,
+  "project_id": "01M3HHJG8B84213T0P80F0DR95",
+  "steps": [
+    "postgresql_v30_and_three_synthetic_users",
+    "owner_create_detail_search_member_prejoin_404",
+    "invite_join_member_read_search_edit_403",
+    "outsider_empty_list_search_detail_404",
+    "owner_rename_owner_member_refresh_and_search",
+    "revocation_immediate_detail_404_list_search_empty",
+    "restart_persists_rename_and_revocation"
+  ]
+}

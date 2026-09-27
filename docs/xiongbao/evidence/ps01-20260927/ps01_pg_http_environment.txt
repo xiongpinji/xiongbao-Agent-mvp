@@ -1,0 +1,27 @@
+PS-01 PostgreSQL-backed in-process HTTP probe environment, 2026-09-27
+
+Source checkout: C:\Users\canqu\Documents\Codex\2026-09-23\qctop-work-buddy-agent-logo-ui-3\work\030-windows-path-qa
+Source SHA: 7bbbe222eaa54f98bc685f266e4aa49144a8388f
+PostgreSQL: 18.6, Ubuntu/WSL, disposable cluster created for this QA run
+Cluster root: /home/canqu/work/ps01-http-aTeA0Vqh
+Data and socket directories: under that root, owner canqu, mode 0700
+Loopback endpoint: 127.0.0.1:39152; system/default port 5432 not used
+Cluster system identifier: 7690206745063612774
+Isolated databases created by this run: ps01_http_20260927, ps01_http_retry1, ps01_http_final
+Final acceptance run: ps01_http_final only; migration version 30
+
+Setup used initdb on the cluster root/data directory with local/host trust restricted by private directory and loopback listen address. The server was started with pg_ctl using '-h 127.0.0.1 -p 39152 -k <cluster root>/sock'. The final probe ran with OCTOP_DATABASE_URL pointing only to postgresql://canqu@127.0.0.1:39152/ps01_http_final, OCTOP_HOME pointing to a disposable probe home, and PYTHONPATH pointing to this source checkout. The probe also replaced Path.home with that disposable home; no existing user profile or database was an input. No user database was dropped or reset.
+
+Final probe process exit code: 0. Its JSON result is in ps01_pg_http_transcript.txt. The first two preflight runs used other disposable databases in the same cluster; they are not final acceptance evidence.
+
+Shutdown observation after the final probe:
+  pg_ctl -D <cluster root>/data -w stop
+  waiting for server to shut down.... done
+  server stopped
+  pg_isready -h 127.0.0.1 -p 39152
+  127.0.0.1:39152 - no response
+  ss -ltn '( sport = :39152 )'
+  State Recv-Q Send-Q Local Address:Port Peer Address:Port
+  [no listener rows]
+
+This probe used httpx.ASGITransport in process. It did not exercise a TCP-bound Octop HTTP server or a browser against PostgreSQL.
