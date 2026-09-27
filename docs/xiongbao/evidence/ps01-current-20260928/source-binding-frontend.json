@@ -1,0 +1,9 @@
+{
+  "expected_sha": "c74f2233619cf42b3efb8bb96c2eb5e489f0d197",
+  "dashboard_dir": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\dashboard",
+  "vite_config": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\dashboard\\vite.config.ts",
+  "api_port": "18771",
+  "dev_port": "5187",
+  "hmr_port": "5187",
+  "captured_at": "2026-09-28T04:51:59.1470230+08:00"
+}

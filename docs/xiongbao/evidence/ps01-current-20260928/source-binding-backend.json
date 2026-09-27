@@ -1,0 +1,11 @@
+{
+  "expected_sha": "c74f2233619cf42b3efb8bb96c2eb5e489f0d197",
+  "checkout": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa",
+  "pythonpath": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src",
+  "octop_module": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\__init__.py",
+  "octop_home": "C:\\Users\\canqu\\AppData\\Local\\Temp\\xiongbao-bound-qa-1790542214924",
+  "bind_host": "127.0.0.1",
+  "port": "18771",
+  "source_files_clean": true,
+  "captured_at": "2026-09-28T04:51:23.0556878+08:00"
+}
