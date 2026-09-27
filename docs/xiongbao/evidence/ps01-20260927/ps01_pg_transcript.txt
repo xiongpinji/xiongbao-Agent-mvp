@@ -1,0 +1,5 @@
+old source: /home/canqu/work/xiongbao-ps01-pg-v17/src/octop/__init__.py
+PASS: v17 schema, no project table, legacy owner_id=1
+current source: /home/canqu/work/xiongbao-ps01-pg-current/src/octop/__init__.py
+PASS: fresh PostgreSQL schema v30 project/owner/member/search/rename
+PASS: real v17 PostgreSQL upgrade to v30, legacy user retained, PS01 repository path
