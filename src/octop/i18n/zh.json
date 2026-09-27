@@ -447,6 +447,8 @@
     "PROJECT_TASK_LINK_CONFLICT": "该任务已归属其他项目，请先在原项目中解除归属。",
     "PROJECT_INSTRUCTIONS_CHANGED": "项目指令在确认后已变更，请刷新项目详情并重新确认。",
     "PROJECT_ACTIVITY_CURSOR_INVALID": "动态分页游标无效或已过期，请刷新项目动态后重试。",
+    "PROJECT_TODO_COMMENT_CONFLICT": "该评论请求号已用于不同内容，请新建草稿后重试。",
+    "PROJECT_TODO_COMMENT_CURSOR_INVALID": "评论分页游标无效，请刷新评论后重试。",
     "PROJECT_ASSET_NAME_CONFLICT": "同一文件夹下已存在同名资产，请换一个名称。",
     "PROJECT_ASSET_INVALID": "资产名称或目标文件夹无效，请检查后重试。",
     "PROJECT_ASSET_TOO_LARGE": "文件超过 {max_mb} MB 上传上限。",

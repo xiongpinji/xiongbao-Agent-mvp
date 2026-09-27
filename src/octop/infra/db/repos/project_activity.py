@@ -28,6 +28,7 @@ from typing import Any
 
 from octop.infra.db.pool import DatabasePool
 from octop.infra.db.repos._base import DbRow, map_rows, now_ts, sql_in_placeholders
+from octop.infra.db.repos.project_todo_comments import EVENT_TODO_COMMENT_CREATED
 from octop.infra.db.repos.project_todos import (
     EVENT_TODO_CREATED,
     EVENT_TODO_DELETED,
@@ -58,6 +59,7 @@ ACTIVITY_EVENT_TYPES: tuple[str, ...] = (
     EVENT_TODO_CREATED,
     EVENT_TODO_UPDATED,
     EVENT_TODO_DELETED,
+    EVENT_TODO_COMMENT_CREATED,
     EVENT_MESSAGE_CREATED,
 )
 
@@ -68,7 +70,12 @@ _MEMBER_EVENT_TYPES: tuple[str, ...] = (
     EVENT_MEMBER_ROLE_CHANGED,
     EVENT_MEMBER_REMOVED,
 )
-_TODO_EVENT_TYPES: tuple[str, ...] = (EVENT_TODO_CREATED, EVENT_TODO_UPDATED, EVENT_TODO_DELETED)
+_TODO_EVENT_TYPES: tuple[str, ...] = (
+    EVENT_TODO_CREATED,
+    EVENT_TODO_UPDATED,
+    EVENT_TODO_DELETED,
+    EVENT_TODO_COMMENT_CREATED,
+)
 
 # SELECT list shared by the timeline and the post-create message read-back.
 # object_kind is derived from the event type; message bodies come from the
@@ -79,7 +86,7 @@ _ACTIVITY_SELECT = (
     "e.actor_user_id AS actor_user_id, u.username AS actor_name, "
     "CASE "
     "WHEN e.event_type IN (?, ?, ?) THEN 'member' "
-    "WHEN e.event_type IN (?, ?, ?) THEN 'todo' "
+    "WHEN e.event_type IN (?, ?, ?, ?) THEN 'todo' "
     "WHEN e.event_type = ? THEN 'message' "
     "ELSE 'project' END AS object_kind, "
     "e.object_id AS object_id, m.body AS message_body, e.created_at AS created_at "

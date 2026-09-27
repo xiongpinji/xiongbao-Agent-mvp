@@ -3,7 +3,14 @@ import { resolve } from "node:path";
 import type { ReactNode } from "react";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
+import {
+  Link,
+  MemoryRouter,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { get, members, list, usage } = vi.hoisted(() => ({
@@ -116,10 +123,30 @@ vi.mock("../../components/EmptyState", () => ({
 }));
 
 vi.mock("./ProjectActivity", () => ({
-  default: () => <div>activity-stub</div>,
+  default: ({ onOpenTodo }: { onOpenTodo?: (id: string) => void }) => (
+    <div>
+      activity-stub
+      <button onClick={() => onOpenTodo?.("t1")}>activity-open-todo</button>
+    </div>
+  ),
 }));
 vi.mock("./ProjectPlan", () => ({
-  default: () => <div>plan-stub</div>,
+  default: ({
+    selectedTodoId,
+    onOpenTodo,
+    onCloseTodo,
+  }: {
+    selectedTodoId?: string | null;
+    onOpenTodo?: (id: string) => void;
+    onCloseTodo?: () => void;
+  }) => (
+    <div>
+      plan-stub
+      <output data-testid="selected-todo">{selectedTodoId ?? ""}</output>
+      <button onClick={() => onOpenTodo?.("t1")}>plan-open-todo</button>
+      <button onClick={() => onCloseTodo?.()}>plan-close-todo</button>
+    </div>
+  ),
 }));
 vi.mock("./ProjectTasks", () => ({
   default: (props: {
@@ -241,6 +268,19 @@ function renderDetail(projectId: string, key = projectId) {
   );
 }
 
+function LocationProbe() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  return (
+    <>
+      <output data-testid="route-location">
+        {location.pathname + location.search}
+      </output>
+      <button onClick={() => navigate(-1)}>browser-back</button>
+    </>
+  );
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   modalProps.current = null;
@@ -255,6 +295,47 @@ beforeEach(() => {
 });
 
 describe("ProjectDetail assets tab mount", () => {
+  it("opens a direct todo link, removes only todo on close, and follows browser Back", async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/projects/project-1?tab=plan&todo=t1"]}>
+        <LocationProbe />
+        <Routes>
+          <Route path="/projects/:projectId" element={<ProjectDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("plan-stub")).toBeVisible();
+    expect(screen.getByTestId("selected-todo")).toHaveTextContent("t1");
+    await user.click(screen.getByRole("button", { name: "plan-close-todo" }));
+    expect(screen.getByTestId("route-location")).toHaveTextContent(
+      "/projects/project-1?tab=plan",
+    );
+    await user.click(screen.getByRole("button", { name: "plan-open-todo" }));
+    expect(screen.getByTestId("route-location")).toHaveTextContent("todo=t1");
+    await user.click(screen.getByRole("button", { name: "browser-back" }));
+    expect(screen.getByTestId("selected-todo")).toHaveTextContent("");
+  });
+
+  it("routes a safe comment activity entry to the same plan detail", async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/projects/project-1"]}>
+        <LocationProbe />
+        <Routes>
+          <Route path="/projects/:projectId" element={<ProjectDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await screen.findByText("activity-stub");
+    await user.click(
+      screen.getByRole("button", { name: "activity-open-todo" }),
+    );
+    expect(await screen.findByText("plan-stub")).toBeVisible();
+    expect(screen.getByTestId("route-location")).toHaveTextContent(
+      "tab=plan&todo=t1",
+    );
+  });
   it("mounts the real asset library and calls the 023A API", async () => {
     const user = userEvent.setup();
     renderDetail("project-1");

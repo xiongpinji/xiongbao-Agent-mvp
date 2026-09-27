@@ -8,13 +8,17 @@ import {
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { list, create, update, remove, bulk } = vi.hoisted(() => ({
-  list: vi.fn(),
-  create: vi.fn(),
-  update: vi.fn(),
-  remove: vi.fn(),
-  bulk: vi.fn(),
-}));
+const { list, get, listComments, createComment, create, update, remove, bulk } =
+  vi.hoisted(() => ({
+    list: vi.fn(),
+    get: vi.fn(),
+    listComments: vi.fn(),
+    createComment: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    remove: vi.fn(),
+    bulk: vi.fn(),
+  }));
 
 const { currentUserId } = vi.hoisted(() => ({
   currentUserId: { value: 2 as number | null },
@@ -26,7 +30,16 @@ vi.mock("../../api/modules/projectTodos", async (importOriginal) => {
   >();
   return {
     ...actual,
-    projectTodosApi: { list, create, get: vi.fn(), update, remove, bulk },
+    projectTodosApi: {
+      list,
+      create,
+      get,
+      listComments,
+      createComment,
+      update,
+      remove,
+      bulk,
+    },
   };
 });
 
@@ -160,15 +173,47 @@ function rowFor(title: string): HTMLElement {
 
 beforeEach(() => {
   list.mockReset();
+  get.mockReset();
+  listComments.mockReset();
+  createComment.mockReset();
   create.mockReset();
   update.mockReset();
   remove.mockReset();
   bulk.mockReset();
   currentUserId.value = 2;
   list.mockResolvedValue(listResponse());
+  get.mockResolvedValue(todoOpen);
+  listComments.mockResolvedValue({ items: [], next_cursor: null });
 });
 
 describe("ProjectPlan table/board against the PS-04 contract", () => {
+  it("opens the same detail id from table and board and restores trigger focus on Escape", async () => {
+    const user = userEvent.setup();
+    renderPlan("member");
+    await screen.findByText("写周报");
+    const tableTrigger = within(rowFor("写周报")).getByRole("button", {
+      name: "查看待办：写周报",
+    });
+    await user.click(tableTrigger);
+    expect(
+      await screen.findByRole("dialog", { name: "待办详情" }),
+    ).toBeVisible();
+    expect(get).toHaveBeenLastCalledWith("p1", "t1");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "待办详情" })).toBeNull();
+    expect(tableTrigger).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("radio", { name: "看板" }));
+    await user.click(
+      within(screen.getByTestId("todo-card-t1")).getByRole("button", {
+        name: "查看待办：写周报",
+      }),
+    );
+    expect(
+      await screen.findByRole("dialog", { name: "待办详情" }),
+    ).toBeVisible();
+    expect(get).toHaveBeenLastCalledWith("p1", "t1");
+  });
   it("renders the same todo ids in the table and the board from one response", async () => {
     renderPlan("owner");
     expect(await screen.findByText("写周报")).toBeInTheDocument();

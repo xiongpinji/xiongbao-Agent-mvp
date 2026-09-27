@@ -82,6 +82,33 @@ describe("projectTodosApi", () => {
     });
   });
 
+  it("lists comments with an opaque cursor and posts only the text and request id", () => {
+    projectTodosApi.listComments("p 1", "t/2", {
+      limit: 20,
+      cursor: "opaque+cursor",
+    });
+    projectTodosApi.createComment("p 1", "t/2", {
+      body: "成员评论",
+      client_request_id: "d6e47312-3f3d-4a27-a43a-23c5df13218b",
+    });
+
+    expect(request).toHaveBeenNthCalledWith(
+      1,
+      "/projects/p%201/todos/t%2F2/comments?limit=20&cursor=opaque%2Bcursor",
+    );
+    expect(request).toHaveBeenNthCalledWith(
+      2,
+      "/projects/p%201/todos/t%2F2/comments",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          body: "成员评论",
+          client_request_id: "d6e47312-3f3d-4a27-a43a-23c5df13218b",
+        }),
+      },
+    );
+  });
+
   it("deletes with expected_version as a query parameter and no body", () => {
     projectTodosApi.remove("p1", "t1", 4);
 

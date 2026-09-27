@@ -123,6 +123,28 @@ beforeEach(() => {
 });
 
 describe("ProjectActivity timeline", () => {
+  it("shows a safe todo-comment event and opens its todo without rendering a comment body", async () => {
+    const user = userEvent.setup();
+    const onOpenTodo = vi.fn();
+    list.mockResolvedValueOnce(
+      page([
+        {
+          ...projectCreated,
+          event_id: 31,
+          event_type: "project.todo_comment_created",
+          object_kind: "todo",
+          object_id: "todo-31",
+          message_body: "不应显示的私有评论",
+        },
+      ]),
+    );
+    render(<ProjectActivity projectId="p1" onOpenTodo={onOpenTodo} />);
+
+    expect(await screen.findByText("评论了待办")).toBeVisible();
+    expect(screen.queryByText("不应显示的私有评论")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "查看待办" }));
+    expect(onOpenTodo).toHaveBeenCalledWith("todo-31");
+  });
   it("renders a project expert change without exposing its event payload", async () => {
     list.mockResolvedValueOnce(
       page([

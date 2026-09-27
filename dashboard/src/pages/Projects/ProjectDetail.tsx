@@ -41,7 +41,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Breadcrumb, Button, Input, Spin, Tabs, Tag, Typography } from "antd";
 import { Info, Link2, Pencil, ScrollText, Sparkles, Timer } from "lucide-react";
@@ -146,18 +146,52 @@ function useProjectLoader(projectId: string) {
 export default function ProjectDetail() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
   const timezone = useServerTimezone();
   const { projectId } = useParams<{ projectId: string }>();
   const id = projectId ?? "";
 
   const { project, setProject, members, loading, error, reload } =
     useProjectLoader(id);
-  const [activeTab, setActiveTab] = useState<DetailTab>("activity");
+  const routeQuery = new URLSearchParams(location.search);
+  const selectedTodoId = routeQuery.get("todo") || null;
+  const requestedTab = routeQuery.get("tab");
+  const activeTab: DetailTab = selectedTodoId
+    ? "plan"
+    : requestedTab === "plan" ||
+      requestedTab === "tasks" ||
+      requestedTab === "assets"
+    ? requestedTab
+    : "activity";
   const [editOpen, setEditOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [instructionsExpanded, setInstructionsExpanded] = useState(false);
 
   const canEdit = project?.my_role === "owner" || project?.my_role === "admin";
+
+  const navigateQuery = (
+    update: (query: URLSearchParams) => void,
+    replace = false,
+  ) => {
+    const query = new URLSearchParams(location.search);
+    update(query);
+    navigate(
+      { pathname: location.pathname, search: query.toString() },
+      { replace },
+    );
+  };
+
+  const openTodo = (todoId: string) =>
+    navigateQuery((query) => {
+      query.set("tab", "plan");
+      query.set("todo", todoId);
+    });
+
+  const closeTodo = () =>
+    navigateQuery((query) => {
+      query.delete("todo");
+      query.set("tab", "plan");
+    }, true);
 
   /** Root of the info disclosure: trigger + panel; outside clicks close. */
   const infoRootRef = useRef<HTMLDivElement | null>(null);
@@ -387,7 +421,9 @@ export default function ProjectDetail() {
     {
       key: "activity",
       label: t("projects.tabs.activity", "动态"),
-      children: <ProjectActivity projectId={project.project_id} />,
+      children: (
+        <ProjectActivity projectId={project.project_id} onOpenTodo={openTodo} />
+      ),
     },
     {
       key: "plan",
@@ -397,6 +433,9 @@ export default function ProjectDetail() {
           projectId={project.project_id}
           role={project.my_role}
           members={members}
+          selectedTodoId={selectedTodoId}
+          onOpenTodo={openTodo}
+          onCloseTodo={closeTodo}
         />
       ),
     },
@@ -599,7 +638,12 @@ export default function ProjectDetail() {
             <div className={styles.workTabs}>
               <Tabs
                 activeKey={activeTab}
-                onChange={(key) => setActiveTab(key as DetailTab)}
+                onChange={(key) =>
+                  navigateQuery((query) => {
+                    query.set("tab", key);
+                    query.delete("todo");
+                  })
+                }
                 items={tabItems}
               />
             </div>

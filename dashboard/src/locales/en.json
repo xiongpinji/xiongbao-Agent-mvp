@@ -86,6 +86,8 @@
     "BACKUP_IN_PROGRESS": "A backup or restore is already in progress. Try again shortly.",
     "FORBIDDEN": "Permission denied.",
     "NOT_FOUND": "Not found.",
+    "PROJECT_TODO_COMMENT_CONFLICT": "This comment request id was already used for different content. Edit and submit again.",
+    "PROJECT_TODO_COMMENT_CURSOR_INVALID": "The comment cursor is invalid. Refresh the todo detail.",
     "USER_DISABLED": "This account has been disabled.",
     "LOGIN_LOCKED": "Too many failed sign-in attempts. Try again in {{minutes}} minutes.",
     "USERNAME_TAKEN": "Username is already taken.",
@@ -661,6 +663,27 @@
         "done": "Move to Done"
       }
     },
+    "todoDetail": {
+      "dialog": "Todo details",
+      "close": "Close todo details",
+      "open": "View todo: {{title}}",
+      "content": "Todo content and comments",
+      "properties": "Todo properties",
+      "notFound": "Todo not found or access denied",
+      "loadFailed": "Failed to load todo details",
+      "noDescription": "No description",
+      "comments": "Comments",
+      "noComments": "No comments yet",
+      "loadMore": "Load more comments",
+      "loadCommentsFailed": "Failed to load comments",
+      "commentLabel": "Comment",
+      "post": "Post comment",
+      "postFailed": "Failed to post comment",
+      "bodyRequired": "Enter a comment",
+      "bodyTooLong": "Comments must be at most 4000 characters",
+      "saveFailed": "Failed to update todo",
+      "conflict": "This todo has changed. Refresh and compare before saving."
+    },
     "activity": {
       "scopeLabel": "Activity scope",
       "scopeRelated": "Related to me",
@@ -694,6 +717,8 @@
       "eventTodoCreated": "created a todo",
       "eventTodoUpdated": "updated a todo",
       "eventTodoDeleted": "deleted a todo",
+      "eventTodoCommentCreated": "commented on a todo",
+      "openTodo": "View todo",
       "eventMessageCreated": "posted a message",
       "eventUnknown": "added a project update"
     },

@@ -51,6 +51,7 @@ const { Text } = Typography;
 
 interface Props {
   projectId: string;
+  onOpenTodo?: (todoId: string) => void;
 }
 
 interface TimelineState {
@@ -143,6 +144,11 @@ function activityAction(item: ProjectActivityItem): ActivityAction {
         labelKey: "projects.activity.eventTodoDeleted",
         fallback: "删除了待办",
       };
+    case "project.todo_comment_created":
+      return {
+        labelKey: "projects.activity.eventTodoCommentCreated",
+        fallback: "评论了待办",
+      };
     case "project.message_created":
       return {
         labelKey: "projects.activity.eventMessageCreated",
@@ -158,7 +164,7 @@ function activityAction(item: ProjectActivityItem): ActivityAction {
   }
 }
 
-export default function ProjectActivity({ projectId }: Props) {
+export default function ProjectActivity({ projectId, onOpenTodo }: Props) {
   const { t } = useTranslation();
   const timezone = useServerTimezone();
   const [scope, setScope] = useState<ProjectActivityScope>("related");
@@ -462,6 +468,19 @@ export default function ProjectActivity({ projectId }: Props) {
             >
               {messageBody}
             </div>
+          )}
+        {item.event_type === "project.todo_comment_created" &&
+          item.object_kind === "todo" &&
+          item.object_id != null &&
+          onOpenTodo && (
+            <Button
+              size="small"
+              type="link"
+              style={{ paddingInline: 0 }}
+              onClick={() => onOpenTodo(item.object_id!)}
+            >
+              {t("projects.activity.openTodo", "查看待办")}
+            </Button>
           )}
       </article>
     );

@@ -51,6 +51,7 @@ import {
   parseApiError,
 } from "../../utils/apiError";
 import { message } from "../../utils/antdMessage";
+import ProjectTodoDetail from "./ProjectTodoDetail";
 
 const { Text } = Typography;
 
@@ -82,6 +83,9 @@ interface Props {
   projectId: string;
   role: ProjectRole;
   members: ProjectMember[] | null;
+  selectedTodoId?: string | null;
+  onOpenTodo?: (todoId: string) => void;
+  onCloseTodo?: () => void;
 }
 
 /** Extract the HTTP status from a failed `request()` error message. */
@@ -304,7 +308,14 @@ function TodoEditorModal({
   );
 }
 
-export default function ProjectPlan({ projectId, role, members }: Props) {
+export default function ProjectPlan({
+  projectId,
+  role,
+  members,
+  selectedTodoId,
+  onOpenTodo,
+  onCloseTodo,
+}: Props) {
   const { t } = useTranslation();
   const timezone = useServerTimezone();
   const currentUser = useCurrentUser();
@@ -330,12 +341,38 @@ export default function ProjectPlan({ projectId, role, members }: Props) {
   const [busyIds, setBusyIds] = useState<string[]>([]);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editing, setEditing] = useState<ProjectTodo | null>(null);
+  const [localTodoId, setLocalTodoId] = useState<string | null>(null);
+  const detailTrigger = useRef<HTMLElement | null>(null);
+  const detailId = onOpenTodo ? selectedTodoId ?? null : localTodoId;
   const [editorSubmitting, setEditorSubmitting] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
   /** Monotonic guard so late responses never overwrite fresher results. */
   const fetchSeq = useRef(0);
 
   const reload = useCallback(() => setReloadKey((key) => key + 1), []);
+
+  useEffect(() => {
+    setLocalTodoId(null);
+    detailTrigger.current = null;
+  }, [projectId]);
+
+  const openDetail = (todo: ProjectTodo, trigger: HTMLElement) => {
+    detailTrigger.current = trigger;
+    if (onOpenTodo) onOpenTodo(todo.todo_id);
+    else setLocalTodoId(todo.todo_id);
+  };
+
+  const closeDetail = () => {
+    if (onCloseTodo) onCloseTodo();
+    else setLocalTodoId(null);
+    queueMicrotask(() => {
+      if (detailTrigger.current?.isConnected) detailTrigger.current.focus();
+      else
+        document
+          .querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+          ?.focus();
+    });
+  };
 
   const memberNames = useMemo(
     () =>
@@ -659,7 +696,26 @@ export default function ProjectPlan({ projectId, role, members }: Props) {
       key: "title",
       render: (_value: unknown, todo: ProjectTodo) => (
         <div style={{ minWidth: 160 }}>
-          <Text strong>{todo.title}</Text>
+          <button
+            type="button"
+            aria-label={t("projects.todoDetail.open", "查看待办：{{title}}", {
+              title: todo.title,
+            })}
+            style={{
+              display: "block",
+              padding: 0,
+              border: 0,
+              background: "none",
+              color: "inherit",
+              font: "inherit",
+              fontWeight: 600,
+              textAlign: "left",
+              cursor: "pointer",
+            }}
+            onClick={(event) => openDetail(todo, event.currentTarget)}
+          >
+            {todo.title}
+          </button>
           {todo.description.trim() ? (
             <div style={{ ...secondaryStyle, wordBreak: "break-word" }}>
               {todo.description}
@@ -774,9 +830,27 @@ export default function ProjectPlan({ projectId, role, members }: Props) {
           marginBottom: 8,
         }}
       >
-        <div style={{ fontWeight: 600, fontSize: 13, wordBreak: "break-word" }}>
+        <button
+          type="button"
+          aria-label={t("projects.todoDetail.open", "查看待办：{{title}}", {
+            title: todo.title,
+          })}
+          style={{
+            padding: 0,
+            border: 0,
+            background: "none",
+            color: "inherit",
+            font: "inherit",
+            fontWeight: 600,
+            fontSize: 13,
+            textAlign: "left",
+            wordBreak: "break-word",
+            cursor: "pointer",
+          }}
+          onClick={(event) => openDetail(todo, event.currentTarget)}
+        >
           {todo.title}
-        </div>
+        </button>
         {todo.description.trim() ? (
           <div style={{ ...secondaryStyle, marginTop: 4 }}>
             {todo.description}
@@ -1123,6 +1197,24 @@ export default function ProjectPlan({ projectId, role, members }: Props) {
             setEditing(null);
           }}
           onSubmit={(values) => void submitEditor(values)}
+        />
+      )}
+      {detailId && (
+        <ProjectTodoDetail
+          key={`${projectId}\u0000${detailId}`}
+          projectId={projectId}
+          todoId={detailId}
+          role={role}
+          members={members ?? []}
+          currentUserId={currentUserId}
+          onClose={closeDetail}
+          onChanged={applyServerTodo}
+          onAccessLost={() => {
+            setTodos([]);
+            setHasMore(false);
+            setSelectedIds([]);
+            setListError(new Error('404 - {"error":{"code":"NOT_FOUND"}}'));
+          }}
         />
       )}
     </div>

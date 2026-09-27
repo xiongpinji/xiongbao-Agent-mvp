@@ -86,6 +86,8 @@
     "BACKUP_IN_PROGRESS": "已有备份或恢复任务正在进行，请稍后再试。",
     "FORBIDDEN": "没有权限。",
     "NOT_FOUND": "未找到。",
+    "PROJECT_TODO_COMMENT_CONFLICT": "该评论请求号已用于其他内容，请修改后重新提交。",
+    "PROJECT_TODO_COMMENT_CURSOR_INVALID": "评论分页位置无效，请刷新待办详情。",
     "USER_DISABLED": "账号已禁用。",
     "LOGIN_LOCKED": "登录失败次数过多，请 {{minutes}} 分钟后再试。",
     "USERNAME_TAKEN": "用户名已被占用。",
@@ -661,6 +663,27 @@
         "done": "移到已完成"
       }
     },
+    "todoDetail": {
+      "dialog": "待办详情",
+      "close": "关闭待办详情",
+      "open": "查看待办：{{title}}",
+      "content": "待办内容与评论",
+      "properties": "待办属性",
+      "notFound": "待办不存在或你无权访问",
+      "loadFailed": "加载待办详情失败",
+      "noDescription": "暂无描述",
+      "comments": "评论",
+      "noComments": "还没有评论",
+      "loadMore": "加载更多评论",
+      "loadCommentsFailed": "加载评论失败",
+      "commentLabel": "评论",
+      "post": "发表评论",
+      "postFailed": "发表评论失败",
+      "bodyRequired": "请输入评论",
+      "bodyTooLong": "评论最多 4000 个字符",
+      "saveFailed": "更新待办失败",
+      "conflict": "待办已被更新，请刷新后比较再保存。"
+    },
     "activity": {
       "scopeLabel": "动态范围",
       "scopeRelated": "与我相关",
@@ -694,6 +717,8 @@
       "eventTodoCreated": "创建了待办",
       "eventTodoUpdated": "更新了待办",
       "eventTodoDeleted": "删除了待办",
+      "eventTodoCommentCreated": "评论了待办",
+      "openTodo": "查看待办",
       "eventMessageCreated": "发表了留言",
       "eventUnknown": "有新的项目动态"
     },

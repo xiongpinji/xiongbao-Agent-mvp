@@ -39,6 +39,39 @@ export interface ProjectTodoListResponse {
   has_more: boolean;
 }
 
+export interface ProjectTodoCommentImage {
+  image_id: string;
+  media_type: string;
+  size_bytes: number;
+  position: number;
+}
+
+export interface ProjectTodoComment {
+  comment_id: string;
+  todo_id: string;
+  author_user_id: number | null;
+  author_name: string;
+  body: string;
+  /** Empty in B1; B2 adds private images with separate authorized reads. */
+  images: ProjectTodoCommentImage[];
+  created_at: number;
+}
+
+export interface ProjectTodoCommentPage {
+  items: ProjectTodoComment[];
+  next_cursor: string | null;
+}
+
+export interface ProjectTodoCommentListParams {
+  limit?: number;
+  cursor?: string;
+}
+
+export interface ProjectTodoCommentCreateBody {
+  body: string;
+  client_request_id: string;
+}
+
 export interface ProjectTodoListParams {
   /** Title keyword; blank values are omitted. Wildcards are escaped server-side. */
   q?: string;
@@ -95,12 +128,16 @@ export function normalizeTodoBulkResponse(response: unknown): ProjectTodo[] {
 export const PROJECT_TODOS_PAGE_SIZE = 50;
 /** Atomic `/bulk` accepts 1–50 records per request. */
 export const PROJECT_TODOS_BULK_MAX = 50;
+export const PROJECT_TODO_COMMENTS_PAGE_SIZE = 20;
 
 const todosBase = (projectId: string) =>
   `/projects/${encodeURIComponent(projectId)}/todos`;
 
 const todoPath = (projectId: string, todoId: string) =>
   `${todosBase(projectId)}/${encodeURIComponent(todoId)}`;
+
+const commentsPath = (projectId: string, todoId: string) =>
+  `${todoPath(projectId, todoId)}/comments`;
 
 export const projectTodosApi = {
   list: (projectId: string, params: ProjectTodoListParams = {}) => {
@@ -124,6 +161,27 @@ export const projectTodosApi = {
     }),
   get: (projectId: string, todoId: string) =>
     request<ProjectTodo>(todoPath(projectId, todoId)),
+  listComments: (
+    projectId: string,
+    todoId: string,
+    params: ProjectTodoCommentListParams = {},
+  ) => {
+    const query = new URLSearchParams();
+    query.set("limit", String(params.limit ?? PROJECT_TODO_COMMENTS_PAGE_SIZE));
+    if (params.cursor) query.set("cursor", params.cursor);
+    return request<ProjectTodoCommentPage>(
+      `${commentsPath(projectId, todoId)}?${query.toString()}`,
+    );
+  },
+  createComment: (
+    projectId: string,
+    todoId: string,
+    body: ProjectTodoCommentCreateBody,
+  ) =>
+    request<ProjectTodoComment>(commentsPath(projectId, todoId), {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   update: (projectId: string, todoId: string, body: ProjectTodoUpdateBody) =>
     request<ProjectTodo>(todoPath(projectId, todoId), {
       method: "PATCH",
