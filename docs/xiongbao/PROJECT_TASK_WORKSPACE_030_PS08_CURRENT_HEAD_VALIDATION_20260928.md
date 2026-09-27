@@ -21,6 +21,7 @@
 
 ## 尚未核销
 
+- 已确定一个前端断链：内部 runtime 被普通 Agent 列表过滤后，`WorkspaceDrawer` 始终误判未就绪。标记正例的行为 RED 失败、普通入口负例通过；两条实现路由分别零输出超时和月额度 429，目前无候选，见[本片实施状态](PROJECT_TASK_WORKSPACE_030_UI_GATE_EXECUTION_STATUS_20260928.md)。
 - `PROJECT_TASK_FILES_MODE_ENABLED = False` 仍是产品默认值；本轮没有运行开关开启后的登录态浏览器旅程，也没有启用生产文件模式。
 - PostgreSQL 专项不是完整 PostgreSQL HTTP/浏览器创建—读写—重启—撤权矩阵，也不是历史生产库升级演练。
 - Windows junction/hardlink HTTP 用例与真实 runtime 贯通用例是分开的；尚缺真实 runtime 下的重解析点执行时竞争验证与明确的 TOCTOU 风险结论。
