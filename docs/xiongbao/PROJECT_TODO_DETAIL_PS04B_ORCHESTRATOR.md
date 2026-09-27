@@ -28,11 +28,11 @@
 - [x] B1 后端：配对评论迁移、评论仓储/服务/HTTP、稳定分页和请求号幂等、成员/待办锁序、只含安全元数据的活动事件，含定向测试。
 - [x] B1 前端：双栏详情、表格/看板同 ID 打开、文字评论、旧纯文本字面展示、深链/后退/Escape/焦点、撤权清空与活动入口，含定向测试。
 - [x] B1 固定候选：Codex 整合与真新库/旧库、后端/前端回归、三身份登录态浏览器验证；独立只读审查按 2026-09-27 用户授权的替代门禁执行；代码提交 `6280fe49` 已推送并核对 `xiongbao/main`。验证范围、`make all` 未完成及 GLM 补审见[B1 验收记录](PROJECT_TODO_DETAIL_PS04B_B1_EVIDENCE.md)。
-- [ ] B2 格式后端：description_format 配对迁移、旧客户端 create/PATCH 兼容、所有 DTO 与版本规则，含定向测试。
-- [ ] B2 格式前端：ProjectTodo 必填格式、专用安全 Markdown 编辑/渲染与 409 草稿保留，含 XSS 用例。
-- [ ] B2 图片后端：私有评论图片表与容量表、multipart 校验/幂等/并发限额/失败回收、实时成员图片 GET，含真 PG 和故障注入。
-- [ ] B2 图片前端：本地粘贴预览、进度与重试、登录态读取、Blob URL/Abort 生命周期、项目切换与撤权，含定向测试。
-- [ ] B2 固定候选：Codex 独立复测与三身份浏览器；固定 SHA 只读审查按用户授权的替代门禁执行，GLM 恢复后补审；差距台账更新、仅接受字节推送并核对远端。
+- [x] B2 格式后端：description_format 配对迁移、旧客户端 create/PATCH 兼容、所有 DTO 与版本规则，含定向测试。
+- [x] B2 格式前端：ProjectTodo 必填格式、专用安全 Markdown 编辑/渲染与 409 草稿保留，含 XSS 用例。
+- [x] B2 图片后端：私有评论图片表与容量表、multipart 校验/幂等/并发限额/失败回收、实时成员图片 GET，含真 PG 仓储并发和故障注入；PG 整包备份/恢复仍未实测。
+- [x] B2 图片前端：本地粘贴预览、进度与重试、登录态读取、Blob URL/Abort 生命周期、项目切换与撤权，含定向测试。
+- [x] B2 固定候选：Codex 独立复测与三身份浏览器；独立子代理对代码 SHA `f1e6ccaf` 只读审查 APPROVE、无 P0/P1/P2，按用户授权的替代门禁执行；代码已推送并核对 `xiongbao/main`，差距台账见[B2 验收](PROJECT_TODO_DETAIL_PS04B_B2_EVIDENCE.md)。GLM 恢复后仍须补审；真实 PG 整包备份恢复和 WorkBuddy 逐状态视觉未验。
 
 # Validation strategy
 

@@ -1,6 +1,6 @@
 # PS-04B 项目待办详情、评论与图片设计
 
-状态：**书面规格已于 2026-09-27 获用户批准；B1 已按[验收记录](PROJECT_TODO_DETAIL_PS04B_B1_EVIDENCE.md)交付到 xiongbao/main，B2 实施中**。基于用户批准的连续两片方案：B1 交付双栏详情、旧纯文本兼容和成员文字评论；B2 交付安全 Markdown 富文本与受控评论图片。两片属于同一 PS-04B 目标，第一片不得宣称 WorkBuddy 1:1。
+状态：**书面规格已于 2026-09-27 获用户批准；B1 和 B2 均已分片验收并交付到 xiongbao/main，见[B1 验收](PROJECT_TODO_DETAIL_PS04B_B1_EVIDENCE.md)与[B2 验收](PROJECT_TODO_DETAIL_PS04B_B2_EVIDENCE.md)**。B1 交付双栏详情、旧纯文本兼容和成员文字评论；B2 交付安全 Markdown 富文本与受控评论图片。两片属于同一 PS-04B 目标，任何一片都不得宣称 WorkBuddy 1:1。
 
 ## 依据与边界
 
@@ -38,6 +38,6 @@ B2 新表 `project_todo_comment_images` 固定保存 `image_id` 主键、`commen
 
 ## 分工、测试和完成定义
 
-批准的路由保持不变：`claude-bailian/qwen3.8-max` 负责 B1/B2 后端迁移、仓储、事务 ACL 与图片存储；`opencode-bailian/bailian-token-plan-personal/deepseek-v4.1-flash` 负责不重叠的 Dashboard API/双栏详情/编辑及粘贴交互；`qwen-code-review/glm-5.3` 仅只读审查。Codex 固定合同与文件白名单、整合、补缺、独立复测及向 `xiongbao` 远端推送。当前额度/超时门禁不因设计批准而自动改用其他实施路由，迁移号与工作树基线在派工前重核。
+原始批准路由是 `claude-bailian/qwen3.8-max` 负责 B1/B2 后端迁移、仓储、事务 ACL 与图片存储，`opencode-bailian/bailian-token-plan-personal/deepseek-v4.1-flash` 负责不重叠的 Dashboard API/双栏详情/编辑及粘贴交互，`qwen-code-review/glm-5.3` 仅只读审查。Codex 固定合同与文件白名单、整合、补缺、独立复测及向 `xiongbao` 远端推送。两条实现路由未交付后，用户于 2026-09-27 **单独授权** Codex 承接 B1/B2，并用独立只读审查与本地测试作为当前门禁；GLM 待额度恢复补审。原始派工及失败不能改写为路由交付，详情见[编排记录](PROJECT_TODO_DETAIL_PS04B_ORCHESTRATOR.md)。
 
 B1 先写失败测试：双数据库新库及旧库升级、owner/member/outsider 和撤权/跨项目/已删 404、成员与待办删除并发、相同/冲突请求号、评论与事件同事务、动态无正文、游标同秒排序；前端验证双视图同 ID 打开、旧纯文本无损、深链/后退/Escape/焦点、409 和错误重试。B2 再测 Markdown XSS 与危险链接、旧客户端格式兼容、伪 MIME/SVG/超限/并发配额、磁盘/DB 故障回收、撤权后的图片旧链接 404、Blob URL 释放及粘贴失败保留草稿。SQLite 与真实 PostgreSQL 分开报结果；1280×768、800×728 的登录态三身份浏览器旅程与 WorkBuddy 实机逐状态截图另行核对。GLM 固定 SHA 只读审查、定向回归、类型/格式/构建和仓库 ship bar 均需各自留证；任一片完成只核销其实际通过的能力。

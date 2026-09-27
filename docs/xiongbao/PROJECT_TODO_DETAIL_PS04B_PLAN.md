@@ -10,7 +10,7 @@
 
 下文任务标题中的 Claude/OpenCode“所有者”保留原始派工记录；经 2026-09-27 用户授权后，尚未交付的 B1/B2 实施责任转给 Codex，前后端文件范围与测试门禁不变。
 
-执行状态：B1 代码提交 `6280fe49` 已推送并按[单独验收记录](PROJECT_TODO_DETAIL_PS04B_B1_EVIDENCE.md)核对；B2 正在实施。下方复选框保留原始逐步 TDD 任务模板，实际结果以验收记录和编排清单为准。B1 的全量 `make all` 与 GLM 补审仍未完成，不将定向通过写成全量通过。
+执行状态：B1 代码提交 `6280fe49` 已推送并按[单独验收记录](PROJECT_TODO_DETAIL_PS04B_B1_EVIDENCE.md)核对；B2 代码提交 `f1e6ccaf` 已通过独立固定 SHA 审查、聚焦回归、真实 PostgreSQL 仓储探针、本地浏览器旅程和全仓非 live 测试，已推送并核对远端，见[B2 验收记录](PROJECT_TODO_DETAIL_PS04B_B2_EVIDENCE.md)。下方复选框保留原始逐步 TDD 任务模板，实际结果以验收记录和编排清单为准。B1 的全量 `make all` 与 GLM 补审仍未完成，不将定向通过写成全量通过。
 
 ---
 
