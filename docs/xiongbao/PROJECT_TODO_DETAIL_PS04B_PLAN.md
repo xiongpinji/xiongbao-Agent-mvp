@@ -1,12 +1,14 @@
 # PS-04B 项目待办详情实现计划
 
-> **面向 AI 代理的工作者：** 必需子技能：使用 Agent Orchestrator 指定的三条路由逐任务实现；每项先写失败测试，再做最小实现并独立复测。步骤使用复选框跟踪进度。
+> **面向 AI 代理的工作者：** 原始派工使用 Agent Orchestrator 指定的三条路由。2026-09-27 两条实现路由未交付后，用户单独授权 Codex 承接 B1/B2；失败记录与授权边界见[编排记录](PROJECT_TODO_DETAIL_PS04B_ORCHESTRATOR.md)。每项先写失败测试，再做最小实现并独立复测。步骤使用复选框跟踪进度。
 
 **目标：** 在熊宝项目空间交付 B1 双栏待办详情、旧纯文本兼容和成员文字评论，再交付 B2 安全 Markdown 描述与受控评论图片。
 
 **架构：** 评论是独立于项目动态留言的新资源，项目动态只写安全事件；图片使用独立私有根与实时成员授权。现有 020 待办 CRUD、版本号和项目成员权限不改变。前后端从同一份 [批准规格](PROJECT_TODO_DETAIL_PS04B_DESIGN.md)实现；两片分别验收。
 
 **技术栈：** Python 3.12、FastAPI、Pydantic、SQLite/PostgreSQL 配对迁移、React 18、TypeScript、Ant Design、Vitest、pytest。
+
+下文任务标题中的 Claude/OpenCode“所有者”保留原始派工记录；经 2026-09-27 用户授权后，尚未交付的 B1/B2 实施责任转给 Codex，前后端文件范围与测试门禁不变。
 
 ---
 
@@ -20,7 +22,7 @@
 | B2 格式 | 配对下一号迁移；修改现有 todo repo/service/router、Dashboard ProjectTodo 类型；新建 ProjectTodoMarkdown.tsx 与 .test.tsx |
 | B2 图片 | 新建独立评论图片存储模块、配对迁移、仓储/服务/HTTP 测试；扩展 projectTodos.ts 与 ProjectTodoDetail.tsx 的登录态 Blob 读取和粘贴提交 |
 
-根目录 AGENTS.md 的层级边界与默认 make all ship bar适用于每项。src/octop/dashboard 是构建产物，不直接编辑。测试数据只使用隔离环境；真 PostgreSQL 测试只能指向一次性专用数据库，因为测试辅助工具会清空 public schema。每位实现者只在自己独立工作树改白名单文件，不创建子代理、不提交或推送；Codex 负责整合、审查、提交和推送。
+根目录 AGENTS.md 的层级边界与默认 make all ship bar适用于每项。src/octop/dashboard 是构建产物，不直接编辑。测试数据只使用隔离环境；真 PostgreSQL 测试只能指向一次性专用数据库，因为测试辅助工具会清空 public schema。原始三路由派工各在独立工作树；经单独授权后的 Codex B1 实现改用同一干净 Windows 工作树的前后端不重叠文件所有权。实现者不提交或推送；Codex 负责整合、审查、提交和推送。
 
 ## B1：文字评论与双栏详情
 
@@ -97,9 +99,9 @@
 
 ### B1 整合与独立门禁
 
-- [ ] Codex 逐文件审查两工作树 diff，特别复核成员锁序、事件白名单、403/404、深链 404 和旧纯文本字面显示；若任何 worker 没有交付，就不宣称 B1 完成。
+- [ ] Codex 逐文件审查前后端候选 diff，特别复核成员锁序、事件白名单、403/404、深链 404 和旧纯文本字面显示；若任一实现责任未交付，就不宣称 B1 完成。
 - [ ] Codex 在合并候选上独立运行上述后端/前端定向测试、SQLite 新库和旧库升级，随后运行仓库 make all 或记录环境限制及等价细项；真实 PostgreSQL 专用库升级另报证据等级。
-- [ ] 固定提交 SHA 后由 qwen-code-review/glm-5.3 只读审查；当前月额度若仍 429，保持该门禁未通过，只有用户另行批准的替代审查才能替代。
+- [ ] 固定提交 SHA 后请求 qwen-code-review/glm-5.3 只读审查；2026-09-27 用户已批准额度未恢复期间由独立只读代码审查和本地测试替代当前发布门禁，并在 GLM 恢复后补审。替代审查的主体、固定 SHA 与未覆盖风险须明确记录。
 - [ ] 登录态三身份本地浏览器验证 owner/member/outsider、撤权后旧深链、表格/看板双入口；保存截图与 API 证据。仅接受的 B1 内容可快进推送 xiongbao/main。
 
 ## B2：安全格式与受控评论图片
@@ -170,7 +172,7 @@
 
 - [ ] Codex 对 B2 后端/前端完整 diff 与迁移升级路径做独立审查，尤其核对格式兼容、XSS、路径安全、撤权、限额并发和文件/DB 回收。
 - [ ] 跑 B1+B2 定向用例、make all；真 PG 新库/旧库升级和三身份真实登录态本地浏览器分别出报告。所有新接口在无权限/旧链接下按批准规格给 404。
-- [ ] 固定 SHA 提交 GLM 只读审查，并处理 P0/P1；GLM 若不可用，维持未验状态并按 Agent Orchestrator 已批准路由的升级程序请求用户方向。
+- [ ] 固定 SHA 请求 GLM 只读审查并处理 P0/P1；2026-09-27 用户已批准额度未恢复期间采用独立只读代码审查和本地测试替代当前发布门禁，GLM 恢复后补审。不得将替代结果写成 GLM 通过。
 - [ ] 更新 docs/xiongbao/PROJECT_SPACE_GAP_AUDIT.md 与 PROJECT_SPACE_EXECUTION_PLAN.md：只核销实际通过的 B1/B2，保留起止日期、优先级、标签、完整 WorkBuddy 视觉/键盘差距；推送 xiongbao/main 并核对远端 SHA。
 
 ## 自检
