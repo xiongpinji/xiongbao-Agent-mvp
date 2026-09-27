@@ -99,6 +99,11 @@ class PathLayout:
         return out
 
     @property
+    def project_todo_comment_images(self) -> Path:
+        """Private image objects for project todo comments, outside static roots."""
+        return self.root / "project-todo-comment-images"
+
+    @property
     def project_task_files_dir(self) -> Path:
         """Managed roots for internal project-task file runtimes (030A).
 

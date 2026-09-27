@@ -3,10 +3,18 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from io import BytesIO
 from typing import Any
 
 import pytest
+from PIL import Image
 
+from octop.infra.db.pool import SqlitePool
+from octop.infra.db.repos.projects import ProjectRepo
+from octop.infra.projects.todo_comments import ProjectTodoCommentService
 from tests.integration.test_project_todos_api import _base, _create_todo, _events
 
 REQUEST_ID = "d6e47312-3f3d-4a27-a43a-23c5df13218b"
@@ -21,8 +29,321 @@ COMMENT_KEYS = {
 }
 
 
+def _png_bytes() -> bytes:
+    out = BytesIO()
+    Image.new("RGB", (4, 4), "red").save(out, format="PNG")
+    return out.getvalue()
+
+
+async def test_image_only_comment_service_persists_private_bytes_and_rechecks_access(
+    env: Any,
+) -> None:
+    ctx = await _base(env)
+    todo = await _create_todo(ctx)
+    service = ProjectTodoCommentService(ctx["srv"].services)
+    from octop.infra.projects.todo_comments import CommentImageUpload
+
+    created, fresh = service.post_comment(
+        ctx["pid"],
+        todo["todo_id"],
+        user_id=ctx["member_uid"],
+        body="",
+        client_request_id=REQUEST_ID,
+        images=[CommentImageUpload(_png_bytes(), "image/png")],
+    )
+    assert fresh is True
+    assert created.body == ""
+    assert len(created.images) == 1
+    assert set(created.images[0]) == {"image_id", "media_type", "size_bytes", "position"}
+    image_id = created.images[0]["image_id"]
+    download = service.get_image(
+        ctx["pid"],
+        todo["todo_id"],
+        created.comment_id,
+        image_id,
+        user_id=ctx["owner_uid"],
+    )
+    assert download.data == _png_bytes()
+    assert download.media_type == "image/png"
+    assert service.list_comments(ctx["pid"], todo["todo_id"], user_id=ctx["owner_uid"]).items == [
+        created
+    ]
+
+    with pytest.raises(Exception) as denied:
+        service.get_image(
+            ctx["pid"],
+            todo["todo_id"],
+            created.comment_id,
+            image_id,
+            user_id=ctx["outsider_uid"],
+        )
+    assert getattr(denied.value, "status", None) == 404
+
+
+async def test_image_quota_rejection_does_not_leave_bytes_comment_or_charge(
+    env: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ctx = await _base(env)
+    todo = await _create_todo(ctx)
+    service = ProjectTodoCommentService(ctx["srv"].services)
+    from octop.infra.projects.todo_comments import CommentImageUpload
+
+    data = _png_bytes()
+    monkeypatch.setattr(
+        "octop.infra.db.repos.project_todo_comments.MAX_PROJECT_COMMENT_IMAGE_BYTES",
+        len(data) - 1,
+    )
+    with pytest.raises(Exception) as rejected:
+        service.post_comment(
+            ctx["pid"],
+            todo["todo_id"],
+            user_id=ctx["member_uid"],
+            body="",
+            client_request_id=REQUEST_ID,
+            images=[CommentImageUpload(data, "image/png")],
+        )
+    assert getattr(rejected.value, "status", None) == 409
+    with ctx["srv"].services.db.connect() as conn:
+        comments = conn.execute("SELECT COUNT(*) FROM project_todo_comments").fetchone()[0]
+        images = conn.execute("SELECT COUNT(*) FROM project_todo_comment_images").fetchone()[0]
+        usage = conn.execute(
+            "SELECT used_bytes FROM project_todo_comment_image_usage WHERE project_id = ?",
+            (ctx["pid"],),
+        ).fetchone()[0]
+    assert (comments, images, usage) == (0, 0, 0)
+    assert not [path for path in service._storage.root.rglob("*") if path.is_file()]
+
+
+async def test_image_event_failure_rolls_back_database_and_published_object(
+    env: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ctx = await _base(env)
+    todo = await _create_todo(ctx)
+    service = ProjectTodoCommentService(ctx["srv"].services)
+    from octop.infra.projects.todo_comments import CommentImageUpload
+
+    def fail_event(*args: object) -> None:
+        raise RuntimeError("injected event write failure")
+
+    monkeypatch.setattr(
+        "octop.infra.db.repos.project_todo_comments._append_comment_event", fail_event
+    )
+    with pytest.raises(RuntimeError, match="injected event write failure"):
+        service.post_comment(
+            ctx["pid"],
+            todo["todo_id"],
+            user_id=ctx["member_uid"],
+            body="",
+            client_request_id=REQUEST_ID,
+            images=[CommentImageUpload(_png_bytes(), "image/png")],
+        )
+    with ctx["srv"].services.db.connect() as conn:
+        counts = (
+            conn.execute("SELECT COUNT(*) FROM project_todo_comments").fetchone()[0],
+            conn.execute("SELECT COUNT(*) FROM project_todo_comment_images").fetchone()[0],
+            conn.execute("SELECT COUNT(*) FROM project_todo_comment_image_usage").fetchone()[0],
+        )
+    assert counts == (0, 0, 0)
+    assert not [path for path in service._storage.root.rglob("*") if path.is_file()]
+
+
 def _path(ctx: dict[str, Any], todo_id: str, *, project_id: str | None = None) -> str:
     return f"/api/projects/{project_id or ctx['pid']}/todos/{todo_id}/comments"
+
+
+async def test_multipart_image_comment_and_private_inline_get(env: Any) -> None:
+    ctx = await _base(env)
+    todo = await _create_todo(ctx)
+    path = _path(ctx, todo["todo_id"])
+    files = [
+        ("client_request_id", (None, REQUEST_ID)),
+        ("body", (None, "")),
+        ("images", ("paw.png", _png_bytes(), "image/png")),
+    ]
+    first = await ctx["client"].post(path, headers=ctx["member_auth"], files=files)
+    assert first.status_code == 201, first.text
+    comment = first.json()
+    assert comment["body"] == ""
+    assert len(comment["images"]) == 1
+    assert set(comment["images"][0]) == {"image_id", "media_type", "size_bytes", "position"}
+    image_path = f"{path}/{comment['comment_id']}/images/{comment['images'][0]['image_id']}"
+    image = await ctx["client"].get(image_path, headers=ctx["owner_auth"])
+    assert image.status_code == 200, image.text
+    assert image.content == _png_bytes()
+    assert image.headers["content-type"] == "image/png"
+    assert image.headers["cache-control"] == "private, no-store"
+    assert image.headers["x-content-type-options"] == "nosniff"
+    retry = await ctx["client"].post(path, headers=ctx["member_auth"], files=files)
+    assert retry.status_code == 200, retry.text
+    assert retry.json() == comment
+    with ctx["srv"].services.db.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM project_todo_comment_images").fetchone()[0] == 1
+        assert conn.execute(
+            "SELECT used_bytes FROM project_todo_comment_image_usage WHERE project_id = ?",
+            (ctx["pid"],),
+        ).fetchone()[0] == len(_png_bytes())
+    store = ProjectTodoCommentService(ctx["srv"].services)._storage
+    assert len([item for item in store.root.rglob("*") if item.is_file()]) == 1
+
+
+async def test_multipart_limits_and_fixed_fields_reject_before_comment_write(env: Any) -> None:
+    ctx = await _base(env)
+    todo = await _create_todo(ctx)
+    path = _path(ctx, todo["todo_id"])
+    base = [("client_request_id", (None, REQUEST_ID))]
+    cases = (
+        (base + [("images", (f"{i}.png", _png_bytes(), "image/png")) for i in range(6)], 422),
+        (base + [("images", ("oversize.png", b"x" * (8 * 1024 * 1024 + 1), "image/png"))], 413),
+        (
+            base
+            + [
+                ("images", ("a.png", b"x" * (7 * 1024 * 1024), "image/png")),
+                ("images", ("b.png", b"x" * (7 * 1024 * 1024), "image/png")),
+                ("images", ("c.png", b"x" * (6 * 1024 * 1024 + 1), "image/png")),
+            ],
+            413,
+        ),
+        (
+            base
+            + [("unknown", (None, "ignored")), ("images", ("x.png", _png_bytes(), "image/png"))],
+            422,
+        ),
+        (base + [("images", ("fake.png", _png_bytes(), "image/jpeg"))], 422),
+    )
+    for files, expected_status in cases:
+        response = await ctx["client"].post(path, headers=ctx["member_auth"], files=files)
+        assert response.status_code == expected_status, (expected_status, response.text)
+    with ctx["srv"].services.db.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM project_todo_comments").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM project_todo_comment_images").fetchone()[0] == 0
+
+
+async def test_image_get_checks_member_project_todo_comment_and_image_on_every_request(
+    env: Any,
+) -> None:
+    ctx = await _base(env)
+    todo = await _create_todo(ctx)
+    other_todo = await _create_todo(ctx, title="另一待办")
+    path = _path(ctx, todo["todo_id"])
+    created = await ctx["client"].post(
+        path,
+        headers=ctx["member_auth"],
+        files=[
+            ("client_request_id", (None, REQUEST_ID)),
+            ("images", ("paw.png", _png_bytes(), "image/png")),
+        ],
+    )
+    assert created.status_code == 201, created.text
+    comment = created.json()
+    image_id = comment["images"][0]["image_id"]
+    correct = f"{path}/{comment['comment_id']}/images/{image_id}"
+    other_project = await ctx["client"].post(
+        "/api/projects", headers=ctx["owner_auth"], json={"name": "另一个项目"}
+    )
+    assert other_project.status_code == 201, other_project.text
+    wrong = (
+        f"{_path(ctx, todo['todo_id'], project_id=other_project.json()['project_id'])}/{comment['comment_id']}/images/{image_id}",
+        f"{_path(ctx, other_todo['todo_id'])}/{comment['comment_id']}/images/{image_id}",
+        f"{path}/not-the-comment/images/{image_id}",
+        f"{path}/{comment['comment_id']}/images/not-the-image",
+    )
+    for target in wrong:
+        response = await ctx["client"].get(target, headers=ctx["owner_auth"])
+        assert response.status_code == 404, (target, response.text)
+    outsider = await ctx["client"].get(correct, headers=ctx["outsider_auth"])
+    assert outsider.status_code == 404
+    unauthorized_post = await ctx["client"].post(
+        path, headers=ctx["outsider_auth"], files=[("unknown", (None, "x"))]
+    )
+    assert unauthorized_post.status_code == 404
+
+    removed = ctx["srv"].services.project_repo.remove_member(
+        project_id=ctx["pid"], user_id=ctx["member_uid"], actor_user_id=ctx["owner_uid"]
+    )
+    assert removed is not None
+    revoked = await ctx["client"].get(correct, headers=ctx["member_auth"])
+    assert revoked.status_code == 404
+    still_owner = await ctx["client"].get(correct, headers=ctx["owner_auth"])
+    assert still_owner.status_code == 200
+    deleted = await ctx["client"].delete(
+        f"/api/projects/{ctx['pid']}/todos/{todo['todo_id']}?expected_version={todo['version']}",
+        headers=ctx["owner_auth"],
+    )
+    assert deleted.status_code == 204, deleted.text
+    after_delete = await ctx["client"].get(correct, headers=ctx["owner_auth"])
+    assert after_delete.status_code == 404
+
+
+async def test_image_read_authorization_serializes_with_member_revocation(
+    env: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An already-authorized read may finish; every read after revoke is 404."""
+    ctx = await _base(env)
+    todo = await _create_todo(ctx)
+    service = ProjectTodoCommentService(ctx["srv"].services)
+    from octop.infra.projects.todo_comments import CommentImageUpload
+
+    comment, _ = service.post_comment(
+        ctx["pid"],
+        todo["todo_id"],
+        user_id=ctx["member_uid"],
+        body="",
+        client_request_id=REQUEST_ID,
+        images=[CommentImageUpload(_png_bytes(), "image/png")],
+    )
+    repo = ctx["srv"].services.project_todo_comment_repo
+    original = repo._has_access
+    checked = threading.Event()
+    release = threading.Event()
+    second_pool = SqlitePool(ctx["srv"].services.db.path)
+
+    def pause_after_access(
+        conn: Any, project_id: str, todo_id: str, user_id: int, *, write: bool
+    ) -> bool:
+        allowed = original(conn, project_id, todo_id, user_id, write=write)
+        if user_id == ctx["member_uid"] and not write:
+            checked.set()
+            assert release.wait(timeout=10)
+        return allowed
+
+    monkeypatch.setattr(repo, "_has_access", pause_after_access)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            reading = workers.submit(
+                service.get_image,
+                ctx["pid"],
+                todo["todo_id"],
+                comment.comment_id,
+                comment.images[0]["image_id"],
+                user_id=ctx["member_uid"],
+            )
+            assert checked.wait(timeout=10)
+            revoking = workers.submit(
+                ProjectRepo(second_pool).remove_member,
+                project_id=ctx["pid"],
+                user_id=ctx["member_uid"],
+                actor_user_id=ctx["owner_uid"],
+            )
+            time.sleep(0.1)
+            assert not revoking.done(), "revocation bypassed the read's membership lock"
+            release.set()
+            assert reading.result(timeout=10).data == _png_bytes()
+            assert revoking.result(timeout=10) is not None
+    finally:
+        release.set()
+        second_pool.close()
+    with pytest.raises(Exception) as denied:
+        service.get_image(
+            ctx["pid"],
+            todo["todo_id"],
+            comment.comment_id,
+            comment.images[0]["image_id"],
+            user_id=ctx["member_uid"],
+        )
+    assert getattr(denied.value, "status", None) == 404
 
 
 async def test_member_comment_retries_are_idempotent_and_do_not_change_todo_version(

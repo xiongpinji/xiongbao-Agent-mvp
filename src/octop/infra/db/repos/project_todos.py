@@ -29,7 +29,7 @@ MANAGER_ROLES = ("owner", "admin")
 
 _TODO_COLUMNS = (
     "todo_id, project_id, creator_user_id, assignee_user_id, title, description, "
-    "status, version, created_at, updated_at, deleted_at"
+    "description_format, status, version, created_at, updated_at, deleted_at"
 )
 _TODO_SELECT = f"SELECT {_TODO_COLUMNS} FROM project_todos "
 
@@ -42,6 +42,7 @@ class ProjectTodoRow:
     assignee_user_id: int | None
     title: str
     description: str
+    description_format: str
     status: str
     version: int
     created_at: int
@@ -59,6 +60,7 @@ class ProjectTodoRow:
             ),
             title=str(row["title"]),
             description=str(row["description"]),
+            description_format=str(row["description_format"]),
             status=str(row["status"]),
             version=int(row["version"]),
             created_at=int(row["created_at"]),
@@ -244,6 +246,7 @@ class ProjectTodoRepo:
         creator_user_id: int,
         title: str,
         description: str = "",
+        description_format: str = "plain",
         assignee_user_id: int | None = None,
         ts: int | None = None,
     ) -> TodoMutation:
@@ -273,8 +276,8 @@ class ProjectTodoRepo:
                 conn.execute(
                     "INSERT INTO project_todos("
                     "todo_id, project_id, creator_user_id, assignee_user_id, title, "
-                    "description, status, version, created_at, updated_at"
-                    ") VALUES (?, ?, ?, ?, ?, ?, 'todo', 1, ?, ?)",
+                    "description, description_format, status, version, created_at, updated_at"
+                    ") VALUES (?, ?, ?, ?, ?, ?, ?, 'todo', 1, ?, ?)",
                     (
                         todo_id,
                         project_id,
@@ -282,6 +285,7 @@ class ProjectTodoRepo:
                         assignee_user_id,
                         title,
                         description,
+                        description_format,
                         stamp,
                         stamp,
                     ),
@@ -308,6 +312,7 @@ class ProjectTodoRepo:
         expected_version: int,
         title: Any = UNSET,
         description: Any = UNSET,
+        description_format: Any = UNSET,
         status: Any = UNSET,
         assignee_user_id: Any = UNSET,
         ts: int | None = None,
@@ -358,6 +363,12 @@ class ProjectTodoRepo:
                     changes["title"] = str(title)
                 if description is not UNSET and str(description) != todo.description:
                     changes["description"] = str(description)
+                if description is not UNSET:
+                    requested_format = (
+                        "plain" if description_format is UNSET else str(description_format)
+                    )
+                    if requested_format != todo.description_format:
+                        changes["description_format"] = requested_format
                 if status is not UNSET and str(status) != todo.status:
                     changes["status"] = str(status)
                 if assignee_user_id is not UNSET:

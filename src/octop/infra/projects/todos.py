@@ -34,6 +34,7 @@ from octop.infra.projects.service import (
 
 MAX_TODO_TITLE_LENGTH = 200
 MAX_TODO_DESCRIPTION_LENGTH = 4000
+TODO_DESCRIPTION_FORMATS = ("plain", "markdown")
 TODO_STATUSES = ("todo", "in_progress", "done")
 BULK_MAX_ITEMS = 50
 _MANAGER_ROLES = frozenset({ROLE_OWNER, ROLE_ADMIN})
@@ -56,12 +57,19 @@ def validate_todo_description(raw: str) -> str:
     return description
 
 
+def validate_todo_description_format(raw: str) -> str:
+    if raw not in TODO_DESCRIPTION_FORMATS:
+        raise ValueError("description_format must be plain or markdown")
+    return raw
+
+
 @dataclass(frozen=True)
 class TodoView:
     todo_id: str
     project_id: str
     title: str
     description: str
+    description_format: str
     status: str
     creator_user_id: int
     assignee_user_id: int | None
@@ -161,6 +169,7 @@ class ProjectTodoService:
             project_id=row.project_id,
             title=row.title,
             description=row.description,
+            description_format=row.description_format,
             status=row.status,
             creator_user_id=row.creator_user_id,
             assignee_user_id=row.assignee_user_id,
@@ -211,11 +220,13 @@ class ProjectTodoService:
         actor_user_id: int,
         title: str,
         description: str = "",
+        description_format: str = "plain",
         assignee_user_id: int | None = None,
     ) -> TodoView:
         membership = self._require_membership(project_id, actor_user_id)
         clean_title = validate_todo_title(title)
         clean_description = validate_todo_description(description)
+        clean_description_format = validate_todo_description_format(description_format)
         # Fast pre-check; the repo re-checks inside the write transaction.
         if (
             assignee_user_id is not None
@@ -228,6 +239,7 @@ class ProjectTodoService:
             creator_user_id=actor_user_id,
             title=clean_title,
             description=clean_description,
+            description_format=clean_description_format,
             assignee_user_id=assignee_user_id,
         )
         self._raise_for_outcome(mutation.outcome)
@@ -244,6 +256,7 @@ class ProjectTodoService:
         expected_version: int,
         title: Any = UNSET,
         description: Any = UNSET,
+        description_format: Any = UNSET,
         status: Any = UNSET,
         assignee_user_id: Any = UNSET,
     ) -> TodoView:
@@ -251,6 +264,17 @@ class ProjectTodoService:
         clean_title = UNSET if title is UNSET else validate_todo_title(title)
         clean_description = (
             UNSET if description is UNSET else validate_todo_description(description)
+        )
+        if description is UNSET and description_format is not UNSET:
+            raise ValueError("description_format requires description")
+        clean_description_format = (
+            UNSET
+            if clean_description is UNSET
+            else (
+                "plain"
+                if description_format is UNSET
+                else validate_todo_description_format(description_format)
+            )
         )
         if status is not UNSET and str(status) not in TODO_STATUSES:
             raise OctopError(
@@ -266,6 +290,7 @@ class ProjectTodoService:
             expected_version=expected_version,
             title=clean_title,
             description=clean_description,
+            description_format=clean_description_format,
             status=status,
             assignee_user_id=assignee_user_id,
         )

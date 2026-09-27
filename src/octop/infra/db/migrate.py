@@ -1720,6 +1720,32 @@ def _ensure_project_asset_move_rename_v30(db: DatabasePool) -> None:
         conn.execute("UPDATE _schema_version SET version = 30")
 
 
+def _ensure_project_todo_description_format_v32(db: DatabasePool) -> None:
+    """Add the format flag and watermark atomically, including interrupted replays."""
+    with db.transaction() as conn:
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(project_todos)")}
+        if "description_format" not in columns:
+            conn.execute(
+                "ALTER TABLE project_todos ADD COLUMN description_format "
+                "TEXT NOT NULL DEFAULT 'plain' "
+                "CHECK (description_format IN ('plain', 'markdown'))"
+            )
+        conn.execute("UPDATE _schema_version SET version = 32")
+
+
+def _ensure_project_todo_comment_images_v33(db: DatabasePool, path: Path) -> None:
+    """Apply the idempotent image tables and watermark in one SQLite transaction.
+
+    Earlier non-transactional executions may have left only the first table or
+    index while the watermark remains 32. The 033 SQL uses IF NOT EXISTS for
+    each object, so replay finishes the missing pieces without dropping data.
+    """
+    statements = _split_pg_sql(path.read_text(encoding="utf-8"))
+    with db.transaction() as conn:
+        for statement in statements:
+            conn.execute(statement)
+
+
 def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
     """Apply one SQLite migration.
 
@@ -1881,6 +1907,12 @@ def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
         return
     if version == 30:
         _ensure_project_asset_move_rename_v30(db)
+        return
+    if version == 32:
+        _ensure_project_todo_description_format_v32(db)
+        return
+    if version == 33:
+        _ensure_project_todo_comment_images_v33(db, path)
         return
     sql = path.read_text(encoding="utf-8")
     with db.connect() as conn:

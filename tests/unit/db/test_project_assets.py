@@ -3583,7 +3583,7 @@ def test_migration_030_backfills_independent_trash_under_trashed_ancestor(
         )
     run_migrations(db)
 
-    assert _watermark(db) == 30
+    assert _watermark(db) == _max_discovered_version("sqlite")
     with db.connect() as conn:
         rows = conn.execute(
             "SELECT node_id, deleted_from_path FROM project_asset_nodes "
@@ -3613,7 +3613,7 @@ def test_migration_030_replays_column_added_before_watermark(
         )
         conn.execute("UPDATE _schema_version SET version = 29")
     run_migrations(db)
-    assert _watermark(db) == 30
+    assert _watermark(db) == _max_discovered_version("sqlite")
     with db.connect() as conn:
         row = conn.execute(
             "SELECT deleted_from_path FROM project_asset_nodes "

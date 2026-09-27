@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from octop.infra.db import migrate as migration_module
 from octop.infra.db.migrate import _max_discovered_version, _split_pg_sql, run_migrations
 from octop.infra.db.pool import SqlitePool
 from octop.infra.db.repos._base import UNSET, now_ts
@@ -103,6 +104,83 @@ def _todo_rows(db: SqlitePool, project_id: str) -> list[sqlite3.Row]:
 # ---------------------------------------------------------------------------
 # Migration 020
 # ---------------------------------------------------------------------------
+
+
+def test_migration_032_replays_when_column_exists_but_watermark_is_31(
+    db: SqlitePool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stopped SQLite ALTER must not strand an existing todo database."""
+    real_discover = migration_module._discover
+    monkeypatch.setattr(
+        migration_module,
+        "_discover",
+        lambda dialect: [entry for entry in real_discover(dialect) if entry[0] <= 32],
+    )
+    with db.connect() as conn:
+        conn.execute("UPDATE _schema_version SET version = 31")
+    run_migrations(db)
+    with db.connect() as conn:
+        assert conn.execute("SELECT version FROM _schema_version").fetchone()[0] == 32
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(project_todos)")}
+    assert "description_format" in columns
+
+
+def test_migration_032_preserves_existing_todo_and_defaults_to_plain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pool = SqlitePool(tmp_path / "legacy_todos.db")
+    real_discover = migration_module._discover
+    cutoff = 31
+    monkeypatch.setattr(
+        migration_module,
+        "_discover",
+        lambda dialect: [entry for entry in real_discover(dialect) if entry[0] <= cutoff],
+    )
+    run_migrations(pool)
+    owner = UserRepo(pool).create(username="format_owner", password_hash="h", role="user")
+    project = ProjectRepo(pool).create_with_owner(creator_user_id=owner, name="旧库")
+    stamp = now_ts()
+    with pool.connect() as conn:
+        conn.execute(
+            "INSERT INTO project_todos(todo_id,project_id,creator_user_id,title,description,"
+            "created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
+            (
+                "LEGACY",
+                project.project_id,
+                owner,
+                "旧任务",
+                "<strong>按文本显示</strong>",
+                stamp,
+                stamp,
+            ),
+        )
+    cutoff = 32
+    run_migrations(pool)
+    with pool.connect() as conn:
+        row = conn.execute(
+            "SELECT description,description_format FROM project_todos WHERE todo_id = 'LEGACY'"
+        ).fetchone()
+        version = conn.execute("SELECT version FROM _schema_version").fetchone()[0]
+    assert version == 32
+    assert (row["description"], row["description_format"]) == (
+        "<strong>按文本显示</strong>",
+        "plain",
+    )
+    with pool.connect() as conn, pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "UPDATE project_todos SET description_format = 'html' WHERE todo_id = 'LEGACY'"
+        )
+
+
+def test_migration_032_postgres_pair_declares_same_format_constraint() -> None:
+    sqlite_sql = (MIGRATIONS / "032_project_todo_description_format.sql").read_text(
+        encoding="utf-8"
+    )
+    pg_sql = (MIGRATIONS / "032_project_todo_description_format.pg.sql").read_text(encoding="utf-8")
+    for sql in (sqlite_sql, pg_sql):
+        assert "description_format TEXT NOT NULL DEFAULT 'plain'" in sql
+        assert "CHECK (description_format IN ('plain', 'markdown'))" in sql
+        assert "UPDATE _schema_version SET version = 32" in sql
 
 
 def test_postgres_membership_locks_are_taken_in_user_id_order(repo: ProjectTodoRepo) -> None:
@@ -885,6 +963,21 @@ def test_forbidden_member_removal_leaves_todos_untouched(
 # ---------------------------------------------------------------------------
 # Service error mapping (ACL surface without HTTP)
 # ---------------------------------------------------------------------------
+
+
+def test_service_create_rejects_invalid_description_format(
+    projects: ProjectRepo, repo: ProjectTodoRepo, pid: str, owner_id: int
+) -> None:
+    service = ProjectTodoService(_StubServices(projects, repo))
+    with pytest.raises(ValueError, match="description_format"):
+        service.create_todo(
+            pid,
+            actor_user_id=owner_id,
+            title="错误格式",
+            description="内容",
+            description_format="html",
+        )
+    assert service.list_todos(pid, user_id=owner_id).items == []
 
 
 def test_service_maps_outcomes_to_errors(

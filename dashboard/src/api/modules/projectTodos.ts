@@ -1,4 +1,9 @@
-import { request } from "../request";
+import {
+  request,
+  requestBlob,
+  requestUpload,
+  type UploadProgressHandler,
+} from "../request";
 
 /**
  * Project plan todos API (PS-04) — human project space, not Agent expert teams.
@@ -17,12 +22,14 @@ import { request } from "../request";
  */
 
 export type ProjectTodoStatus = "todo" | "in_progress" | "done";
+export type ProjectTodoDescriptionFormat = "plain" | "markdown";
 
 export interface ProjectTodo {
   todo_id: string;
   project_id: string;
   title: string;
   description: string;
+  description_format: ProjectTodoDescriptionFormat;
   status: ProjectTodoStatus;
   creator_user_id: number;
   assignee_user_id: number | null;
@@ -70,6 +77,7 @@ export interface ProjectTodoCommentListParams {
 export interface ProjectTodoCommentCreateBody {
   body: string;
   client_request_id: string;
+  images?: File[];
 }
 
 export interface ProjectTodoListParams {
@@ -84,6 +92,7 @@ export interface ProjectTodoListParams {
 export interface ProjectTodoCreateBody {
   title: string;
   description?: string;
+  description_format?: ProjectTodoDescriptionFormat;
   assignee_user_id?: number;
 }
 
@@ -92,6 +101,7 @@ export interface ProjectTodoUpdateBody {
   expected_version: number;
   title?: string;
   description?: string;
+  description_format?: ProjectTodoDescriptionFormat;
   status?: ProjectTodoStatus;
   /** `null` clears the assignee (owner/admin only). */
   assignee_user_id?: number | null;
@@ -177,11 +187,41 @@ export const projectTodosApi = {
     projectId: string,
     todoId: string,
     body: ProjectTodoCommentCreateBody,
+    options: RequestInit = {},
+    onProgress?: UploadProgressHandler,
+  ) => {
+    const { images, ...json } = body;
+    if (!images?.length) {
+      return request<ProjectTodoComment>(commentsPath(projectId, todoId), {
+        ...options,
+        method: "POST",
+        body: JSON.stringify(json),
+      });
+    }
+    const form = new FormData();
+    form.append("client_request_id", body.client_request_id);
+    form.append("body", body.body);
+    for (const image of images) form.append("images", image);
+    return requestUpload<ProjectTodoComment>(
+      commentsPath(projectId, todoId),
+      form,
+      options,
+      onProgress,
+    );
+  },
+  readCommentImage: (
+    projectId: string,
+    todoId: string,
+    commentId: string,
+    imageId: string,
+    options: RequestInit = {},
   ) =>
-    request<ProjectTodoComment>(commentsPath(projectId, todoId), {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+    requestBlob(
+      `${commentsPath(projectId, todoId)}/${encodeURIComponent(
+        commentId,
+      )}/images/${encodeURIComponent(imageId)}`,
+      options,
+    ),
   update: (projectId: string, todoId: string, body: ProjectTodoUpdateBody) =>
     request<ProjectTodo>(todoPath(projectId, todoId), {
       method: "PATCH",

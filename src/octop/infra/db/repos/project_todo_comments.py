@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass, replace
 from typing import Any
 from uuid import uuid4
 
@@ -16,6 +17,47 @@ from octop.infra.db.pool import DatabasePool
 from octop.infra.db.repos._base import DbRow, map_rows, now_ts
 
 EVENT_TODO_COMMENT_CREATED = "project.todo_comment_created"
+MAX_PROJECT_COMMENT_IMAGE_BYTES = 512 * 1024 * 1024
+
+
+@dataclass(frozen=True)
+class NewCommentImage:
+    image_id: str
+    object_key: str
+    size_bytes: int
+    sha256: str
+    media_type: str
+
+
+@dataclass(frozen=True)
+class ProjectTodoCommentImageRow:
+    image_id: str
+    comment_id: str
+    object_key: str
+    size_bytes: int
+    sha256: str
+    media_type: str
+    position: int
+    created_at: int
+
+    @classmethod
+    def from_row(cls, row: DbRow) -> ProjectTodoCommentImageRow:
+        return cls(
+            image_id=str(row["image_id"]),
+            comment_id=str(row["comment_id"]),
+            object_key=str(row["object_key"]),
+            size_bytes=int(row["size_bytes"]),
+            sha256=str(row["sha256"]),
+            media_type=str(row["media_type"]),
+            position=int(row["position"]),
+            created_at=int(row["created_at"]),
+        )
+
+
+_IMAGE_SELECT = (
+    "SELECT image_id, comment_id, object_key, size_bytes, sha256, "
+    "media_type, position, created_at FROM project_todo_comment_images "
+)
 
 _COMMENT_SELECT = (
     "SELECT c.comment_id, c.todo_id, c.author_user_id, "
@@ -34,6 +76,7 @@ class ProjectTodoCommentRow:
     author_name: str
     body: str
     created_at: int
+    images: tuple[ProjectTodoCommentImageRow, ...] = ()
 
     @classmethod
     def from_row(cls, row: DbRow) -> ProjectTodoCommentRow:
@@ -56,9 +99,20 @@ class CommentCreation:
     row: ProjectTodoCommentRow | None = None
 
 
-def _body_fingerprint(body: str) -> str:
-    """Hash the B1 canonical payload, including its empty image sequence."""
-    payload = json.dumps({"body": body, "images": []}, ensure_ascii=False, separators=(",", ":"))
+def _body_fingerprint(body: str, images: Sequence[NewCommentImage] = ()) -> str:
+    """Hash normalized body and ordered actual image types/digests.
+
+    The empty sequence keeps the B1 fingerprint exactly stable for existing
+    idempotency keys created before the image migration.
+    """
+    image_fingerprints = [
+        {"media_type": image.media_type, "sha256": image.sha256} for image in images
+    ]
+    payload = json.dumps(
+        {"body": body, "images": image_fingerprints},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -113,7 +167,13 @@ class ProjectTodoCommentRepo:
         row = conn.execute(_COMMENT_SELECT + "WHERE c.comment_id = ?", (comment_id,)).fetchone()
         if row is None:  # pragma: no cover - only called for a just-created or existing id
             raise RuntimeError("comment row missing")
-        return ProjectTodoCommentRow.from_row(row)
+        images = conn.execute(
+            _IMAGE_SELECT + "WHERE comment_id = ? ORDER BY position ASC", (comment_id,)
+        ).fetchall()
+        return replace(
+            ProjectTodoCommentRow.from_row(row),
+            images=tuple(map_rows(images, ProjectTodoCommentImageRow)),
+        )
 
     def list_comments(
         self,
@@ -137,7 +197,22 @@ class ProjectTodoCommentRepo:
                 _COMMENT_SELECT + where + " ORDER BY c.created_at DESC, c.comment_id DESC LIMIT ?",
                 (*params, limit + 1),
             ).fetchall()
-        return map_rows(rows, ProjectTodoCommentRow)
+            comments = map_rows(rows, ProjectTodoCommentRow)
+            if not comments:
+                return comments
+            ids = [row.comment_id for row in comments]
+            placeholders = ",".join("?" for _ in ids)
+            image_rows = conn.execute(
+                _IMAGE_SELECT
+                + f"WHERE comment_id IN ({placeholders}) ORDER BY comment_id, position ASC",
+                ids,
+            ).fetchall()
+            by_comment: dict[str, list[ProjectTodoCommentImageRow]] = {}
+            for image in map_rows(image_rows, ProjectTodoCommentImageRow):
+                by_comment.setdefault(image.comment_id, []).append(image)
+            return [
+                replace(row, images=tuple(by_comment.get(row.comment_id, ()))) for row in comments
+            ]
 
     def create_comment(
         self,
@@ -147,11 +222,14 @@ class ProjectTodoCommentRepo:
         author_user_id: int,
         body: str,
         client_request_id: str,
+        images: Sequence[NewCommentImage] = (),
         ts: int | None = None,
     ) -> CommentCreation:
         """Create once per author/todo/request id, with event in the same commit."""
+        if any(image.object_key != f"{project_id}/{image.image_id}" for image in images):
+            raise ValueError("comment image key must belong to its project and image")
         stamp = now_ts() if ts is None else ts
-        fingerprint = _body_fingerprint(body)
+        fingerprint = _body_fingerprint(body, images)
         with self._db.transaction() as conn:
             if not self._has_access(conn, project_id, todo_id, author_user_id, write=True):
                 return CommentCreation("missing")
@@ -164,6 +242,29 @@ class ProjectTodoCommentRepo:
                 if str(prior["request_fingerprint"]) != fingerprint:
                     return CommentCreation("conflict")
                 return CommentCreation("reused", self._comment_row(conn, str(prior["comment_id"])))
+
+            image_bytes = sum(image.size_bytes for image in images)
+            if images:
+                conn.execute(
+                    "INSERT INTO project_todo_comment_image_usage(project_id, used_bytes) "
+                    "VALUES (?, 0) ON CONFLICT (project_id) DO NOTHING",
+                    (project_id,),
+                )
+                usage_lock = " FOR UPDATE" if self._db.dialect == "postgresql" else ""
+                usage = conn.execute(
+                    "SELECT used_bytes FROM project_todo_comment_image_usage "
+                    "WHERE project_id = ?" + usage_lock,
+                    (project_id,),
+                ).fetchone()
+                if usage is None:  # pragma: no cover - project FK and insert guarantee a row
+                    raise RuntimeError("comment image usage row missing")
+                if int(usage["used_bytes"]) + image_bytes > MAX_PROJECT_COMMENT_IMAGE_BYTES:
+                    return CommentCreation("quota")
+                conn.execute(
+                    "UPDATE project_todo_comment_image_usage "
+                    "SET used_bytes = used_bytes + ? WHERE project_id = ?",
+                    (image_bytes, project_id),
+                )
 
             comment_id = str(uuid4())
             conn.execute(
@@ -180,5 +281,54 @@ class ProjectTodoCommentRepo:
                     stamp,
                 ),
             )
+            for position, image in enumerate(images):
+                conn.execute(
+                    "INSERT INTO project_todo_comment_images("
+                    "image_id, comment_id, object_key, size_bytes, sha256, media_type, "
+                    "position, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        image.image_id,
+                        comment_id,
+                        image.object_key,
+                        image.size_bytes,
+                        image.sha256,
+                        image.media_type,
+                        position,
+                        stamp,
+                    ),
+                )
             _append_comment_event(conn, project_id, author_user_id, todo_id, stamp)
             return CommentCreation("created", self._comment_row(conn, comment_id))
+
+    def get_image(
+        self,
+        project_id: str,
+        todo_id: str,
+        comment_id: str,
+        image_id: str,
+        *,
+        user_id: int,
+    ) -> ProjectTodoCommentImageRow | None:
+        """Re-check member → live todo → comment → image on every read."""
+        with self._db.transaction() as conn:
+            if not self._has_access(conn, project_id, todo_id, user_id, write=False):
+                return None
+            comment_lock = " FOR SHARE" if self._db.dialect == "postgresql" else ""
+            comment = conn.execute(
+                "SELECT comment_id FROM project_todo_comments "
+                "WHERE todo_id = ? AND comment_id = ?" + comment_lock,
+                (todo_id, comment_id),
+            ).fetchone()
+            if comment is None:
+                return None
+            image = conn.execute(
+                _IMAGE_SELECT + "WHERE comment_id = ? AND image_id = ?",
+                (comment_id, image_id),
+            ).fetchone()
+            return None if image is None else ProjectTodoCommentImageRow.from_row(image)
+
+    def known_image_object_keys(self) -> set[str]:
+        """Internal restricted-orphan cleaner inventory; never exposed to clients."""
+        with self._db.connect() as conn:
+            rows = conn.execute("SELECT object_key FROM project_todo_comment_images").fetchall()
+        return {str(row["object_key"]) for row in rows}

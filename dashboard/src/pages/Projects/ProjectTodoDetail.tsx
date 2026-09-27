@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Button, Input, Select, Spin, Tag } from "antd";
 import { X } from "lucide-react";
@@ -17,6 +17,7 @@ import {
   isNotFoundApiError,
   parseApiError,
 } from "../../utils/apiError";
+import ProjectTodoMarkdown from "./ProjectTodoMarkdown";
 import styles from "./ProjectTodoDetail.module.less";
 
 interface Props {
@@ -41,6 +42,12 @@ interface DetailState {
 }
 
 const STATUS_VALUES: ProjectTodoStatus[] = ["todo", "in_progress", "done"];
+const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+const MAX_COMMENT_IMAGES = 5;
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_COMMENT_IMAGE_BYTES = 20 * 1024 * 1024;
+const EMPTY_FILES: File[] = [];
+const EMPTY_URLS: string[] = [];
 const STATUS_FALLBACKS: Record<ProjectTodoStatus, string> = {
   todo: "待处理",
   in_progress: "进行中",
@@ -75,6 +82,97 @@ function isConflict(error: unknown): boolean {
   return error instanceof Error && /\b409\b/.test(error.message);
 }
 
+function PrivateCommentImage({
+  projectId,
+  todoId,
+  commentId,
+  image,
+  reloadKey,
+  onAccessLost,
+}: {
+  projectId: string;
+  todoId: string;
+  commentId: string;
+  image: ProjectTodoComment["images"][number];
+  reloadKey: number;
+  onAccessLost: () => void;
+}) {
+  const { t } = useTranslation();
+  const [url, setUrl] = useState<string | null>(null);
+  const [error, setError] = useState(false);
+  const [retry, setRetry] = useState(0);
+  const onAccessLostRef = useRef(onAccessLost);
+  onAccessLostRef.current = onAccessLost;
+
+  useEffect(() => {
+    setUrl(null);
+    setError(false);
+    if (!IMAGE_TYPES.has(image.media_type)) {
+      setError(true);
+      return;
+    }
+    const controller = new AbortController();
+    let active = true;
+    let ownedUrl: string | null = null;
+    void projectTodosApi
+      .readCommentImage(projectId, todoId, commentId, image.image_id, {
+        signal: controller.signal,
+      })
+      .then((blob) => {
+        if (!active || controller.signal.aborted) return;
+        if (blob.type && blob.type !== image.media_type) {
+          setError(true);
+          return;
+        }
+        ownedUrl = URL.createObjectURL(blob);
+        setUrl(ownedUrl);
+      })
+      .catch((reason: unknown) => {
+        if (!active || controller.signal.aborted) return;
+        if (isNotFoundApiError(reason)) onAccessLostRef.current();
+        else setError(true);
+      });
+    return () => {
+      active = false;
+      controller.abort();
+      if (ownedUrl) URL.revokeObjectURL(ownedUrl);
+    };
+  }, [
+    projectId,
+    todoId,
+    commentId,
+    image.image_id,
+    image.media_type,
+    reloadKey,
+    retry,
+  ]);
+
+  if (error) {
+    return (
+      <div className={styles.commentImageError}>
+        {t("projects.todoDetail.imageLoadFailed", "图片加载失败")}
+        <Button size="small" onClick={() => setRetry((value) => value + 1)}>
+          {t("common.retry", "重试")}
+        </Button>
+      </div>
+    );
+  }
+  if (!url) {
+    return (
+      <span className={styles.muted}>{t("common.loading", "加载中…")}</span>
+    );
+  }
+  return (
+    <img
+      className={styles.commentImage}
+      src={url}
+      alt={t("projects.todoDetail.commentImage", "评论图片 {{number}}", {
+        number: image.position + 1,
+      })}
+    />
+  );
+}
+
 export default function ProjectTodoDetail({
   projectId,
   todoId,
@@ -99,14 +197,37 @@ export default function ProjectTodoDetail({
     notFound: false,
   });
   const [draft, setDraft] = useState("");
+  const [draftImageState, setDraftImageState] = useState<{
+    key: string;
+    files: File[];
+  }>({ key, files: [] });
+  const [draftPreviewState, setDraftPreviewState] = useState<{
+    key: string;
+    urls: string[];
+  }>({ key, urls: [] });
+  const draftImages =
+    draftImageState.key === key ? draftImageState.files : EMPTY_FILES;
+  const draftPreviews =
+    draftPreviewState.key === key ? draftPreviewState.urls : EMPTY_URLS;
+  const setDraftImages = (next: File[] | ((previous: File[]) => File[])) => {
+    setDraftImageState((previous) => {
+      const files = previous.key === key ? previous.files : EMPTY_FILES;
+      return { key, files: typeof next === "function" ? next(files) : next };
+    });
+  };
   const [draftError, setDraftError] = useState<string | null>(null);
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
+  const [editingDescription, setEditingDescription] = useState(false);
+  const [descriptionDraft, setDescriptionDraft] = useState("");
+  const [descriptionPreview, setDescriptionPreview] = useState(false);
   const [posting, setPosting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [fieldBusy, setFieldBusy] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const draftRequestId = useRef<string | null>(null);
   const postBusy = useRef(false);
+  const postAbort = useRef<AbortController | null>(null);
   const postSeq = useRef(0);
   const fieldSeq = useRef(0);
   const fetchSeq = useRef(0);
@@ -114,6 +235,8 @@ export default function ProjectTodoDetail({
   const currentKey = useRef(key);
   currentKey.current = key;
   const closeRef = useRef<HTMLButtonElement | null>(null);
+  const descriptionTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const descriptionCursor = useRef<number | null>(null);
   const onChangedRef = useRef(onChanged);
   const onAccessLostRef = useRef(onAccessLost);
   onChangedRef.current = onChanged;
@@ -121,24 +244,51 @@ export default function ProjectTodoDetail({
 
   const current = state.key === key ? state : null;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     closeRef.current?.focus();
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    postAbort.current?.abort();
+    postAbort.current = null;
     postSeq.current += 1;
     fieldSeq.current += 1;
     moreSeq.current += 1;
     draftRequestId.current = null;
     postBusy.current = false;
     setDraft("");
+    setDraftImageState({ key, files: [] });
     setDraftError(null);
     setFieldError(null);
     setConflict(false);
+    setEditingDescription(false);
+    setDescriptionDraft("");
+    setDescriptionPreview(false);
+    descriptionCursor.current = null;
     setPosting(false);
+    setUploadProgress(null);
     setFieldBusy(false);
     setLoadingMore(false);
   }, [key]);
+
+  useEffect(() => () => postAbort.current?.abort(), []);
+
+  useLayoutEffect(() => {
+    const urls = draftImages.map((file) => URL.createObjectURL(file));
+    setDraftPreviewState({ key, urls });
+    return () => {
+      for (const url of urls) URL.revokeObjectURL(url);
+    };
+  }, [draftImages, key, reloadKey]);
+
+  useLayoutEffect(() => {
+    const position = descriptionCursor.current;
+    const textarea = descriptionTextareaRef.current;
+    if (position == null || !textarea) return;
+    descriptionCursor.current = null;
+    textarea.focus();
+    textarea.setSelectionRange(position, position);
+  }, [descriptionDraft, editingDescription, descriptionPreview]);
 
   useEffect(() => {
     const seq = ++fetchSeq.current;
@@ -196,9 +346,12 @@ export default function ProjectTodoDetail({
     fetchSeq.current += 1;
     moreSeq.current += 1;
     postSeq.current += 1;
+    postAbort.current?.abort();
+    postAbort.current = null;
     fieldSeq.current += 1;
     postBusy.current = false;
     setPosting(false);
+    setUploadProgress(null);
     setFieldBusy(false);
     setState({
       key,
@@ -210,12 +363,20 @@ export default function ProjectTodoDetail({
       notFound: true,
     });
     setDraft("");
+    setDraftImages([]);
+    setDescriptionDraft("");
+    setEditingDescription(false);
+    setDescriptionPreview(false);
+    descriptionCursor.current = null;
     draftRequestId.current = null;
     onAccessLostRef.current();
   };
 
   const saveField = async (
-    field: { status: ProjectTodoStatus } | { assignee_user_id: number | null },
+    field:
+      | { status: ProjectTodoStatus }
+      | { assignee_user_id: number | null }
+      | { description: string; description_format: "markdown" },
   ) => {
     const todo = current?.todo;
     if (!todo || fieldBusy) return;
@@ -232,6 +393,7 @@ export default function ProjectTodoDetail({
       setState((previous) =>
         previous.key === key ? { ...previous, todo: updated } : previous,
       );
+      if ("description" in field) setEditingDescription(false);
       onChangedRef.current(updated);
     } catch (error: unknown) {
       if (key !== currentKey.current || seq !== fieldSeq.current) return;
@@ -254,13 +416,40 @@ export default function ProjectTodoDetail({
     }
   };
 
+  const insertDescriptionMarkdown = (
+    prefix: string,
+    suffix: string,
+    placeholder: string,
+    block = false,
+  ) => {
+    const textarea = descriptionTextareaRef.current;
+    if (!textarea) return;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selected = descriptionDraft.slice(start, end);
+    const newLine =
+      block && start > 0 && descriptionDraft[start - 1] !== "\n" ? "\n" : "";
+    const inserted = `${newLine}${prefix}${selected || placeholder}${suffix}`;
+    const next =
+      descriptionDraft.slice(0, start) + inserted + descriptionDraft.slice(end);
+    if (next.length > 4000) {
+      setFieldError(
+        t("projects.todoDetail.descriptionTooLong", "描述最多 4000 个字符"),
+      );
+      return;
+    }
+    descriptionCursor.current = start + inserted.length;
+    setDescriptionDraft(next);
+    setFieldError(null);
+  };
+
   const submitComment = async () => {
     if (postBusy.current || !current?.todo) return;
     const body = draft.trim();
-    if (!body || body.length > 4000) {
+    if ((!body && draftImages.length === 0) || body.length > 4000) {
       setDraftError(
-        !body
-          ? t("projects.todoDetail.bodyRequired", "请输入评论")
+        !body && draftImages.length === 0
+          ? t("projects.todoDetail.bodyRequired", "请输入评论或粘贴图片")
           : t("projects.todoDetail.bodyTooLong", "评论最多 4000 个字符"),
       );
       return;
@@ -268,14 +457,29 @@ export default function ProjectTodoDetail({
     const requestId = draftRequestId.current ?? uuidV4();
     draftRequestId.current = requestId;
     const seq = ++postSeq.current;
+    const controller = new AbortController();
+    postAbort.current = controller;
     postBusy.current = true;
     setPosting(true);
+    setUploadProgress(draftImages.length ? 0 : null);
     setDraftError(null);
     try {
-      const created = await projectTodosApi.createComment(projectId, todoId, {
-        body,
-        client_request_id: requestId,
-      });
+      const created = await projectTodosApi.createComment(
+        projectId,
+        todoId,
+        {
+          body,
+          client_request_id: requestId,
+          ...(draftImages.length ? { images: draftImages } : {}),
+        },
+        { signal: controller.signal },
+        draftImages.length
+          ? (percent) => {
+              if (key === currentKey.current && seq === postSeq.current)
+                setUploadProgress(percent);
+            }
+          : undefined,
+      );
       if (key !== currentKey.current || seq !== postSeq.current) return;
       setState((previous) =>
         previous.key === key
@@ -291,6 +495,7 @@ export default function ProjectTodoDetail({
           : previous,
       );
       setDraft("");
+      setDraftImages([]);
       draftRequestId.current = null;
       setReloadKey((value) => value + 1);
     } catch (error: unknown) {
@@ -308,10 +513,54 @@ export default function ProjectTodoDetail({
       }
     } finally {
       if (key === currentKey.current && seq === postSeq.current) {
+        if (postAbort.current === controller) postAbort.current = null;
         postBusy.current = false;
         setPosting(false);
+        setUploadProgress(null);
       }
     }
+  };
+
+  const pasteCommentImages = (
+    event: React.ClipboardEvent<HTMLTextAreaElement>,
+  ) => {
+    const incoming = Array.from(event.clipboardData.files);
+    if (!incoming.length) return;
+    event.preventDefault();
+    if (incoming.some((file) => !IMAGE_TYPES.has(file.type))) {
+      setDraftError(
+        t(
+          "projects.todoDetail.imageUnsupported",
+          "仅支持 PNG、JPEG 或 WebP 图片",
+        ),
+      );
+      return;
+    }
+    if (draftImages.length + incoming.length > MAX_COMMENT_IMAGES) {
+      setDraftError(
+        t("projects.todoDetail.imageCountLimit", "最多粘贴 5 张图片"),
+      );
+      return;
+    }
+    if (incoming.some((file) => file.size > MAX_IMAGE_BYTES)) {
+      setDraftError(
+        t("projects.todoDetail.imageSizeLimit", "每张图片最多 8 MiB"),
+      );
+      return;
+    }
+    const total = [...draftImages, ...incoming].reduce(
+      (sum, file) => sum + file.size,
+      0,
+    );
+    if (total > MAX_COMMENT_IMAGE_BYTES) {
+      setDraftError(
+        t("projects.todoDetail.imageTotalLimit", "图片合计最多 20 MiB"),
+      );
+      return;
+    }
+    setDraftImages((previous) => [...previous, ...incoming]);
+    draftRequestId.current = null;
+    setDraftError(null);
   };
 
   const loadMore = async () => {
@@ -364,6 +613,7 @@ export default function ProjectTodoDetail({
       (currentUserId != null &&
         (todo.creator_user_id === currentUserId ||
           todo.assignee_user_id === currentUserId)));
+  const canEditDescription = canEditStatus;
   const assignee = members.find(
     (member) => member.user_id === todo?.assignee_user_id,
   );
@@ -432,16 +682,227 @@ export default function ProjectTodoDetail({
             >
               <div className={styles.scroller}>
                 <h2 className={styles.title}>{todo.title}</h2>
-                <h3 className={styles.sectionTitle}>
-                  {t("projects.plan.descriptionLabel", "描述")}
-                </h3>
-                <div
-                  className={styles.description}
-                  data-testid="todo-description"
-                >
-                  {todo.description ||
-                    t("projects.todoDetail.noDescription", "暂无描述")}
+                <div className={styles.descriptionHeading}>
+                  <h3 className={styles.sectionTitle}>
+                    {t("projects.plan.descriptionLabel", "描述")}
+                  </h3>
+                  {canEditDescription && !editingDescription && (
+                    <Button
+                      type="link"
+                      size="small"
+                      onClick={() => {
+                        setDescriptionDraft(todo.description);
+                        setDescriptionPreview(false);
+                        setEditingDescription(true);
+                      }}
+                    >
+                      {t("projects.todoDetail.editDescription", "编辑描述")}
+                    </Button>
+                  )}
                 </div>
+                {editingDescription ? (
+                  <div className={styles.descriptionEditor}>
+                    {descriptionPreview ? (
+                      <ProjectTodoMarkdown
+                        content={descriptionDraft}
+                        className={styles.markdown}
+                      />
+                    ) : (
+                      <>
+                        <div
+                          className={styles.markdownToolbar}
+                          role="toolbar"
+                          aria-label={t(
+                            "projects.todoDetail.markdownToolbar",
+                            "描述格式",
+                          )}
+                        >
+                          {(
+                            [
+                              [
+                                "heading",
+                                t("projects.todoDetail.heading", "标题"),
+                                "# ",
+                                "",
+                                t("projects.todoDetail.headingText", "标题"),
+                                true,
+                              ],
+                              [
+                                "bold",
+                                t("projects.todoDetail.bold", "粗体"),
+                                "**",
+                                "**",
+                                t("projects.todoDetail.boldText", "粗体文字"),
+                                false,
+                              ],
+                              [
+                                "italic",
+                                t("projects.todoDetail.italic", "斜体"),
+                                "*",
+                                "*",
+                                t("projects.todoDetail.italicText", "斜体文字"),
+                                false,
+                              ],
+                              [
+                                "list",
+                                t("projects.todoDetail.list", "列表"),
+                                "- ",
+                                "",
+                                t("projects.todoDetail.listText", "列表项"),
+                                true,
+                              ],
+                              [
+                                "numbered",
+                                t("projects.todoDetail.numbered", "编号列表"),
+                                "1. ",
+                                "",
+                                t("projects.todoDetail.listText", "列表项"),
+                                true,
+                              ],
+                              [
+                                "quote",
+                                t("projects.todoDetail.quote", "引用"),
+                                "> ",
+                                "",
+                                t("projects.todoDetail.quoteText", "引用文字"),
+                                true,
+                              ],
+                              [
+                                "code",
+                                t("projects.todoDetail.code", "代码"),
+                                "`",
+                                "`",
+                                t("projects.todoDetail.codeText", "代码"),
+                                false,
+                              ],
+                              [
+                                "link",
+                                t("projects.todoDetail.link", "链接"),
+                                "[",
+                                "](https://)",
+                                t("projects.todoDetail.linkText", "链接文字"),
+                                false,
+                              ],
+                            ] as const
+                          ).map(
+                            ([
+                              id,
+                              label,
+                              prefix,
+                              suffix,
+                              placeholder,
+                              block,
+                            ]) => (
+                              <button
+                                key={id}
+                                type="button"
+                                disabled={fieldBusy}
+                                aria-label={label}
+                                onClick={() =>
+                                  insertDescriptionMarkdown(
+                                    prefix,
+                                    suffix,
+                                    placeholder,
+                                    block,
+                                  )
+                                }
+                              >
+                                {label}
+                              </button>
+                            ),
+                          )}
+                        </div>
+                        <textarea
+                          ref={descriptionTextareaRef}
+                          aria-label={t(
+                            "projects.todoDetail.descriptionEditor",
+                            "待办描述",
+                          )}
+                          className={styles.descriptionTextarea}
+                          value={descriptionDraft}
+                          maxLength={4000}
+                          rows={8}
+                          disabled={fieldBusy}
+                          onChange={(event) =>
+                            setDescriptionDraft(event.target.value)
+                          }
+                        />
+                      </>
+                    )}
+                    {conflict && (
+                      <div className={styles.descriptionCompare}>
+                        <strong>
+                          {t(
+                            "projects.todoDetail.serverDescription",
+                            "服务器版本（刷新后可比较）",
+                          )}
+                        </strong>
+                        {todo.description_format === "markdown" ? (
+                          <ProjectTodoMarkdown content={todo.description} />
+                        ) : (
+                          <div className={styles.description}>
+                            {todo.description ||
+                              t(
+                                "projects.todoDetail.noDescription",
+                                "暂无描述",
+                              )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <div className={styles.descriptionActions}>
+                      <Button
+                        aria-label={
+                          descriptionPreview
+                            ? t("projects.todoDetail.editMarkdown", "编辑")
+                            : t("projects.todoDetail.previewMarkdown", "预览")
+                        }
+                        onClick={() => setDescriptionPreview((value) => !value)}
+                      >
+                        {descriptionPreview
+                          ? t("projects.todoDetail.editMarkdown", "编辑")
+                          : t("projects.todoDetail.previewMarkdown", "预览")}
+                      </Button>
+                      <Button
+                        onClick={() => setEditingDescription(false)}
+                        disabled={fieldBusy}
+                      >
+                        {t("common.cancel", "取消")}
+                      </Button>
+                      <Button
+                        type="primary"
+                        loading={fieldBusy}
+                        onClick={() =>
+                          void saveField({
+                            description: descriptionDraft,
+                            description_format: "markdown",
+                          })
+                        }
+                      >
+                        {t("projects.todoDetail.saveDescription", "保存描述")}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    className={`${styles.description} ${
+                      todo.description_format === "markdown"
+                        ? styles.markdown
+                        : ""
+                    }`}
+                    data-testid="todo-description"
+                  >
+                    {todo.description ? (
+                      todo.description_format === "markdown" ? (
+                        <ProjectTodoMarkdown content={todo.description} />
+                      ) : (
+                        todo.description
+                      )
+                    ) : (
+                      t("projects.todoDetail.noDescription", "暂无描述")
+                    )}
+                  </div>
+                )}
                 <h3 className={styles.sectionTitle}>
                   {t("projects.todoDetail.comments", "评论")}
                 </h3>
@@ -463,6 +924,23 @@ export default function ProjectTodoDetail({
                           </span>
                         </div>
                         <div className={styles.commentBody}>{comment.body}</div>
+                        {comment.images.length > 0 && (
+                          <div className={styles.commentImages}>
+                            {[...comment.images]
+                              .sort((a, b) => a.position - b.position)
+                              .map((image) => (
+                                <PrivateCommentImage
+                                  key={image.image_id}
+                                  projectId={projectId}
+                                  todoId={todoId}
+                                  commentId={comment.comment_id}
+                                  image={image}
+                                  reloadKey={reloadKey}
+                                  onAccessLost={clearPrivateState}
+                                />
+                              ))}
+                          </div>
+                        )}
                       </article>
                     ))}
                   </div>
@@ -489,7 +967,57 @@ export default function ProjectTodoDetail({
                     setDraftError(null);
                     draftRequestId.current = null;
                   }}
+                  onPaste={pasteCommentImages}
                 />
+                {draftPreviews.length > 0 && (
+                  <div className={styles.draftImages}>
+                    {draftPreviews.map((url, index) => (
+                      <div key={url} className={styles.draftImage}>
+                        <img
+                          src={url}
+                          alt={t(
+                            "projects.todoDetail.pendingImage",
+                            "待发送图片 {{number}}",
+                            {
+                              number: index + 1,
+                            },
+                          )}
+                        />
+                        <Button
+                          type="text"
+                          aria-label={t(
+                            "projects.todoDetail.removeImage",
+                            "移除图片 {{number}}",
+                            {
+                              number: index + 1,
+                            },
+                          )}
+                          disabled={posting}
+                          onClick={() => {
+                            setDraftImages((previous) =>
+                              previous.filter(
+                                (_, itemIndex) => itemIndex !== index,
+                              ),
+                            );
+                            draftRequestId.current = null;
+                          }}
+                        >
+                          {t("common.remove", "移除")}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {uploadProgress != null && (
+                  <progress
+                    aria-label={t(
+                      "projects.todoDetail.uploadProgress",
+                      "图片上传进度",
+                    )}
+                    value={uploadProgress}
+                    max={100}
+                  />
+                )}
                 <div className={styles.composerActions}>
                   {draftError && <Alert type="error" message={draftError} />}
                   <Button

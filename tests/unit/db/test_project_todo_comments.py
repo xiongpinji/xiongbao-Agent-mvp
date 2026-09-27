@@ -16,6 +16,7 @@ from octop.infra.db.pool import SqlitePool
 from octop.infra.db.repos.project_todos import ProjectTodoRepo
 from octop.infra.db.repos.projects import ProjectRepo
 from octop.infra.db.repos.users import UserRepo
+from octop.infra.utils.ulid import new_ulid
 
 MIGRATIONS = Path(__file__).resolve().parents[3] / "src/octop/infra/db/migrations"
 REQUEST_ID = "d6e47312-3f3d-4a27-a43a-23c5df13218b"
@@ -43,6 +44,65 @@ def seed(db: SqlitePool) -> tuple[str, str, int]:
 
 def _repo(db: SqlitePool):
     return import_module("octop.infra.db.repos.project_todo_comments").ProjectTodoCommentRepo(db)
+
+
+def test_033_image_tables_and_paired_postgresql_script(db: SqlitePool) -> None:
+    with db.connect() as conn:
+        images = {
+            row["name"] for row in conn.execute("PRAGMA table_info(project_todo_comment_images)")
+        }
+        usage = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(project_todo_comment_image_usage)")
+        }
+        version = conn.execute("SELECT version FROM _schema_version").fetchone()[0]
+    assert version >= 33
+    assert images == {
+        "image_id",
+        "comment_id",
+        "object_key",
+        "size_bytes",
+        "sha256",
+        "media_type",
+        "position",
+        "created_at",
+    }
+    assert usage == {"project_id", "used_bytes"}
+    assert (MIGRATIONS / "033_project_todo_comment_images.pg.sql").exists()
+
+
+def test_033_interrupted_upgrade_replays_and_failed_ddl_rolls_back(
+    db: SqlitePool,
+    tmp_path: Path,
+) -> None:
+    with db.transaction() as conn:
+        conn.execute("DROP TABLE project_todo_comment_image_usage")
+        conn.execute("UPDATE _schema_version SET version = 32")
+    run_migrations(db)
+    with db.connect() as conn:
+        assert conn.execute("SELECT version FROM _schema_version").fetchone()[0] == 33
+        assert (
+            conn.execute(
+                "SELECT name FROM sqlite_master WHERE name = 'project_todo_comment_image_usage'"
+            ).fetchone()
+            is not None
+        )
+
+    migration = import_module("octop.infra.db.migrate")
+    bad_script = tmp_path / "bad.sql"
+    bad_script.write_text(
+        "CREATE TABLE ps04b_atomic_probe(id INTEGER);\nCREATE TABLE broken syntax;\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(sqlite3.OperationalError):
+        migration._ensure_project_todo_comment_images_v33(db, bad_script)
+    with db.connect() as conn:
+        assert (
+            conn.execute(
+                "SELECT name FROM sqlite_master WHERE name = 'ps04b_atomic_probe'"
+            ).fetchone()
+            is None
+        )
 
 
 def test_031_migration_shape_and_paired_postgresql_script(db: SqlitePool) -> None:
@@ -195,6 +255,94 @@ def test_repeated_request_has_one_comment_and_one_event(
             (project_id,),
         ).fetchone()[0]
     assert count == events == 1
+
+
+def test_image_comment_retry_preserves_order_and_charges_quota_once(
+    db: SqlitePool, seed: tuple[str, str, int]
+) -> None:
+    module = import_module("octop.infra.db.repos.project_todo_comments")
+    project_id, todo_id, owner_id = seed
+
+    def image(size: int, digest: str, media_type: str):
+        image_id = new_ulid()
+        return module.NewCommentImage(
+            image_id, f"{project_id}/{image_id}", size, digest, media_type
+        )
+
+    first_images = (
+        image(21, "a" * 64, "image/png"),
+        image(34, "b" * 64, "image/jpeg"),
+    )
+    repo = _repo(db)
+    first = repo.create_comment(
+        project_id=project_id,
+        todo_id=todo_id,
+        author_user_id=owner_id,
+        body="",
+        client_request_id=REQUEST_ID,
+        images=first_images,
+    )
+    assert first.outcome == "created" and first.row is not None
+    assert [image.sha256 for image in first.row.images] == ["a" * 64, "b" * 64]
+    assert [image.position for image in first.row.images] == [0, 1]
+
+    retry_images = (
+        image(21, "a" * 64, "image/png"),
+        image(34, "b" * 64, "image/jpeg"),
+    )
+    retry = repo.create_comment(
+        project_id=project_id,
+        todo_id=todo_id,
+        author_user_id=owner_id,
+        body="",
+        client_request_id=REQUEST_ID,
+        images=retry_images,
+    )
+    reversed_images = repo.create_comment(
+        project_id=project_id,
+        todo_id=todo_id,
+        author_user_id=owner_id,
+        body="",
+        client_request_id=REQUEST_ID,
+        images=retry_images[::-1],
+    )
+    assert retry.outcome == "reused" and retry.row == first.row
+    assert reversed_images.outcome == "conflict"
+    with db.connect() as conn:
+        count = conn.execute("SELECT COUNT(*) FROM project_todo_comment_images").fetchone()[0]
+        usage = conn.execute(
+            "SELECT used_bytes FROM project_todo_comment_image_usage WHERE project_id = ?",
+            (project_id,),
+        ).fetchone()[0]
+        events = conn.execute(
+            "SELECT COUNT(*) FROM project_events WHERE project_id = ? "
+            "AND event_type = 'project.todo_comment_created'",
+            (project_id,),
+        ).fetchone()[0]
+    assert (count, usage, events) == (2, 55, 1)
+
+
+def test_image_metadata_cannot_point_into_another_project(
+    db: SqlitePool, seed: tuple[str, str, int]
+) -> None:
+    module = import_module("octop.infra.db.repos.project_todo_comments")
+    project_id, todo_id, owner_id = seed
+    image_id = new_ulid()
+    with pytest.raises(ValueError):
+        _repo(db).create_comment(
+            project_id=project_id,
+            todo_id=todo_id,
+            author_user_id=owner_id,
+            body="",
+            client_request_id=REQUEST_ID,
+            images=[
+                module.NewCommentImage(
+                    image_id, f"{new_ulid()}/{image_id}", 21, "a" * 64, "image/png"
+                )
+            ],
+        )
+    with db.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM project_todo_comments").fetchone()[0] == 0
 
 
 @pytest.mark.parametrize("competing_change", ["remove_member", "delete_todo"])

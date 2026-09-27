@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import sqlite3
 import tarfile
 from io import BytesIO
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from octop.config import DatabaseConfig
 from octop.infra.backup.manifest import MANIFEST_VERSION, BackupManifest
@@ -16,7 +19,9 @@ from octop.infra.backup.system_archive import create_system_backup, restore_syst
 from octop.infra.db.migrate import _max_discovered_version, run_migrations
 from octop.infra.db.pool import SqlitePool
 from octop.infra.errors import ErrorCode, OctopError
+from octop.infra.projects.todo_comment_image_storage import ProjectTodoCommentImageStorage
 from octop.infra.utils.paths import PathLayout
+from octop.infra.utils.safe_dirs import SafeDirectoryError
 
 
 @pytest.fixture
@@ -24,6 +29,12 @@ def layout(tmp_path: Path) -> PathLayout:
     root = tmp_path / ".octop"
     root.mkdir()
     return PathLayout(root)
+
+
+def _tar_bytes(tf: tarfile.TarFile, member: str | tarfile.TarInfo) -> bytes:
+    source = tf.extractfile(member)
+    assert source is not None
+    return source.read()
 
 
 def test_manifest_roundtrip_includes_driver_fields() -> None:
@@ -57,6 +68,7 @@ def test_legacy_manifest_defaults_plugins_omitted() -> None:
     assert loaded.includes_plugins is False
     assert loaded.includes_knowledge is False
     assert loaded.includes_chats is True
+    assert loaded.includes_project_todo_comment_images is False
 
 
 def test_roundtrip_backup(layout: PathLayout, tmp_path: Path) -> None:
@@ -132,9 +144,483 @@ def test_roundtrip_backup(layout: PathLayout, tmp_path: Path) -> None:
     assert json.loads(restore_layout.config.read_text(encoding="utf-8"))["port"] == 8088
 
     with tarfile.open(archive, mode="r:gz") as tf:
-        manifest = json.loads(tf.extractfile("manifest.json").read().decode("utf-8"))
+        manifest = json.loads(_tar_bytes(tf, "manifest.json").decode("utf-8"))
     assert manifest["manifest_version"] == MANIFEST_VERSION
     assert manifest["database_driver"] == "sqlite"
+
+
+def test_comment_image_backup_restores_metadata_and_private_bytes(
+    layout: PathLayout, tmp_path: Path
+) -> None:
+    """A restored comment image must keep its DB locator and exact private bytes."""
+    project_id = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    todo_id = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+    comment_id = "01ARZ3NDEKTSV4RRFFQ69G5FAX"
+    image_id = "01ARZ3NDEKTSV4RRFFQ69G5FAY"
+    object_key = f"{project_id}/{image_id}"
+    png = BytesIO()
+    Image.new("RGB", (2, 2), "red").save(png, format="PNG")
+    image_bytes = png.getvalue()
+
+    pool = SqlitePool(layout.db)
+    run_migrations(pool)
+    with pool.connect() as conn:
+        conn.execute(
+            "INSERT INTO users(username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
+            ("alice", "hash", "admin", 1),
+        )
+        conn.execute(
+            "INSERT INTO project_spaces(project_id, creator_user_id, name, created_at, updated_at) "
+            "VALUES (?, 1, 'project', 1, 1)",
+            (project_id,),
+        )
+        conn.execute(
+            "INSERT INTO project_members(project_id, user_id, role, joined_at) "
+            "VALUES (?, 1, 'owner', 1)",
+            (project_id,),
+        )
+        conn.execute(
+            "INSERT INTO project_todos(todo_id, project_id, creator_user_id, title, created_at, "
+            "updated_at) VALUES (?, ?, 1, 'todo', 1, 1)",
+            (todo_id, project_id),
+        )
+        conn.execute(
+            "INSERT INTO project_todo_comments(comment_id, todo_id, author_user_id, body_text, "
+            "client_request_id, request_fingerprint, created_at) VALUES (?, ?, 1, '', ?, ?, 1)",
+            (comment_id, todo_id, "00000000-0000-4000-8000-000000000001", "a" * 64),
+        )
+        conn.execute(
+            "INSERT INTO project_todo_comment_images(image_id, comment_id, object_key, "
+            "size_bytes, sha256, media_type, position, created_at) "
+            "VALUES (?, ?, ?, ?, ?, 'image/png', 0, 1)",
+            (
+                image_id,
+                comment_id,
+                object_key,
+                len(image_bytes),
+                hashlib.sha256(image_bytes).hexdigest(),
+            ),
+        )
+
+    image_path = layout.project_todo_comment_images / project_id / image_id
+    image_path.parent.mkdir(parents=True)
+    image_path.write_bytes(image_bytes)
+    archive = tmp_path / "comment-images.tar.gz"
+    create_system_backup(
+        paths=layout,
+        agent_rows=[],
+        pool=pool,
+        db_config=DatabaseConfig(),
+        dest=archive,
+    )
+    pool.close()
+    with tarfile.open(archive, mode="r:gz") as tf:
+        manifest = json.loads(_tar_bytes(tf, "manifest.json").decode("utf-8"))
+        assert manifest["includes_project_todo_comment_images"] is True
+        assert f"project-todo-comment-images/{object_key}" in tf.getnames()
+
+    restored = PathLayout(tmp_path / "restored-comment-images")
+    restored_pool = SqlitePool(restored.db)
+    run_migrations(restored_pool)
+    stale = restored.project_todo_comment_images / "stale"
+    stale.parent.mkdir(parents=True)
+    stale.write_bytes(b"old private bytes")
+    result = restore_system_backup(
+        archive,
+        paths=restored,
+        pool=restored_pool,
+        db_config=DatabaseConfig(),
+    )
+    with restored_pool.connect() as conn:
+        row = conn.execute(
+            "SELECT object_key, size_bytes, sha256 FROM project_todo_comment_images "
+            "WHERE image_id = ?",
+            (image_id,),
+        ).fetchone()
+    restored_pool.close()
+    assert row is not None
+    assert row["object_key"] == object_key
+    assert row["size_bytes"] == len(image_bytes)
+    assert row["sha256"] == hashlib.sha256(image_bytes).hexdigest()
+    with ProjectTodoCommentImageStorage(restored.project_todo_comment_images).read_object(
+        row["object_key"]
+    ) as image:
+        assert image.read() == image_bytes
+    assert not stale.exists()
+    assert result["project_todo_comment_image_files"] == 1
+
+
+@pytest.mark.parametrize("damage", ["missing", "size", "digest"])
+def test_backup_refuses_comment_image_missing_or_different_from_database(
+    layout: PathLayout, tmp_path: Path, damage: str
+) -> None:
+    project_id = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    todo_id = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+    comment_id = "01ARZ3NDEKTSV4RRFFQ69G5FAX"
+    image_id = "01ARZ3NDEKTSV4RRFFQ69G5FAY"
+    image_bytes = b"original-private-image"
+    object_key = f"{project_id}/{image_id}"
+    pool = SqlitePool(layout.db)
+    run_migrations(pool)
+    with pool.connect() as conn:
+        conn.execute(
+            "INSERT INTO users(username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
+            ("alice", "hash", "admin", 1),
+        )
+        conn.execute(
+            "INSERT INTO project_spaces(project_id, creator_user_id, name, created_at, updated_at) "
+            "VALUES (?, 1, 'project', 1, 1)",
+            (project_id,),
+        )
+        conn.execute(
+            "INSERT INTO project_todos(todo_id, project_id, creator_user_id, title, created_at, "
+            "updated_at) VALUES (?, ?, 1, 'todo', 1, 1)",
+            (todo_id, project_id),
+        )
+        conn.execute(
+            "INSERT INTO project_todo_comments(comment_id, todo_id, author_user_id, body_text, "
+            "client_request_id, request_fingerprint, created_at) VALUES (?, ?, 1, '', ?, ?, 1)",
+            (comment_id, todo_id, "00000000-0000-4000-8000-000000000001", "a" * 64),
+        )
+        conn.execute(
+            "INSERT INTO project_todo_comment_images(image_id, comment_id, object_key, "
+            "size_bytes, sha256, media_type, position, created_at) "
+            "VALUES (?, ?, ?, ?, ?, 'image/png', 0, 1)",
+            (
+                image_id,
+                comment_id,
+                object_key,
+                len(image_bytes),
+                hashlib.sha256(image_bytes).hexdigest(),
+            ),
+        )
+    image_path = layout.project_todo_comment_images / project_id / image_id
+    if damage != "missing":
+        image_path.parent.mkdir(parents=True)
+        image_path.write_bytes(image_bytes + b"x" if damage == "size" else b"X" + image_bytes[1:])
+    archive = tmp_path / f"damaged-{damage}.tar.gz"
+    with pytest.raises(OctopError, match="comment image"):
+        create_system_backup(
+            paths=layout, agent_rows=[], pool=pool, db_config=DatabaseConfig(), dest=archive
+        )
+    pool.close()
+    assert not archive.exists()
+    assert not archive.with_name(archive.name + ".partial").exists()
+
+
+def test_old_archive_without_image_flag_preserves_existing_private_root(
+    layout: PathLayout, tmp_path: Path
+) -> None:
+    pool = SqlitePool(layout.db)
+    run_migrations(pool)
+    archive = tmp_path / "current.tar.gz"
+    create_system_backup(
+        paths=layout, agent_rows=[], pool=pool, db_config=DatabaseConfig(), dest=archive
+    )
+    pool.close()
+    legacy = tmp_path / "legacy.tar.gz"
+    with tarfile.open(archive, "r:gz") as original, tarfile.open(legacy, "w:gz") as old:
+        for member in original:
+            if member.name == "manifest.json":
+                payload = json.loads(_tar_bytes(original, member))
+                del payload["includes_project_todo_comment_images"]
+                data = json.dumps(payload).encode()
+                member.size = len(data)
+                old.addfile(member, BytesIO(data))
+            elif member.name != "project-todo-comment-image-index.json":
+                old.addfile(member, original.extractfile(member) if member.isfile() else None)
+
+    restored = PathLayout(tmp_path / "restored-legacy")
+    restored_pool = SqlitePool(restored.db)
+    run_migrations(restored_pool)
+    kept = restored.project_todo_comment_images / "private-local"
+    kept.parent.mkdir(parents=True)
+    kept.write_bytes(b"not in legacy archive")
+    result = restore_system_backup(
+        legacy, paths=restored, pool=restored_pool, db_config=DatabaseConfig()
+    )
+    restored_pool.close()
+    assert kept.read_bytes() == b"not in legacy archive"
+    assert result["project_todo_comment_image_files"] == 0
+
+
+def test_backup_refuses_linked_private_comment_image(layout: PathLayout, tmp_path: Path) -> None:
+    pool = SqlitePool(layout.db)
+    run_migrations(pool)
+    outside = tmp_path / "secret"
+    outside.write_bytes(b"do not archive")
+    image = (
+        layout.project_todo_comment_images
+        / "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        / "01ARZ3NDEKTSV4RRFFQ69G5FAY"
+    )
+    image.parent.mkdir(parents=True)
+    try:
+        image.symlink_to(outside)
+    except OSError:
+        pytest.skip("test host cannot create symlinks")
+    archive = tmp_path / "linked.tar.gz"
+    with pytest.raises(SafeDirectoryError):
+        create_system_backup(
+            paths=layout, agent_rows=[], pool=pool, db_config=DatabaseConfig(), dest=archive
+        )
+    pool.close()
+    assert not archive.exists()
+    assert not archive.with_name(archive.name + ".partial").exists()
+
+
+def test_backup_refuses_hardlinked_private_comment_image(
+    layout: PathLayout, tmp_path: Path
+) -> None:
+    pool = SqlitePool(layout.db)
+    run_migrations(pool)
+    outside = tmp_path / "secret"
+    outside.write_bytes(b"do not archive")
+    image = (
+        layout.project_todo_comment_images
+        / "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        / "01ARZ3NDEKTSV4RRFFQ69G5FAY"
+    )
+    image.parent.mkdir(parents=True)
+    try:
+        os.link(outside, image)
+    except OSError:
+        pytest.skip("test host cannot create hardlinks")
+    archive = tmp_path / "hardlinked.tar.gz"
+    with pytest.raises(SafeDirectoryError):
+        create_system_backup(
+            paths=layout, agent_rows=[], pool=pool, db_config=DatabaseConfig(), dest=archive
+        )
+    pool.close()
+    assert not archive.exists()
+
+
+def test_restore_refuses_linked_private_root_before_database_change(
+    layout: PathLayout, tmp_path: Path
+) -> None:
+    source_pool = SqlitePool(layout.db)
+    run_migrations(source_pool)
+    archive = tmp_path / "source.tar.gz"
+    create_system_backup(
+        paths=layout, agent_rows=[], pool=source_pool, db_config=DatabaseConfig(), dest=archive
+    )
+    source_pool.close()
+
+    target = PathLayout(tmp_path / "linked-target")
+    target_pool = SqlitePool(target.db)
+    run_migrations(target_pool)
+    with target_pool.connect() as conn:
+        conn.execute(
+            "INSERT INTO users(username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
+            ("keeper", "hash", "admin", 1),
+        )
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    marker = outside / "keep"
+    marker.write_bytes(b"untouched")
+    try:
+        target.project_todo_comment_images.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("test host cannot create directory symlinks")
+    with pytest.raises(SafeDirectoryError):
+        restore_system_backup(archive, paths=target, pool=target_pool, db_config=DatabaseConfig())
+    with target_pool.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM users WHERE username='keeper'").fetchone()[0] == 1
+    target_pool.close()
+    assert marker.read_bytes() == b"untouched"
+
+
+def test_restore_rejects_private_image_symlink_member_before_extraction(
+    layout: PathLayout, tmp_path: Path
+) -> None:
+    source_pool = SqlitePool(layout.db)
+    run_migrations(source_pool)
+    archive = tmp_path / "safe.tar.gz"
+    create_system_backup(
+        paths=layout, agent_rows=[], pool=source_pool, db_config=DatabaseConfig(), dest=archive
+    )
+    source_pool.close()
+    poisoned = tmp_path / "poisoned.tar.gz"
+    with tarfile.open(archive, "r:gz") as original, tarfile.open(poisoned, "w:gz") as bad:
+        for member in original:
+            bad.addfile(member, original.extractfile(member) if member.isfile() else None)
+        link = tarfile.TarInfo("project-todo-comment-images/01ARZ3NDEKTSV4RRFFQ69G5FAV")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "../db"
+        bad.addfile(link)
+
+    target = PathLayout(tmp_path / "poisoned-target")
+    target_pool = SqlitePool(target.db)
+    run_migrations(target_pool)
+    with target_pool.connect() as conn:
+        conn.execute(
+            "INSERT INTO users(username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
+            ("keeper", "hash", "admin", 1),
+        )
+    with pytest.raises(OctopError, match="comment image archive"):
+        restore_system_backup(poisoned, paths=target, pool=target_pool, db_config=DatabaseConfig())
+    with target_pool.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM users WHERE username='keeper'").fetchone()[0] == 1
+    target_pool.close()
+
+
+@pytest.mark.parametrize("damage", ["missing", "digest"])
+def test_restore_refuses_missing_or_corrupt_indexed_image_before_database_change(
+    layout: PathLayout, tmp_path: Path, damage: str
+) -> None:
+    project_id = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    todo_id = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+    comment_id = "01ARZ3NDEKTSV4RRFFQ69G5FAX"
+    image_id = "01ARZ3NDEKTSV4RRFFQ69G5FAY"
+    object_key = f"{project_id}/{image_id}"
+    image_bytes = b"private image fixture"
+    pool = SqlitePool(layout.db)
+    run_migrations(pool)
+    with pool.connect() as conn:
+        conn.execute(
+            "INSERT INTO users(username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
+            ("alice", "hash", "admin", 1),
+        )
+        conn.execute(
+            "INSERT INTO project_spaces(project_id, creator_user_id, name, created_at, updated_at) "
+            "VALUES (?, 1, 'project', 1, 1)",
+            (project_id,),
+        )
+        conn.execute(
+            "INSERT INTO project_todos(todo_id, project_id, creator_user_id, title, created_at, "
+            "updated_at) VALUES (?, ?, 1, 'todo', 1, 1)",
+            (todo_id, project_id),
+        )
+        conn.execute(
+            "INSERT INTO project_todo_comments(comment_id, todo_id, author_user_id, body_text, "
+            "client_request_id, request_fingerprint, created_at) VALUES (?, ?, 1, '', ?, ?, 1)",
+            (comment_id, todo_id, "00000000-0000-4000-8000-000000000001", "a" * 64),
+        )
+        conn.execute(
+            "INSERT INTO project_todo_comment_images(image_id, comment_id, object_key, "
+            "size_bytes, sha256, media_type, position, created_at) "
+            "VALUES (?, ?, ?, ?, ?, 'image/png', 0, 1)",
+            (
+                image_id,
+                comment_id,
+                object_key,
+                len(image_bytes),
+                hashlib.sha256(image_bytes).hexdigest(),
+            ),
+        )
+    image = layout.project_todo_comment_images / project_id / image_id
+    image.parent.mkdir(parents=True)
+    image.write_bytes(image_bytes)
+    archive = tmp_path / "indexed.tar.gz"
+    create_system_backup(
+        paths=layout, agent_rows=[], pool=pool, db_config=DatabaseConfig(), dest=archive
+    )
+    pool.close()
+
+    incomplete = tmp_path / "incomplete.tar.gz"
+    with tarfile.open(archive, "r:gz") as original, tarfile.open(incomplete, "w:gz") as bad:
+        for member in original:
+            if member.name == f"project-todo-comment-images/{object_key}":
+                if damage == "missing":
+                    continue
+                data = _tar_bytes(original, member)
+                bad.addfile(member, BytesIO(b"X" + data[1:]))
+                continue
+            bad.addfile(member, original.extractfile(member) if member.isfile() else None)
+
+    target = PathLayout(tmp_path / "incomplete-target")
+    target_pool = SqlitePool(target.db)
+    run_migrations(target_pool)
+    with target_pool.connect() as conn:
+        conn.execute(
+            "INSERT INTO users(username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
+            ("keeper", "hash", "admin", 1),
+        )
+    kept = target.project_todo_comment_images / "old"
+    kept.parent.mkdir(parents=True)
+    kept.write_bytes(b"old private bytes")
+    with pytest.raises(OctopError, match="comment image"):
+        restore_system_backup(
+            incomplete, paths=target, pool=target_pool, db_config=DatabaseConfig()
+        )
+    with target_pool.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM users WHERE username='keeper'").fetchone()[0] == 1
+    target_pool.close()
+    assert kept.read_bytes() == b"old private bytes"
+
+
+def test_private_comment_image_swap_rolls_back_on_install_failure(
+    layout: PathLayout, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pool = SqlitePool(layout.db)
+    run_migrations(pool)
+    image = (
+        layout.project_todo_comment_images
+        / "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        / "01ARZ3NDEKTSV4RRFFQ69G5FAY"
+    )
+    image.parent.mkdir(parents=True)
+    image.write_bytes(b"new")
+    archive = tmp_path / "rollback.tar.gz"
+    create_system_backup(
+        paths=layout, agent_rows=[], pool=pool, db_config=DatabaseConfig(), dest=archive
+    )
+    pool.close()
+
+    target = PathLayout(tmp_path / "rollback-target")
+    target_pool = SqlitePool(target.db)
+    run_migrations(target_pool)
+    with target_pool.connect() as conn:
+        conn.execute(
+            "INSERT INTO users(username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
+            ("keeper", "hash", "admin", 1),
+        )
+    stale = target.project_todo_comment_images / "old"
+    stale.parent.mkdir(parents=True)
+    stale.write_bytes(b"old")
+    real_replace = os.replace
+
+    def fail_new_tree_install(src: str | Path, dst: str | Path) -> None:
+        if Path(src).name == "objects" and Path(dst) == target.project_todo_comment_images:
+            raise OSError("injected image directory install failure")
+        real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", fail_new_tree_install)
+    with pytest.raises(OSError, match="injected image directory install failure"):
+        restore_system_backup(archive, paths=target, pool=target_pool, db_config=DatabaseConfig())
+    target_pool.close()
+    assert stale.read_bytes() == b"old"
+    with sqlite3.connect(target.db) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM users WHERE username='keeper'").fetchone()[0] == 1
+
+
+def test_private_comment_image_swap_rolls_back_on_database_restore_failure(
+    layout: PathLayout, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from octop.infra.backup import system_archive
+
+    source_pool = SqlitePool(layout.db)
+    run_migrations(source_pool)
+    archive = tmp_path / "source.tar.gz"
+    create_system_backup(
+        paths=layout, agent_rows=[], pool=source_pool, db_config=DatabaseConfig(), dest=archive
+    )
+    source_pool.close()
+    target = PathLayout(tmp_path / "restore-target")
+    target_pool = SqlitePool(target.db)
+    run_migrations(target_pool)
+    old_image = target.project_todo_comment_images / "old"
+    old_image.parent.mkdir(parents=True)
+    old_image.write_bytes(b"old private bytes")
+
+    def fail_database_restore(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("injected database restore failure")
+
+    monkeypatch.setattr(system_archive, "restore_sqlite_into_pool", fail_database_restore)
+    with pytest.raises(RuntimeError, match="injected database restore failure"):
+        restore_system_backup(archive, paths=target, pool=target_pool, db_config=DatabaseConfig())
+    target_pool.close()
+    assert old_image.read_bytes() == b"old private bytes"
 
 
 def test_backup_packs_config_workspace_dir(layout: PathLayout, tmp_path: Path) -> None:
@@ -278,7 +764,7 @@ def test_default_backup_omits_chats_and_restore_preserves_current_chats(
 
     with tarfile.open(archive, mode="r:gz") as tf:
         names = set(tf.getnames())
-        manifest = json.loads(tf.extractfile("manifest.json").read().decode("utf-8"))
+        manifest = json.loads(_tar_bytes(tf, "manifest.json").decode("utf-8"))
     assert manifest["includes_chats"] is False
     assert "workspaces/agent01/SOUL.md" in names
     assert "workspaces/agent01/project/sessions/notes.txt" in names
@@ -573,7 +1059,7 @@ def test_backup_can_omit_config_and_workspaces(layout: PathLayout, tmp_path: Pat
 
     with tarfile.open(archive, mode="r:gz") as tf:
         names = set(tf.getnames())
-        manifest = json.loads(tf.extractfile("manifest.json").read().decode("utf-8"))
+        manifest = json.loads(_tar_bytes(tf, "manifest.json").decode("utf-8"))
     assert manifest["includes_config"] is False
     assert manifest["includes_skill_packages"] is False
     assert manifest["includes_plugins"] is False
@@ -621,7 +1107,7 @@ def test_backup_can_include_skill_packages_and_plugins_without_workspaces(
 
     with tarfile.open(archive, mode="r:gz") as tf:
         names = set(tf.getnames())
-        manifest = json.loads(tf.extractfile("manifest.json").read().decode("utf-8"))
+        manifest = json.loads(_tar_bytes(tf, "manifest.json").decode("utf-8"))
     assert manifest["includes_skill_packages"] is True
     assert manifest["includes_plugins"] is True
     assert manifest["includes_knowledge"] is True

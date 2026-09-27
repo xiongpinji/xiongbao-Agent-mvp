@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import logging
 import os
 import shutil
+import sqlite3
+import stat
+import subprocess
 import tarfile
 import tempfile
+from contextlib import ExitStack, closing
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO, cast
 
 from octop import __version__
 from octop.config import DatabaseConfig
@@ -27,7 +32,7 @@ from octop.infra.backup.chats import (
     strip_chat_tables_from_sqlite_file,
 )
 from octop.infra.backup.manifest import MANIFEST_VERSION, AgentBackupEntry, BackupManifest
-from octop.infra.backup.pg_dump import dump_postgres, restore_postgres
+from octop.infra.backup.pg_dump import _require_tool, dump_postgres, restore_postgres
 from octop.infra.backup.snapshot import (
     capture_jwt_secret_from_pool,
     capture_users_from_pool,
@@ -44,8 +49,19 @@ from octop.infra.db.pool import DatabasePool, SqlitePool
 from octop.infra.db.repos.agents import AgentRepo
 from octop.infra.db.repos.secrets import SecretRepo
 from octop.infra.errors import ErrorCode, OctopError
+from octop.infra.projects.asset_storage import (
+    AssetStorageError,
+    make_object_key,
+    open_regular_file_no_follow,
+)
 from octop.infra.utils.env_file import env_file_path
 from octop.infra.utils.paths import PathLayout
+from octop.infra.utils.safe_dirs import (
+    SafeDirectoryError,
+    assert_plain_directory_chain,
+    ensure_plain_directory_chain,
+    is_reparse_point,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +71,8 @@ _WORKSPACES_DIR = "workspaces"
 _SKILL_PACKAGES_DIR = "skill-packages"
 _PLUGINS_DIR = "plugins"
 _KNOWLEDGE_DIR = "knowledge"
+_TODO_COMMENT_IMAGES_DIR = "project-todo-comment-images"
+_TODO_COMMENT_IMAGE_INDEX = "project-todo-comment-image-index.json"
 _MANIFEST_NAME = "manifest.json"
 _SQLITE_DB_ARC = f"{_DB_DIR}/octop.db"
 _PG_DUMP_ARC = f"{_DB_DIR}/octop.dump"
@@ -126,6 +144,308 @@ def _add_dir(
         tf.add(path, arcname=f"{arc_root}/{rel.as_posix()}")
 
 
+def _private_comment_image_files(root: Path, *, allow_temp: bool) -> list[tuple[str, Path]]:
+    """Enumerate only plain ``<project ULID>/<image ULID>`` object files.
+
+    The private tree is unlike a workspace: following a planted link here
+    could copy unrelated secrets into an archive or restore them as images.
+    """
+    try:
+        os.lstat(root)
+    except FileNotFoundError:
+        return []
+    assert_plain_directory_chain(root)
+    objects: list[tuple[str, Path]] = []
+    for project_dir in sorted(root.iterdir()):
+        if project_dir.name == "_tmp" and allow_temp:
+            assert_plain_directory_chain(project_dir)
+            continue  # In-flight .part files are not committed comment images.
+        if project_dir.name == "_tmp":
+            raise SafeDirectoryError("temp files do not belong in a comment image archive")
+        assert_plain_directory_chain(project_dir)
+        for image_path in sorted(project_dir.iterdir()):
+            object_key = make_object_key(project_dir.name, image_path.name)
+            st = os.lstat(image_path)
+            if not stat.S_ISREG(st.st_mode) or is_reparse_point(st) or st.st_nlink != 1:
+                raise SafeDirectoryError(f"private comment image is not a plain file: {image_path}")
+            objects.append((object_key, image_path))
+    return objects
+
+
+class _HashingReader:
+    """Digest the exact bytes consumed by :meth:`TarFile.addfile`."""
+
+    def __init__(self, source: BinaryIO) -> None:
+        self._source = source
+        self._digest = hashlib.sha256()
+        self.count = 0
+
+    def read(self, size: int = -1) -> bytes:
+        chunk = self._source.read(size)
+        self._digest.update(chunk)
+        self.count += len(chunk)
+        return chunk
+
+    @property
+    def sha256(self) -> str:
+        return self._digest.hexdigest()
+
+
+def _comment_image_metadata(
+    pool: DatabasePool, *, sqlite_snapshot: Path | None, schema_version: int
+) -> dict[str, tuple[int, str]]:
+    """Read object expectations from the database captured for this archive."""
+    if schema_version < 33:
+        return {}
+    query = "SELECT object_key, size_bytes, sha256 FROM project_todo_comment_images"
+    if sqlite_snapshot is not None:
+        # sqlite3.Connection.__exit__ commits; it does not close the handle.
+        # A leaked handle prevents the temporary snapshot's removal on Windows.
+        with closing(sqlite3.connect(sqlite_snapshot)) as conn:
+            rows = conn.execute(query).fetchall()
+    else:
+        # pg_dump is a separate snapshot: callers must quiesce writes for a
+        # multi-resource backup, as with the existing workspace content.
+        with pool.connect() as conn:
+            rows = conn.execute(query).fetchall()
+    return {str(row[0]): (int(row[1]), str(row[2])) for row in rows}
+
+
+def _pg_dump_comment_image_metadata(
+    dump_file: Path, scratch_dir: Path
+) -> dict[str, tuple[int, str]]:
+    """Inspect a custom PG dump's image COPY without connecting to a database.
+
+    ``--table`` must be the bare relation name: pg_restore can silently emit
+    no rows when given ``public.project_todo_comment_images``. The required
+    COPY section is parsed strictly, so an absent or changed table fails before
+    the live database or private image root is modified.
+    """
+    output = scratch_dir / "project-todo-comment-images.copy.sql"
+    proc = subprocess.run(
+        [
+            _require_tool("pg_restore"),
+            "--data-only",
+            "--table=project_todo_comment_images",
+            "--file",
+            str(output),
+            str(dump_file),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0 or not output.is_file():
+        raise OctopError(ErrorCode.SLASH_BAD_ARGS, "cannot inspect comment image database dump")
+    try:
+        return _parse_pg_comment_image_copy(output)
+    except (OSError, UnicodeError, ValueError, AssetStorageError) as exc:
+        raise OctopError(ErrorCode.SLASH_BAD_ARGS, "invalid comment image database dump") from exc
+
+
+def _parse_pg_comment_image_copy(path: Path) -> dict[str, tuple[int, str]]:
+    """Parse exactly one pg_restore COPY section for three ASCII metadata fields."""
+    expected: dict[str, tuple[int, str]] = {}
+    columns: list[str] | None = None
+    seen_copy = False
+    with path.open("r", encoding="utf-8") as sql:
+        for raw_line in sql:
+            line = raw_line.rstrip("\r\n")
+            if columns is not None:
+                if line == r"\.":
+                    columns = None
+                    continue
+                cells = line.split("\t")
+                if len(cells) != len(columns):
+                    raise ValueError("invalid comment image COPY row width")
+                key = cells[columns.index("object_key")]
+                ids = key.split("/")
+                if len(ids) != 2 or make_object_key(ids[0], ids[1]) != key:
+                    raise ValueError("invalid comment image object key")
+                size_text = cells[columns.index("size_bytes")]
+                digest = cells[columns.index("sha256")]
+                if not size_text.isascii() or not size_text.isdecimal():
+                    raise ValueError("invalid comment image size")
+                size = int(size_text)
+                if not (0 < size <= 8 * 1024 * 1024):
+                    raise ValueError("comment image size outside limit")
+                if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+                    raise ValueError("invalid comment image digest")
+                if key in expected:
+                    raise ValueError("duplicate comment image object key")
+                expected[key] = (size, digest)
+                continue
+            if not line.startswith("COPY "):
+                continue
+            if seen_copy or not line.endswith(") FROM stdin;") or " (" not in line:
+                raise ValueError("unexpected comment image COPY section")
+            relation, fields = line[5:].split(" (", 1)
+            if relation.rsplit(".", 1)[-1].strip('"') != "project_todo_comment_images":
+                raise ValueError("unexpected copied relation")
+            columns = [
+                field.strip().strip('"') for field in fields[: -len(") FROM stdin;")].split(",")
+            ]
+            if len(columns) != len(set(columns)) or not {
+                "object_key",
+                "size_bytes",
+                "sha256",
+            }.issubset(columns):
+                raise ValueError("comment image COPY columns changed")
+            seen_copy = True
+    if not seen_copy or columns is not None:
+        raise ValueError("comment image COPY section is missing or unterminated")
+    return expected
+
+
+def _add_private_comment_images(
+    tf: tarfile.TarFile, root: Path, expected: dict[str, tuple[int, str]]
+) -> None:
+    files = dict(_private_comment_image_files(root, allow_temp=True))
+    if expected.keys() - files.keys():
+        raise OctopError(ErrorCode.SLASH_BAD_ARGS, "comment image bytes are missing")
+    for object_key in sorted(expected):
+        path = files[object_key]
+        expected_size, expected_sha256 = expected[object_key]
+        # Asset storage opens root/project/object using no-follow descriptors;
+        # stream from that verified inode instead of reopening a pathname.
+        with open_regular_file_no_follow(path) as image:
+            st = os.fstat(image.fileno())
+            if st.st_nlink != 1:
+                raise SafeDirectoryError(f"private comment image is hardlinked: {path}")
+            if st.st_size != expected_size:
+                raise OctopError(
+                    ErrorCode.SLASH_BAD_ARGS, "comment image size differs from database"
+                )
+            info = tarfile.TarInfo(f"{_TODO_COMMENT_IMAGES_DIR}/{object_key}")
+            info.size = st.st_size
+            info.mtime = int(st.st_mtime)
+            info.mode = 0o600
+            reader = _HashingReader(image)
+            tf.addfile(info, cast(BinaryIO, reader))
+            if reader.count != expected_size or reader.sha256 != expected_sha256:
+                raise OctopError(
+                    ErrorCode.SLASH_BAD_ARGS, "comment image digest differs from database"
+                )
+
+
+def _add_private_comment_image_index(
+    tf: tarfile.TarFile, expected: dict[str, tuple[int, str]]
+) -> None:
+    payload = {
+        "version": 1,
+        "objects": {
+            key: {"size_bytes": size, "sha256": digest}
+            for key, (size, digest) in sorted(expected.items())
+        },
+    }
+    data = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    info = tarfile.TarInfo(_TODO_COMMENT_IMAGE_INDEX)
+    info.size = len(data)
+    info.mode = 0o600
+    tf.addfile(info, io.BytesIO(data))
+
+
+def _read_private_comment_image_index(extracted: Path) -> dict[str, tuple[int, str]]:
+    index_path = extracted / _TODO_COMMENT_IMAGE_INDEX
+    if not index_path.is_file():
+        raise OctopError(ErrorCode.SLASH_BAD_ARGS, "comment image archive index is missing")
+    try:
+        raw = json.loads(index_path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict) or raw.get("version") != 1:
+            raise ValueError("unsupported index version")
+        objects = raw.get("objects")
+        if not isinstance(objects, dict):
+            raise ValueError("index objects must be a mapping")
+        expected: dict[str, tuple[int, str]] = {}
+        for key, value in objects.items():
+            if not isinstance(key, str) or not isinstance(value, dict):
+                raise ValueError("invalid indexed image")
+            ids = key.split("/")
+            if len(ids) != 2 or make_object_key(ids[0], ids[1]) != key:
+                raise ValueError("invalid indexed object key")
+            size, digest = value.get("size_bytes"), value.get("sha256")
+            if type(size) is not int or not (0 < size <= 8 * 1024 * 1024):
+                raise ValueError("invalid indexed image size")
+            if (
+                not isinstance(digest, str)
+                or len(digest) != 64
+                or any(character not in "0123456789abcdef" for character in digest)
+            ):
+                raise ValueError("invalid indexed image digest")
+            expected[key] = size, digest
+        return expected
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError, AssetStorageError) as exc:
+        raise OctopError(ErrorCode.SLASH_BAD_ARGS, "invalid comment image archive index") from exc
+
+
+def _plain_image_root_if_present(root: Path) -> bool:
+    try:
+        os.lstat(root)
+    except FileNotFoundError:
+        return False
+    assert_plain_directory_chain(root)
+    return True
+
+
+def _stage_private_comment_images(
+    extracted: Path,
+    dest: Path,
+    stage: Path,
+    expected: dict[str, tuple[int, str]],
+) -> int:
+    """Validate both trees and copy extracted objects before changing the DB."""
+    assert_plain_directory_chain(dest.parent)
+    _plain_image_root_if_present(dest)
+    ensure_plain_directory_chain(stage, private_from=stage)
+    objects = stage / "objects"
+    ensure_plain_directory_chain(objects, private_from=stage)
+    files = dict(
+        _private_comment_image_files(extracted / _TODO_COMMENT_IMAGES_DIR, allow_temp=False)
+    )
+    if files.keys() != expected.keys():
+        raise OctopError(ErrorCode.SLASH_BAD_ARGS, "comment image archive objects are incomplete")
+    for object_key, src in sorted(files.items()):
+        out = objects / object_key
+        ensure_plain_directory_chain(out.parent, private_from=stage)
+        digest = hashlib.sha256()
+        size = 0
+        with open_regular_file_no_follow(src) as image, out.open("xb") as target:
+            while chunk := image.read(256 * 1024):
+                target.write(chunk)
+                digest.update(chunk)
+                size += len(chunk)
+        if (size, digest.hexdigest()) != expected[object_key]:
+            raise OctopError(
+                ErrorCode.SLASH_BAD_ARGS, "comment image archive bytes differ from index"
+            )
+        if os.name == "posix":
+            os.chmod(out, 0o600)
+    return len(files)
+
+
+def _install_private_comment_images(stage: Path, dest: Path) -> None:
+    """Swap the complete private tree on one filesystem, rolling back on error."""
+    previous = stage / "previous"
+    had_previous = _plain_image_root_if_present(dest)
+    if had_previous:
+        os.replace(dest, previous)
+    try:
+        os.replace(stage / "objects", dest)
+    except BaseException:
+        if had_previous:
+            os.replace(previous, dest)
+        raise
+
+
+def _rollback_private_comment_images(stage: Path, dest: Path) -> None:
+    """Undo an installed image tree if database replacement or upgrade fails."""
+    assert_plain_directory_chain(dest)
+    os.replace(dest, stage / "objects")
+    previous = stage / "previous"
+    if _plain_image_root_if_present(previous):
+        os.replace(previous, dest)
+
+
 def _system_files_path_from_row(row: Any) -> str:
     raw = getattr(row, "config_json", None)
     if not isinstance(raw, str) or not raw.strip():
@@ -181,6 +501,7 @@ def _build_manifest(
         includes_plugins=include_plugins,
         includes_knowledge=include_knowledge,
         includes_chats=include_chats,
+        includes_project_todo_comment_images=schema_version >= 33,
     )
 
 
@@ -340,6 +661,23 @@ def create_system_backup(
                         _KNOWLEDGE_DIR,
                         skip_chats=False,
                     )
+                if manifest.includes_project_todo_comment_images:
+                    expected_images = _comment_image_metadata(
+                        pool,
+                        sqlite_snapshot=db_dest if isinstance(pool, SqlitePool) else None,
+                        schema_version=manifest.schema_version,
+                    )
+                    if pool.dialect == "postgresql" and expected_images != (
+                        _pg_dump_comment_image_metadata(db_dest, root)
+                    ):
+                        raise OctopError(
+                            ErrorCode.SLASH_BAD_ARGS,
+                            "comment image dump differs from database",
+                        )
+                    _add_private_comment_images(
+                        tf, paths.project_todo_comment_images, expected_images
+                    )
+                    _add_private_comment_image_index(tf, expected_images)
 
         partial.replace(dest)
     except Exception:
@@ -370,13 +708,34 @@ def _extract_archive(source: Path | bytes, dest_dir: Path) -> None:
     dest_dir.mkdir(parents=True, exist_ok=True)
     if isinstance(source, bytes):
         with tarfile.open(fileobj=io.BytesIO(source), mode="r:*") as tf:
+            _validate_private_comment_image_members(tf)
             # Python 3.12+: refuse path traversal / special files.
             tf.extractall(dest_dir, filter=tarfile.data_filter)
         return
     if not Path(source).is_file():
         raise OctopError(ErrorCode.NOT_FOUND, f"backup not found: {source}")
     with tarfile.open(source, mode="r:*") as tf:
+        _validate_private_comment_image_members(tf)
         tf.extractall(dest_dir, filter=tarfile.data_filter)
+
+
+def _validate_private_comment_image_members(tf: tarfile.TarFile) -> None:
+    """Reject private-tree links before tar extraction can follow an alias."""
+    for member in tf.getmembers():
+        name = member.name.replace("\\", "/")
+        while name.startswith("./"):
+            name = name[2:]
+        if name == _TODO_COMMENT_IMAGE_INDEX and not member.isfile():
+            raise OctopError(ErrorCode.SLASH_BAD_ARGS, "unsafe comment image archive index")
+        if name != _TODO_COMMENT_IMAGES_DIR and not name.startswith(f"{_TODO_COMMENT_IMAGES_DIR}/"):
+            continue
+        parts = name.split("/")
+        if member.isdir() and parts[-1] == "":
+            parts.pop()
+        if any(part in {"", ".", ".."} for part in parts) or not (
+            member.isfile() or member.isdir()
+        ):
+            raise OctopError(ErrorCode.SLASH_BAD_ARGS, "unsafe comment image archive member")
 
 
 def _is_migration_backup(manifest: BackupManifest) -> bool:
@@ -446,10 +805,12 @@ def restore_system_backup(
     performing the restore) receives all imported ``user_id`` ownership. When
     omitted, the first preserved admin (else first preserved user) is used.
     """
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory() as tmp, ExitStack() as cleanup:
         extracted = Path(tmp) / "extracted"
         _extract_archive(source, extracted)
         manifest = _extract_manifest_from_dir(extracted)
+        image_stage: Path | None = None
+        image_file_count = 0
         if (
             (paths.root / "history_v2.required").exists()
             or (paths.root / "history_v2.sqlite").exists()
@@ -491,6 +852,27 @@ def restore_system_backup(
         if not db_path.is_file():
             raise OctopError(ErrorCode.SLASH_BAD_ARGS, "backup archive missing database file")
 
+        if manifest.includes_project_todo_comment_images:
+            expected_images = _read_private_comment_image_index(extracted)
+            if archive_driver == "sqlite":
+                dump_images = _comment_image_metadata(
+                    pool, sqlite_snapshot=db_path, schema_version=manifest.schema_version
+                )
+            else:
+                dump_images = _pg_dump_comment_image_metadata(db_path, Path(tmp))
+            if expected_images != dump_images:
+                raise OctopError(
+                    ErrorCode.SLASH_BAD_ARGS, "comment image archive index differs from database"
+                )
+            assert_plain_directory_chain(paths.root)
+            stage_name = cleanup.enter_context(
+                tempfile.TemporaryDirectory(prefix=".todo-comment-image-restore-", dir=paths.root)
+            )
+            image_stage = Path(stage_name)
+            image_file_count = _stage_private_comment_images(
+                extracted, paths.project_todo_comment_images, image_stage, expected_images
+            )
+
         saved_chats = (
             capture_chat_tables(pool, Path(tmp) / "preserved-chats.sqlite")
             if not manifest.includes_chats
@@ -518,31 +900,39 @@ def restore_system_backup(
                         status=400,
                     )
 
+        # Install the staged image tree before database replacement. An image
+        # rename failure therefore cannot leave new DB rows pointing at old
+        # bytes. Keep the previous tree in the stage until the DB upgrade works.
+        if image_stage is not None:
+            _install_private_comment_images(image_stage, paths.project_todo_comment_images)
+
         ownership_remap: dict[str, int] | None = None
-        if pool.dialect == "postgresql":
-            restore_postgres(db_config.postgresql_conninfo(), db_path)
-        else:
-            if isinstance(pool, SqlitePool):
+        try:
+            if pool.dialect == "postgresql":
+                restore_postgres(db_config.postgresql_conninfo(), db_path)
+            elif isinstance(pool, SqlitePool):
                 restore_sqlite_into_pool(db_path, pool)
             else:
                 raise OctopError(ErrorCode.INTERNAL_ERROR, "sqlite restore requires SqlitePool")
 
-        # Upgrade the restored database before any current-version repository or
-        # preservation helper queries it. This keeps old backups usable after
-        # tables gain required columns or are rebuilt by later migrations.
-        try:
-            run_migrations(pool)
-        except Exception as exc:
-            details = {
-                "archive_schema_version": manifest.schema_version,
-                "runtime_schema_version": runtime_schema_version,
-            }
-            raise OctopError(
-                ErrorCode.BACKUP_SCHEMA_INCOMPATIBLE,
-                f"failed to upgrade backup schema version {manifest.schema_version} "
-                f"to {runtime_schema_version}: {exc}",
-                details=details,
-            ) from exc
+            # Upgrade before current-version repository/preservation queries.
+            try:
+                run_migrations(pool)
+            except Exception as exc:
+                details = {
+                    "archive_schema_version": manifest.schema_version,
+                    "runtime_schema_version": runtime_schema_version,
+                }
+                raise OctopError(
+                    ErrorCode.BACKUP_SCHEMA_INCOMPATIBLE,
+                    f"failed to upgrade backup schema version {manifest.schema_version} "
+                    f"to {runtime_schema_version}: {exc}",
+                    details=details,
+                ) from exc
+        except BaseException:
+            if image_stage is not None:
+                _rollback_private_comment_images(image_stage, paths.project_todo_comment_images)
+            raise
 
         if restore_config:
             cfg_path = extracted / _CONFIG_DIR / "config.json"
@@ -643,6 +1033,7 @@ def restore_system_backup(
         "skill_package_files": restored_skill_package_files,
         "plugin_files": restored_plugin_files,
         "knowledge_files": restored_knowledge_files,
+        "project_todo_comment_image_files": image_file_count,
         "restore_config": restore_config,
         "chats_restored": manifest.includes_chats,
         "preserved_chat_rows": preserved_chat_rows,

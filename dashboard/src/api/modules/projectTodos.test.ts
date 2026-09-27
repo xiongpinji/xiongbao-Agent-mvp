@@ -1,8 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { request } = vi.hoisted(() => ({ request: vi.fn() }));
+const { request, requestUpload, requestBlob } = vi.hoisted(() => ({
+  request: vi.fn(),
+  requestUpload: vi.fn(),
+  requestBlob: vi.fn(),
+}));
 
-vi.mock("../request", () => ({ request }));
+vi.mock("../request", () => ({ request, requestUpload, requestBlob }));
 
 import {
   PROJECT_TODOS_BULK_MAX,
@@ -17,6 +21,7 @@ const todo: ProjectTodo = {
   project_id: "p1",
   title: "写周报",
   description: "",
+  description_format: "plain",
   status: "todo",
   creator_user_id: 1,
   assignee_user_id: null,
@@ -27,6 +32,8 @@ const todo: ProjectTodo = {
 
 beforeEach(() => {
   request.mockClear();
+  requestUpload.mockClear();
+  requestBlob.mockClear();
 });
 
 describe("projectTodosApi", () => {
@@ -82,6 +89,36 @@ describe("projectTodosApi", () => {
     });
   });
 
+  it("carries the explicit Markdown format with description writes", () => {
+    projectTodosApi.create("p1", {
+      title: "写周报",
+      description: "# 周报",
+      description_format: "markdown",
+    });
+    projectTodosApi.update("p1", "t1", {
+      expected_version: 2,
+      description: "# 新周报",
+      description_format: "markdown",
+    });
+
+    expect(request).toHaveBeenNthCalledWith(1, "/projects/p1/todos", {
+      method: "POST",
+      body: JSON.stringify({
+        title: "写周报",
+        description: "# 周报",
+        description_format: "markdown",
+      }),
+    });
+    expect(request).toHaveBeenNthCalledWith(2, "/projects/p1/todos/t1", {
+      method: "PATCH",
+      body: JSON.stringify({
+        expected_version: 2,
+        description: "# 新周报",
+        description_format: "markdown",
+      }),
+    });
+  });
+
   it("lists comments with an opaque cursor and posts only the text and request id", () => {
     projectTodosApi.listComments("p 1", "t/2", {
       limit: 20,
@@ -106,6 +143,45 @@ describe("projectTodosApi", () => {
           client_request_id: "d6e47312-3f3d-4a27-a43a-23c5df13218b",
         }),
       },
+    );
+  });
+
+  it("posts ordered comment images in one abortable multipart request and reads each through auth", () => {
+    const first = new File(["a"], "first.png", { type: "image/png" });
+    const second = new File(["b"], "second.webp", { type: "image/webp" });
+    const controller = new AbortController();
+    const onProgress = vi.fn();
+
+    projectTodosApi.createComment(
+      "p 1",
+      "t/2",
+      {
+        body: "配图说明",
+        client_request_id: "d6e47312-3f3d-4a27-a43a-23c5df13218b",
+        images: [first, second],
+      },
+      { signal: controller.signal },
+      onProgress,
+    );
+    expect(request).not.toHaveBeenCalled();
+    expect(requestUpload).toHaveBeenCalledTimes(1);
+    const [path, form, options, progress] = requestUpload.mock.calls[0];
+    expect(path).toBe("/projects/p%201/todos/t%2F2/comments");
+    expect(Array.from((form as FormData).entries())).toEqual([
+      ["client_request_id", "d6e47312-3f3d-4a27-a43a-23c5df13218b"],
+      ["body", "配图说明"],
+      ["images", first],
+      ["images", second],
+    ]);
+    expect(options.signal).toBe(controller.signal);
+    expect(progress).toBe(onProgress);
+
+    projectTodosApi.readCommentImage("p 1", "t/2", "c 3", "i/4", {
+      signal: controller.signal,
+    });
+    expect(requestBlob).toHaveBeenCalledWith(
+      "/projects/p%201/todos/t%2F2/comments/c%203/images/i%2F4",
+      { signal: controller.signal },
     );
   });
 

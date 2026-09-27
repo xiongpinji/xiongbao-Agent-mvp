@@ -629,6 +629,7 @@ export default function ProjectPlan({
         if (values.title !== editing.title) body.title = values.title;
         if (values.description !== editing.description) {
           body.description = values.description;
+          body.description_format = editing.description_format;
         }
         if (isManager && values.assignee !== editing.assignee_user_id) {
           body.assignee_user_id = values.assignee;

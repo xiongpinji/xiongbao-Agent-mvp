@@ -92,6 +92,7 @@ const todoOpen = {
   project_id: "p1",
   title: "写周报",
   description: "本周进展",
+  description_format: "plain" as const,
   status: "todo" as const,
   creator_user_id: 1,
   assignee_user_id: 2,
@@ -105,6 +106,7 @@ const todoDoing = {
   project_id: "p1",
   title: "修缺陷",
   description: "",
+  description_format: "plain" as const,
   status: "in_progress" as const,
   creator_user_id: 2,
   assignee_user_id: null,
@@ -118,6 +120,7 @@ const todoOther = {
   project_id: "p1",
   title: "alice 的待办",
   description: "",
+  description_format: "plain" as const,
   status: "todo" as const,
   creator_user_id: 1,
   assignee_user_id: null,
@@ -380,6 +383,66 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
       expect(update).toHaveBeenCalledWith("p1", "t1", {
         expected_version: 3,
         title: "写月报",
+      }),
+    );
+  });
+
+  it("retains Markdown format when the legacy editor changes a Markdown todo's description", async () => {
+    const user = userEvent.setup();
+    const markdownTodo = {
+      ...todoOpen,
+      description: "# 原版",
+      description_format: "markdown" as const,
+    };
+    list.mockResolvedValue(listResponse([markdownTodo]));
+    update.mockResolvedValue({
+      ...markdownTodo,
+      description: "# 更新版",
+      version: 4,
+    });
+    renderPlan("owner");
+    await screen.findByText("写周报");
+
+    await user.click(
+      within(rowFor("写周报")).getByRole("button", { name: "编辑" }),
+    );
+    const description = await screen.findByDisplayValue("# 原版");
+    await user.clear(description);
+    await user.type(description, "# 更新版");
+    await user.click(screen.getByRole("button", { name: /^保\s*存$/ }));
+
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith("p1", "t1", {
+        expected_version: 3,
+        description: "# 更新版",
+        description_format: "markdown",
+      }),
+    );
+  });
+
+  it("explicitly keeps plain format when the legacy editor changes plain text", async () => {
+    const user = userEvent.setup();
+    update.mockResolvedValue({
+      ...todoOpen,
+      description: "新进展",
+      version: 4,
+    });
+    renderPlan("owner");
+    await screen.findByText("写周报");
+
+    await user.click(
+      within(rowFor("写周报")).getByRole("button", { name: "编辑" }),
+    );
+    const description = await screen.findByDisplayValue("本周进展");
+    await user.clear(description);
+    await user.type(description, "新进展");
+    await user.click(screen.getByRole("button", { name: /^保\s*存$/ }));
+
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith("p1", "t1", {
+        expected_version: 3,
+        description: "新进展",
+        description_format: "plain",
       }),
     );
   });

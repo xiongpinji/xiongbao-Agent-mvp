@@ -33,6 +33,7 @@ class BackupManifest:
     includes_plugins: bool = False
     includes_knowledge: bool = False
     includes_chats: bool = True
+    includes_project_todo_comment_images: bool = False
 
     def to_json(self) -> str:
         payload: dict[str, Any] = {
@@ -50,6 +51,7 @@ class BackupManifest:
             "includes_plugins": self.includes_plugins,
             "includes_knowledge": self.includes_knowledge,
             "includes_chats": self.includes_chats,
+            "includes_project_todo_comment_images": self.includes_project_todo_comment_images,
             "agents": [asdict(a) for a in self.agents],
         }
         return json.dumps(payload, indent=2, ensure_ascii=False)
@@ -89,6 +91,11 @@ class BackupManifest:
             ),
             # Legacy archives dumped the full database; missing key means chats are present.
             includes_chats=bool(data["includes_chats"]) if "includes_chats" in data else True,
+            # Pre-B2 archives have no private comment image objects. Do not
+            # clear a target's image root when restoring one of those archives.
+            includes_project_todo_comment_images=bool(
+                data.get("includes_project_todo_comment_images", False)
+            ),
         )
 
     @classmethod

@@ -24,6 +24,7 @@ _TODO_KEYS = {
     "project_id",
     "title",
     "description",
+    "description_format",
     "status",
     "creator_user_id",
     "assignee_user_id",
@@ -196,6 +197,133 @@ async def test_cross_project_todo_id_is_404(env) -> None:
 
 
 # ---------------------------------------------------------------- create & list
+
+
+async def test_markdown_description_round_trips_through_create_list_and_get(env) -> None:
+    ctx = await _base(env)
+    body = {
+        "title": "格式化待办",
+        "description": "## 标题\n**内容**",
+        "description_format": "markdown",
+    }
+    created = await ctx["client"].post(
+        f"/api/projects/{ctx['pid']}/todos", headers=ctx["owner_auth"], json=body
+    )
+    assert created.status_code == 201, created.text
+    todo = created.json()
+    assert (todo["description"], todo["description_format"]) == ("## 标题\n**内容**", "markdown")
+
+    listed = await _list(ctx, ctx["member_auth"])
+    assert listed.status_code == 200, listed.text
+    assert listed.json()["items"][0]["description_format"] == "markdown"
+    detail = await ctx["client"].get(
+        f"/api/projects/{ctx['pid']}/todos/{todo['todo_id']}", headers=ctx["member_auth"]
+    )
+    assert detail.status_code == 200, detail.text
+    assert detail.json() == todo
+
+
+async def test_patch_can_opt_in_to_markdown_without_changing_other_fields(env) -> None:
+    ctx = await _base(env)
+    todo = await _create_todo(ctx, description="原文")
+    response = await ctx["client"].patch(
+        f"/api/projects/{ctx['pid']}/todos/{todo['todo_id']}",
+        headers=ctx["owner_auth"],
+        json={
+            "expected_version": 1,
+            "description": "**加粗**",
+            "description_format": "markdown",
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["description"] == "**加粗**"
+    assert response.json()["description_format"] == "markdown"
+    assert response.json()["version"] == 2
+
+
+async def test_legacy_description_patch_resets_format_but_other_patches_preserve_it(env) -> None:
+    ctx = await _base(env)
+    client = ctx["client"]
+    created = await client.post(
+        f"/api/projects/{ctx['pid']}/todos",
+        headers=ctx["owner_auth"],
+        json={"title": "兼容", "description": "**初版**", "description_format": "markdown"},
+    )
+    assert created.status_code == 201, created.text
+    todo = created.json()
+    url = f"/api/projects/{ctx['pid']}/todos/{todo['todo_id']}"
+
+    status_only = await client.patch(
+        url, headers=ctx["owner_auth"], json={"expected_version": 1, "status": "done"}
+    )
+    assert status_only.status_code == 200, status_only.text
+    assert status_only.json()["description_format"] == "markdown"
+
+    legacy = await client.patch(
+        url, headers=ctx["owner_auth"], json={"expected_version": 2, "description": "纯文本"}
+    )
+    assert legacy.status_code == 200, legacy.text
+    assert (legacy.json()["description"], legacy.json()["description_format"]) == (
+        "纯文本",
+        "plain",
+    )
+    assert legacy.json()["version"] == 3
+
+
+async def test_description_format_rejects_invalid_and_format_only_patches(env) -> None:
+    ctx = await _base(env)
+    client = ctx["client"]
+    create_url = f"/api/projects/{ctx['pid']}/todos"
+    for value in ("html", "MARKDOWN", "", None):
+        invalid_create = await client.post(
+            create_url,
+            headers=ctx["owner_auth"],
+            json={"title": "无效", "description": "x", "description_format": value},
+        )
+        assert invalid_create.status_code == 422, invalid_create.text
+
+    todo = await _create_todo(ctx, description="旧正文")
+    assert todo["description_format"] == "plain"
+    url = f"{create_url}/{todo['todo_id']}"
+    for body in (
+        {"expected_version": 1, "description_format": "markdown"},
+        {"expected_version": 1, "description_format": None},
+        {"expected_version": 1, "description": None, "description_format": "markdown"},
+        {"expected_version": 1, "description": "x", "description_format": "html"},
+    ):
+        invalid_patch = await client.patch(url, headers=ctx["owner_auth"], json=body)
+        assert invalid_patch.status_code == 422, invalid_patch.text
+    current = await client.get(url, headers=ctx["owner_auth"])
+    assert current.status_code == 200, current.text
+    assert current.json() == todo
+
+
+async def test_stale_markdown_patch_never_changes_stored_body_or_format(env) -> None:
+    ctx = await _base(env)
+    client = ctx["client"]
+    todo = await _create_todo(ctx, description="原文")
+    url = f"/api/projects/{ctx['pid']}/todos/{todo['todo_id']}"
+    winner = await client.patch(
+        url, headers=ctx["owner_auth"], json={"expected_version": 1, "status": "done"}
+    )
+    assert winner.status_code == 200, winner.text
+    stale = await client.patch(
+        url,
+        headers=ctx["owner_auth"],
+        json={
+            "expected_version": 1,
+            "description": "**失败草稿**",
+            "description_format": "markdown",
+        },
+    )
+    assert stale.status_code == 409, stale.text
+    current = await client.get(url, headers=ctx["owner_auth"])
+    assert current.status_code == 200, current.text
+    assert (
+        current.json()["description"],
+        current.json()["description_format"],
+        current.json()["version"],
+    ) == ("原文", "plain", 2)
 
 
 async def test_owner_creates_and_members_see_same_rows(env) -> None:

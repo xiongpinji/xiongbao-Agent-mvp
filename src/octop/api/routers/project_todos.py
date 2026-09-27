@@ -12,15 +12,18 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, Query, Response
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from fastapi import APIRouter, Depends, Query, Request, Response
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from starlette.concurrency import run_in_threadpool
 
+from octop.api.common.todo_comment_upload import read_bounded_json, read_comment_multipart
 from octop.api.deps import current_user, get_server
 from octop.infra.db.repos._base import UNSET
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.projects.service import DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT
 from octop.infra.projects.todo_comments import (
     MAX_COMMENT_LIMIT,
+    CommentImageUpload,
     CommentView,
     ProjectTodoCommentService,
     validate_client_request_id,
@@ -39,6 +42,7 @@ from octop.infra.users.identity import User
 router = APIRouter(prefix="/projects/{project_id}/todos")
 
 TodoStatus = Literal["todo", "in_progress", "done"]
+TodoDescriptionFormat = Literal["plain", "markdown"]
 
 
 def _todo_service(server: OctopServer) -> ProjectTodoService:
@@ -59,6 +63,7 @@ def _todo_payload(view: TodoView) -> dict[str, Any]:
         "project_id": view.project_id,
         "title": view.title,
         "description": view.description,
+        "description_format": view.description_format,
         "status": view.status,
         "creator_user_id": view.creator_user_id,
         "assignee_user_id": view.assignee_user_id,
@@ -73,6 +78,7 @@ class CreateTodoBody(BaseModel):
 
     title: str
     description: str = ""
+    description_format: TodoDescriptionFormat = "plain"
     assignee_user_id: Annotated[int, Field(ge=1)] | None = None
 
     @field_validator("title")
@@ -96,6 +102,7 @@ class UpdateTodoBody(BaseModel):
     expected_version: Annotated[int, Field(ge=1)]
     title: str | None = None
     description: str | None = None
+    description_format: TodoDescriptionFormat | None = None
     status: TodoStatus | None = None
     assignee_user_id: Annotated[int, Field(ge=1)] | None = None
 
@@ -108,6 +115,14 @@ class UpdateTodoBody(BaseModel):
     @classmethod
     def _validate_description(cls, v: str | None) -> str | None:
         return None if v is None else validate_todo_description(v)
+
+    @model_validator(mode="after")
+    def _check_description_format_pair(self) -> UpdateTodoBody:
+        if "description_format" in self.model_fields_set and (
+            self.description_format is None or self.description is None
+        ):
+            raise ValueError("description_format requires a description and plain or markdown")
+        return self
 
 
 class BulkTodoItem(BaseModel):
@@ -198,6 +213,7 @@ async def create_todo(
         actor_user_id=user.id,
         title=body.title,
         description=body.description,
+        description_format=body.description_format,
         assignee_user_id=body.assignee_user_id,
     )
     return _todo_payload(view)
@@ -281,6 +297,9 @@ async def update_todo(
         expected_version=body.expected_version,
         title=body.title if body.title is not None else UNSET,
         description=body.description if body.description is not None else UNSET,
+        description_format=(
+            body.description_format or "plain" if body.description is not None else UNSET
+        ),
         status=body.status if body.status is not None else UNSET,
         assignee_user_id=(
             body.assignee_user_id if "assignee_user_id" in body.model_fields_set else UNSET
@@ -340,24 +359,118 @@ async def list_todo_comments(
     "/{todo_id}/comments",
     status_code=201,
     response_model=TodoCommentResponse,
-    summary="Publish a plain-text comment on a project todo",
+    summary="Publish a text or private-image comment on a project todo",
+    description=(
+        "Current project members may submit plain text as JSON or text with up to five "
+        "PNG/JPEG/WebP images as multipart. The server checks membership again before "
+        "committing. Repeating the same request ID and content returns 200."
+    ),
+    responses={200: {"model": TodoCommentResponse, "description": "Idempotent replay"}},
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "type": "object",
+                        "required": ["body", "client_request_id"],
+                        "additionalProperties": False,
+                        "properties": {
+                            "body": {"type": "string", "minLength": 1, "maxLength": 4000},
+                            "client_request_id": {"type": "string", "format": "uuid"},
+                        },
+                    }
+                },
+                "multipart/form-data": {
+                    "schema": {
+                        "type": "object",
+                        "required": ["client_request_id"],
+                        "description": "Provide non-blank body text or at least one image.",
+                        "additionalProperties": False,
+                        "properties": {
+                            "client_request_id": {"type": "string", "format": "uuid"},
+                            "body": {"type": "string", "maxLength": 4000},
+                            "images": {
+                                "type": "array",
+                                "minItems": 1,
+                                "maxItems": 5,
+                                "items": {"type": "string", "format": "binary"},
+                                "description": "Each image is at most 8 MiB; one request is at most 20 MiB.",
+                            },
+                        },
+                    }
+                },
+            },
+        }
+    },
 )
 async def post_todo_comment(
     project_id: str,
     todo_id: str,
-    body: CreateTodoCommentBody,
+    request: Request,
     response: Response,
     server: OctopServer = Depends(get_server),
     user: User = Depends(current_user),
 ) -> TodoCommentResponse:
-    """Any current member may comment; an identical request retry returns 200."""
-    view, created = _comment_service(server).post_comment(
-        project_id,
-        todo_id,
-        user_id=user.id,
-        body=body.body,
-        client_request_id=body.client_request_id,
-    )
+    """Bound raw bytes before parsing/spooling; identical retries return 200."""
+    service = _comment_service(server)
+    service.assert_access(project_id, todo_id, user_id=user.id)
+    media_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    images: list[CommentImageUpload]
+    if media_type == "application/json":
+        raw = await read_bounded_json(request)
+        try:
+            parsed = CreateTodoCommentBody.model_validate_json(raw)
+        except ValidationError:
+            raise OctopError(
+                ErrorCode.PROJECT_TODO_COMMENT_INVALID, "invalid comment JSON"
+            ) from None
+        text_body, request_id, images = parsed.body, parsed.client_request_id, []
+    elif media_type == "multipart/form-data":
+        text_body, request_id, images = await read_comment_multipart(request)
+    else:
+        raise OctopError(ErrorCode.PROJECT_TODO_COMMENT_INVALID, "unsupported comment content type")
+    try:
+        view, created = await run_in_threadpool(
+            service.post_comment,
+            project_id,
+            todo_id,
+            user_id=user.id,
+            body=text_body,
+            client_request_id=request_id,
+            images=images,
+        )
+    except ValueError:
+        raise OctopError(
+            ErrorCode.PROJECT_TODO_COMMENT_INVALID, "invalid comment body or request id"
+        ) from None
     if not created:
         response.status_code = 200
     return _comment_payload(view)
+
+
+@router.get(
+    "/{todo_id}/comments/{comment_id}/images/{image_id}",
+    summary="Fetch a private image attached to a project todo comment",
+)
+async def get_todo_comment_image(
+    project_id: str,
+    todo_id: str,
+    comment_id: str,
+    image_id: str,
+    server: OctopServer = Depends(get_server),
+    user: User = Depends(current_user),
+) -> Response:
+    image = await run_in_threadpool(
+        _comment_service(server).get_image,
+        project_id,
+        todo_id,
+        comment_id,
+        image_id,
+        user_id=user.id,
+    )
+    return Response(
+        content=image.data,
+        media_type=image.media_type,
+        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
+    )
