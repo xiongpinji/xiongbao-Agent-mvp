@@ -30,7 +30,13 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from octop.infra.db.repos.project_activity import ACTIVITY_EVENT_TYPES, ActivityRow
+from octop.infra.db.repos.project_activity import (
+    ACTIVITY_EVENT_TYPES,
+    VIEW_ACTION_NAMES,
+    VIEW_FIELD_NAMES,
+    ActivityRow,
+)
+from octop.infra.db.repos.project_todo_views import EVENT_TODO_VIEW_UPDATED
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.projects.service import DEFAULT_PAGE_LIMIT
 
@@ -67,6 +73,9 @@ class ActivityItemView:
     catalog_kind: str | None = None
     option_id: str | None = None
     action: str | None = None
+    view_id: str | None = None
+    version: int | None = None
+    collection_revision: int | None = None
 
 
 @dataclass(frozen=True)
@@ -135,6 +144,41 @@ def activity_item_view(row: ActivityRow) -> ActivityItemView | None:
     """
     if row.event_type not in ACTIVITY_EVENT_TYPES:
         return None
+    if row.event_type == EVENT_TODO_VIEW_UPDATED:
+        view_id = (
+            row.view_id
+            if isinstance(row.view_id, str) and re.fullmatch(r"[0-9A-HJKMNP-TV-Z]{26}", row.view_id)
+            else None
+        )
+
+        def safe_integer(value: object) -> int | None:
+            return value if type(value) is int and 1 <= value <= 9223372036854775807 else None
+
+        return ActivityItemView(
+            event_id=row.event_id,
+            event_type=row.event_type,
+            actor_user_id=row.actor_user_id,
+            actor_name=row.actor_name,
+            object_kind="project",
+            object_id=view_id,
+            message_body=None,
+            created_at=row.created_at,
+            fields=tuple(
+                sorted(
+                    {
+                        field
+                        for field in row.fields
+                        if isinstance(field, str) and field in VIEW_FIELD_NAMES
+                    }
+                )
+            ),
+            action=row.action
+            if isinstance(row.action, str) and row.action in VIEW_ACTION_NAMES
+            else None,
+            view_id=view_id,
+            version=safe_integer(row.version),
+            collection_revision=safe_integer(row.collection_revision),
+        )
     return ActivityItemView(
         event_id=row.event_id,
         event_type=row.event_type,

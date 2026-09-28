@@ -1102,3 +1102,87 @@ def test_service_list_never_leaks_payload_fields(
     assert "inv-1" not in blob
     for item in page.items:
         assert item.event_type in ACTIVITY_EVENT_TYPES
+
+
+# QA draft: append to the owned activity unit module only after Q2 acceptance.
+@pytest.mark.parametrize(
+    "action", ("created", "updated", "ordered", "archived", "restored", "default_changed")
+)
+def test_view_activity_sql_returns_only_safe_view_metadata(
+    db: SqlitePool, repo: ProjectActivityRepo, pid: str, owner_id: int, action: str
+) -> None:
+    import json
+
+    view_id = "01M3M96KJMH2HTQ4KFPHRTBH25"
+    private = "PRIVATE-VIEW-NAME-FILTER-NEVER-RETURN"
+    event_id, _ = _seed_event(
+        db,
+        pid,
+        actor_user_id=owner_id,
+        event_type="project.todo_view_updated",
+        object_id=private,
+        payload_json=json.dumps(
+            {
+                "view_id": view_id,
+                "action": action,
+                "version": 7,
+                "collection_revision": 11,
+                "fields": ["name", "definition", "name", "filters", [private], private],
+                "name": private,
+                "definition": {"filters": private},
+                "message_body": private,
+                "catalog_kind": "tag",
+                "catalog_revision": 99,
+                "option_id": view_id,
+            }
+        ),
+        ts=2000000000,
+    )
+    rows = repo.list_activity(pid, user_id=owner_id, scope="members", limit=20)
+    assert rows is not None
+    selected = [row for row in rows if row.event_id == event_id]
+    assert len(selected) == 1
+    row = selected[0]
+    assert row.view_id == view_id and row.version == 7 and row.collection_revision == 11
+    assert row.action == action and row.fields == ("definition", "name")
+    assert row.object_kind == "project" and row.object_id == view_id and row.message_body is None
+    assert row.catalog_kind is None and row.catalog_revision is None and row.option_id is None
+    assert private not in repr(row)
+
+
+def test_view_activity_sql_rejects_bad_metadata_and_related_payload_target(
+    db: SqlitePool, repo: ProjectActivityRepo, pid: str, owner_id: int, member_id: int
+) -> None:
+    import json
+
+    private = "BAD-VIEW-METADATA-NEVER-RETURN"
+    event_id, _ = _seed_event(
+        db,
+        pid,
+        actor_user_id=owner_id,
+        event_type="project.todo_view_updated",
+        object_id=private,
+        payload_json=json.dumps(
+            {
+                "view_id": private,
+                "action": private,
+                "version": True,
+                "collection_revision": 2**100,
+                "fields": ["order", {"name": private}, private],
+                "assignee_user_id": member_id,
+                "creator_user_id": member_id,
+            }
+        ),
+        ts=2000000000,
+    )
+    rows = repo.list_activity(pid, user_id=member_id, scope="members", limit=20)
+    assert rows is not None
+    selected = [row for row in rows if row.event_id == event_id]
+    assert len(selected) == 1
+    row = selected[0]
+    assert row.view_id is None and row.version is None and row.collection_revision is None
+    assert row.action is None and row.fields == ("order",) and row.object_id is None
+    assert row.object_kind == "project" and row.message_body is None
+    assert private not in repr(row)
+    related = repo.list_activity(pid, user_id=member_id, scope="related", limit=20)
+    assert related is not None and event_id not in {row.event_id for row in related}

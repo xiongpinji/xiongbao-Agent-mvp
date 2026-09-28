@@ -835,7 +835,26 @@
     },
     "activity": {
       "todo_catalog_updated": "Updated the project todo catalog",
-      "todo_updated": "Updated project todo fields"
+      "todo_updated": "Updated project todo fields",
+      "todo_view_updated": "Updated shared project views"
+    },
+    "view_errors": {
+      "view_version_conflict": "Another member updated this view. Refresh and compare your draft before saving.",
+      "view_revision_conflict": "The shared view collection changed. Refresh before retrying.",
+      "catalog_revision_conflict": "The project catalog changed. Refresh it and compare your view conditions before saving.",
+      "name_conflict": "An active view already uses this name.",
+      "active_limit": "The project has reached the active view limit.",
+      "total_limit": "The project has reached the total view limit, including archived views.",
+      "last_active_view": "The project must retain at least one active view.",
+      "project_archived": "Shared views cannot be changed while the project is archived.",
+      "transaction_conflict": "Shared views are being updated. Refresh and compare your draft before retrying.",
+      "no_change": "At least one view field must change.",
+      "invalid_lifecycle": "This view is already in the requested active or archived state.",
+      "invalid_order": "The order must include every active view exactly once.",
+      "invalid_definition": "The view definition is invalid. Check its filters, sort and display fields.",
+      "invalid_view_request": "The view request is invalid. Check required fields, versions and definition.",
+      "invalid_catalog_reference": "View conditions must reference priorities or tags from this project.",
+      "invalid_assignee": "View conditions must reference current project members."
     }
   },
   "conversation_mode": {

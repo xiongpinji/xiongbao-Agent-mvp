@@ -513,3 +513,85 @@ async def test_message_write_failure_leaves_no_rows(
     r = await _post_message(ctx, ctx["owner_auth"], "恢复后的留言")
     assert r.status_code == 201, r.text
     assert [m["body"] for m in _message_rows(ctx["srv"], ctx["pid"])] == ["恢复后的留言"]
+
+
+# QA draft: append to the owned existing activity API tests after Q2 acceptance.
+async def test_view_activity_http_projects_metadata_without_private_payload(
+    env_with_provider: Any,
+) -> None:
+    ctx = await _base(env_with_provider)
+    view_id = "01M3M96KJMH2HTQ4KFPHRTBH25"
+    private = "HTTP-VIEW-FILTER-NAME-PRIVATE"
+    event_id = _seed_event(
+        ctx["srv"],
+        ctx["pid"],
+        actor_user_id=ctx["owner_uid"],
+        event_type="project.todo_view_updated",
+        object_id=private,
+        payload_json=json.dumps(
+            {
+                "view_id": view_id,
+                "action": "default_changed",
+                "version": 4,
+                "collection_revision": 6,
+                "fields": ["default_view_id", private],
+                "name": private,
+                "definition": {"filters": [{"value": private}]},
+                "message_body": private,
+                "catalog_kind": "tag",
+                "catalog_revision": 1,
+            }
+        ),
+        ts=2000000000,
+    )
+    response = await _get_activity(ctx, ctx["member_auth"], limit=20)
+    assert response.status_code == 200
+    items = response.json()["items"]
+    item = next(item for item in items if item["event_id"] == event_id)
+    assert set(item) == _ITEM_KEYS | {
+        "view_id",
+        "version",
+        "collection_revision",
+        "action",
+        "fields",
+    }
+    assert item["view_id"] == view_id and item["version"] == 4 and item["collection_revision"] == 6
+    assert item["action"] == "default_changed" and item["fields"] == ["default_view_id"]
+    assert (
+        item["object_kind"] == "project"
+        and item["object_id"] == view_id
+        and item["message_body"] is None
+    )
+    assert private not in response.text
+    assert all(set(item) == _ITEM_KEYS for item in items if item["event_type"] == "project.created")
+
+
+async def test_view_activity_http_related_requires_actor_not_payload_assignee(
+    env_with_provider: Any,
+) -> None:
+    ctx = await _base(env_with_provider)
+    view_id = "01M3M96KJMH2HTQ4KFPHRTBH25"
+    event_id = _seed_event(
+        ctx["srv"],
+        ctx["pid"],
+        actor_user_id=ctx["owner_uid"],
+        event_type="project.todo_view_updated",
+        object_id=view_id,
+        payload_json=json.dumps(
+            {
+                "view_id": view_id,
+                "action": "updated",
+                "version": 2,
+                "collection_revision": 3,
+                "fields": ["name"],
+                "assignee_user_id": ctx["member_uid"],
+                "creator_user_id": ctx["member_uid"],
+            }
+        ),
+        ts=2000000000,
+    )
+    member = await _get_activity(ctx, ctx["member_auth"], scope="related")
+    owner = await _get_activity(ctx, ctx["owner_auth"], scope="related")
+    assert member.status_code == owner.status_code == 200
+    assert event_id not in {item["event_id"] for item in member.json()["items"]}
+    assert event_id in {item["event_id"] for item in owner.json()["items"]}

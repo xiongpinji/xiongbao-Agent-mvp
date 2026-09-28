@@ -835,7 +835,26 @@
     },
     "activity": {
       "todo_catalog_updated": "更新了项目待办目录",
-      "todo_updated": "更新了项目待办字段"
+      "todo_updated": "更新了项目待办字段",
+      "todo_view_updated": "更新了项目共享视图"
+    },
+    "view_errors": {
+      "view_version_conflict": "此视图已被其他成员更新。请刷新并比较草稿后再保存。",
+      "view_revision_conflict": "共享视图列表已变化。请刷新后重试。",
+      "catalog_revision_conflict": "项目目录已变化。请刷新目录并比较视图条件后再保存。",
+      "name_conflict": "已有有效视图使用此名称。",
+      "active_limit": "项目已达到有效视图数量上限。",
+      "total_limit": "项目已达到包含归档视图的总数量上限。",
+      "last_active_view": "项目必须至少保留一个有效视图。",
+      "project_archived": "项目已归档，不能修改共享视图。",
+      "transaction_conflict": "共享视图正在被更新。请刷新并比较草稿后重试。",
+      "no_change": "至少需要修改一个视图字段。",
+      "invalid_lifecycle": "此视图已经处于请求的有效或归档状态。",
+      "invalid_order": "排序必须恰好包含全部有效视图，且不能重复。",
+      "invalid_definition": "视图配置无效，请检查筛选、排序和展示字段。",
+      "invalid_view_request": "视图请求无效，请检查必填字段、版本和配置。",
+      "invalid_catalog_reference": "视图条件必须引用本项目的优先级或标签。",
+      "invalid_assignee": "视图条件必须引用当前项目成员。"
     }
   },
   "conversation_mode": {

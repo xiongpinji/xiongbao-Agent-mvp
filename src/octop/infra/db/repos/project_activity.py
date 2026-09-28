@@ -32,6 +32,7 @@ from octop.infra.db.pool import DatabasePool
 from octop.infra.db.repos._base import DbRow, map_rows, now_ts, sql_in_placeholders
 from octop.infra.db.repos.project_todo_catalog import EVENT_TODO_CATALOG_UPDATED
 from octop.infra.db.repos.project_todo_comments import EVENT_TODO_COMMENT_CREATED
+from octop.infra.db.repos.project_todo_views import EVENT_TODO_VIEW_UPDATED
 from octop.infra.db.repos.project_todos import (
     EVENT_TODO_CREATED,
     EVENT_TODO_DELETED,
@@ -64,6 +65,7 @@ ACTIVITY_EVENT_TYPES: tuple[str, ...] = (
     EVENT_TODO_DELETED,
     EVENT_TODO_COMMENT_CREATED,
     EVENT_TODO_CATALOG_UPDATED,
+    EVENT_TODO_VIEW_UPDATED,
     EVENT_MESSAGE_CREATED,
 )
 
@@ -93,6 +95,8 @@ TODO_FIELD_NAMES = (
     "tag_ids",
 )
 CATALOG_FIELD_NAMES = ("name", "color", "order", "archived")
+VIEW_FIELD_NAMES = ("name", "type", "definition", "order", "archived", "default_view_id")
+VIEW_ACTION_NAMES = ("created", "updated", "ordered", "archived", "restored", "default_changed")
 
 # SELECT list shared by the timeline and the post-create message read-back.
 # object_kind is derived from the event type; message bodies come from the
@@ -137,6 +141,9 @@ class ActivityRow:
     catalog_kind: str | None = None
     option_id: str | None = None
     action: str | None = None
+    view_id: str | None = None
+    version: int | None = None
+    collection_revision: int | None = None
 
     @classmethod
     def from_row(cls, row: DbRow) -> ActivityRow:
@@ -149,7 +156,9 @@ class ActivityRow:
             tuple(json.loads(str(row["safe_fields_json"]))) if "safe_fields_json" in keys else ()
         )
         allowed = (
-            CATALOG_FIELD_NAMES
+            VIEW_FIELD_NAMES
+            if row["event_type"] == EVENT_TODO_VIEW_UPDATED
+            else CATALOG_FIELD_NAMES
             if row["event_type"] == EVENT_TODO_CATALOG_UPDATED
             else TODO_FIELD_NAMES
         )
@@ -178,6 +187,9 @@ class ActivityRow:
             catalog_kind=row["safe_catalog_kind"] if "safe_catalog_kind" in keys else None,
             option_id=option_id,
             action=row["safe_action"] if "safe_action" in keys else None,
+            view_id=row["safe_view_id"] if "safe_view_id" in keys else None,
+            version=row["safe_view_version"] if "safe_view_version" in keys else None,
+            collection_revision=row["safe_view_revision"] if "safe_view_revision" in keys else None,
         )
 
 
@@ -233,12 +245,15 @@ class ProjectActivityRepo:
         """Select individual safe metadata values; never fetch payload_json."""
         todo_fields = ",".join(f"'{value}'" for value in TODO_FIELD_NAMES)
         catalog_fields = ",".join(f"'{value}'" for value in CATALOG_FIELD_NAMES)
+        view_fields = ",".join(f"'{value}'" for value in VIEW_FIELD_NAMES)
+        view_actions = ",".join(f"'{value}'" for value in VIEW_ACTION_NAMES)
         catalog = f"e.event_type = '{EVENT_TODO_CATALOG_UPDATED}'"
         updated = f"e.event_type = '{EVENT_TODO_UPDATED}'"
+        view = f"e.event_type = '{EVENT_TODO_VIEW_UPDATED}'"
         if self._db.dialect == "postgresql":
             payload = "e.payload_json::jsonb"
             fields = (
-                "CASE WHEN " + catalog + " OR " + updated + " THEN "
+                "CASE WHEN " + catalog + " OR " + updated + " OR " + view + " THEN "
                 "(SELECT COALESCE(jsonb_agg(value), '[]'::jsonb)::text FROM "
                 "jsonb_array_elements(CASE WHEN jsonb_typeof(" + payload + "->'fields') = 'array' "
                 "THEN " + payload + "->'fields' ELSE '[]'::jsonb END) AS safe(value) "
@@ -251,8 +266,27 @@ class ProjectActivityRepo:
                 + updated
                 + " AND value#>>'{}' IN ("
                 + todo_fields
+                + ")) OR ("
+                + view
+                + " AND value#>>'{}' IN ("
+                + view_fields
                 + ")))) ELSE '[]' END AS safe_fields_json"
             )
+            view_id = (
+                f"CASE WHEN {view} AND jsonb_typeof({payload}->'view_id') = 'string' "
+                f"AND ({payload}->>'view_id') ~ '^[0-9A-HJKMNP-TV-Z]{{26}}$' "
+                f"THEN {payload}->>'view_id' ELSE NULL END"
+            )
+
+            def view_integer(field: str) -> str:
+                raw = f"({payload}->>'{field}')"
+                return (
+                    f"CASE WHEN {view} THEN CASE WHEN jsonb_typeof({payload}->'{field}') = 'number' "
+                    f"AND {raw} ~ '^[1-9][0-9]{{0,18}}$' "
+                    f"AND (length({raw}) < 19 OR {raw} COLLATE \"C\" <= '9223372036854775807') "
+                    f"THEN {raw}::bigint ELSE NULL END ELSE NULL END"
+                )
+
             values = (
                 f"CASE WHEN {catalog} THEN CASE WHEN jsonb_typeof({payload}->'catalog_revision') = 'number' "
                 f"AND ({payload}->>'catalog_revision') ~ '^[1-9][0-9]{{0,17}}$' "
@@ -261,13 +295,15 @@ class ProjectActivityRepo:
                 f"THEN {payload}->>'catalog_kind' ELSE NULL END ELSE NULL END AS safe_catalog_kind, "
                 f"CASE WHEN {catalog} THEN CASE WHEN jsonb_typeof({payload}->'option_id') = 'string' "
                 f"THEN {payload}->>'option_id' ELSE NULL END ELSE NULL END AS safe_option_id, "
-                f"CASE WHEN {catalog} THEN CASE WHEN {payload}->>'action' IN ('created','updated','ordered','archived','restored') "
+                f"CASE WHEN {view} THEN CASE WHEN {payload}->>'action' IN ({view_actions}) "
+                f"THEN {payload}->>'action' ELSE NULL END "
+                f"WHEN {catalog} THEN CASE WHEN {payload}->>'action' IN ('created','updated','ordered','archived','restored') "
                 f"THEN {payload}->>'action' ELSE NULL END ELSE NULL END AS safe_action"
             )
         else:
             valid = "json_valid(e.payload_json)"
             fields = (
-                f"CASE WHEN ({catalog} OR {updated}) AND {valid} THEN "
+                f"CASE WHEN ({catalog} OR {updated} OR {view}) AND {valid} THEN "
                 "(SELECT json_group_array(value) FROM json_each(CASE WHEN "
                 "json_type(e.payload_json,'$.fields') = 'array' THEN json_extract(e.payload_json,'$.fields') "
                 "ELSE '[]' END) WHERE type = 'text' AND (("
@@ -279,8 +315,27 @@ class ProjectActivityRepo:
                 + updated
                 + " AND value IN ("
                 + todo_fields
+                + ")) OR ("
+                + view
+                + " AND value IN ("
+                + view_fields
                 + ")))) ELSE '[]' END AS safe_fields_json"
             )
+            view_id = (
+                f"CASE WHEN {view} AND {valid} THEN CASE WHEN json_type(e.payload_json,'$.view_id') = 'text' "
+                "AND length(json_extract(e.payload_json,'$.view_id')) = 26 "
+                "AND json_extract(e.payload_json,'$.view_id') NOT GLOB '*[^0-9A-HJKMNP-TV-Z]*' "
+                "THEN json_extract(e.payload_json,'$.view_id') ELSE NULL END ELSE NULL END"
+            )
+
+            def view_integer(field: str) -> str:
+                raw = f"json_extract(e.payload_json,'$.{field}')"
+                return (
+                    f"CASE WHEN {view} AND {valid} THEN CASE WHEN json_type(e.payload_json,'$.{field}') = 'integer' "
+                    f"AND typeof({raw}) = 'integer' AND {raw} BETWEEN 1 AND 9223372036854775807 "
+                    f"THEN {raw} ELSE NULL END ELSE NULL END"
+                )
+
             values = (
                 f"CASE WHEN {catalog} AND {valid} THEN CASE WHEN json_type(e.payload_json,'$.catalog_revision') = 'integer' "
                 "AND json_extract(e.payload_json,'$.catalog_revision') > 0 THEN json_extract(e.payload_json,'$.catalog_revision') "
@@ -289,11 +344,21 @@ class ProjectActivityRepo:
                 "THEN json_extract(e.payload_json,'$.catalog_kind') ELSE NULL END ELSE NULL END AS safe_catalog_kind, "
                 f"CASE WHEN {catalog} AND {valid} THEN CASE WHEN json_type(e.payload_json,'$.option_id') = 'text' "
                 "THEN json_extract(e.payload_json,'$.option_id') ELSE NULL END ELSE NULL END AS safe_option_id, "
-                f"CASE WHEN {catalog} AND {valid} THEN CASE WHEN json_extract(e.payload_json,'$.action') IN ('created','updated','ordered','archived','restored') "
+                f"CASE WHEN {view} AND {valid} THEN CASE WHEN json_extract(e.payload_json,'$.action') IN ({view_actions}) "
+                "THEN json_extract(e.payload_json,'$.action') ELSE NULL END "
+                f"WHEN {catalog} AND {valid} THEN CASE WHEN json_extract(e.payload_json,'$.action') IN ('created','updated','ordered','archived','restored') "
                 "THEN json_extract(e.payload_json,'$.action') ELSE NULL END ELSE NULL END AS safe_action"
             )
+        safe_view = (
+            f"{view_id} AS safe_view_id, {view_integer('version')} AS safe_view_version, "
+            f"{view_integer('collection_revision')} AS safe_view_revision"
+        )
         return _ACTIVITY_SELECT.replace(
-            "e.created_at AS created_at ", f"e.created_at AS created_at, {fields}, {values} "
+            "e.object_id AS object_id",
+            f"CASE WHEN {view} THEN {view_id} ELSE e.object_id END AS object_id",
+        ).replace(
+            "e.created_at AS created_at ",
+            f"e.created_at AS created_at, {fields}, {values}, {safe_view} ",
         )
 
     def _member_share_lock(self) -> str:

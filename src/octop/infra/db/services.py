@@ -23,6 +23,7 @@ from octop.infra.db.repos.project_task_shares import ProjectTaskShareRepo
 from octop.infra.db.repos.project_tasks import ProjectTaskRepo
 from octop.infra.db.repos.project_todo_catalog import ProjectTodoCatalogRepo
 from octop.infra.db.repos.project_todo_comments import ProjectTodoCommentRepo
+from octop.infra.db.repos.project_todo_views import ProjectTodoViewRepo
 from octop.infra.db.repos.project_todos import ProjectTodoRepo
 from octop.infra.db.repos.projects import ProjectRepo
 from octop.infra.db.repos.providers import ProviderRepo
@@ -73,6 +74,7 @@ class RepoBundle:
     project_repo: ProjectRepo
     project_todo_repo: ProjectTodoRepo
     project_todo_catalog_repo: ProjectTodoCatalogRepo
+    project_todo_view_repo: ProjectTodoViewRepo
     project_todo_comment_repo: ProjectTodoCommentRepo
     project_task_repo: ProjectTaskRepo
     project_task_share_repo: ProjectTaskShareRepo
@@ -111,6 +113,7 @@ class RepoBundle:
             project_repo=ProjectRepo(db),
             project_todo_repo=ProjectTodoRepo(db),
             project_todo_catalog_repo=ProjectTodoCatalogRepo(db),
+            project_todo_view_repo=ProjectTodoViewRepo(db),
             project_todo_comment_repo=ProjectTodoCommentRepo(db),
             project_task_repo=ProjectTaskRepo(db),
             project_task_share_repo=ProjectTaskShareRepo(db),
@@ -237,6 +240,10 @@ class SharedServices:
     @property
     def project_todo_catalog_repo(self) -> ProjectTodoCatalogRepo:
         return self.repos.project_todo_catalog_repo
+
+    @property
+    def project_todo_view_repo(self) -> ProjectTodoViewRepo:
+        return self.repos.project_todo_view_repo
 
     @property
     def project_todo_comment_repo(self) -> ProjectTodoCommentRepo:

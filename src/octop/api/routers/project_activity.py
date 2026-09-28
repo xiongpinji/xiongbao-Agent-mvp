@@ -55,7 +55,12 @@ class ActivityItemResponse(BaseModel):
     catalog_revision: int | None = None
     catalog_kind: Literal["priority", "tag"] | None = None
     option_id: str | None = None
-    action: Literal["created", "updated", "ordered", "archived", "restored"] | None = None
+    action: (
+        Literal["created", "updated", "ordered", "archived", "restored", "default_changed"] | None
+    ) = None
+    view_id: str | None = None
+    version: int | None = None
+    collection_revision: int | None = None
 
 
 class ActivityPageResponse(BaseModel):
@@ -85,6 +90,14 @@ def _item_payload(view: ActivityItemView) -> ActivityItemResponse:
         "tag_ids",
     }.intersection(view.fields):
         extra["fields"] = list(view.fields)
+    elif view.event_type == "project.todo_view_updated":
+        extra = {
+            "view_id": view.view_id,
+            "version": view.version,
+            "collection_revision": view.collection_revision,
+            "action": view.action,
+            "fields": list(view.fields),
+        }
     return ActivityItemResponse(
         event_id=view.event_id,
         event_type=view.event_type,
