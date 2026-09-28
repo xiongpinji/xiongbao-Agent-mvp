@@ -23,12 +23,16 @@
 
 绑定 `44a2fd47f863700d9d4a50df2e51047887a53353` 的真实 Chrome 与 TCP 后端夹具已执行：界面创建本人文件任务 201、已有 thread history 200，独立 HTTP 读写/下载/列举 200，project owner、outsider 和 admin 的 tree/download/history 共 9 次 403。打开工作区却显示“请先选择一个专家”，10 秒观察窗口内未收到匹配的根目录树响应，结果为 RED，不能算工作区验收通过。原始脚本未独立采集请求事件，不能据 `rootRequested=false` 宣称零请求。开关仅临时进程打开，产品默认仍为 False，最终模型推理次数为 0。完整边界、失败脚本修正和截图见[本轮浏览器记录](PROJECT_TASK_WORKSPACE_030_PS08_TCP_BROWSER_RED_20260928.md)。
 
+## 后续 Windows 检查与使用竞态诊断
+
+源码固定 `60341df2fb02daee97a1da34cb5332f976d5fcb3`，Windows NTFS 的真实 Harness 组件图在同线程干净基线后执行四组诊断。稳定种植 junction 的读、写均被原 guard 拒绝；在检查通过、原 `os.open` 打开前确定性替换子目录，两组分别返回根外合成 canary 和创建根外合成文件。各 4 次本地录制模型调用、共 16 次，每次可见名称恰为六个文件工具；没有经过外部 provider。运行体与目录均复原，Temp 留存且剩余重解析点为 0。结论是同账号、精确时点注入条件下的残余窗口已确认，不是安全通过；HTTP、其余四工具及全链验收没有随之完成。原始结果、源码绑定、脚本和边界见[Windows 竞态诊断](PROJECT_TASK_WORKSPACE_030_WINDOWS_TOCTOU_PROBE_20260928.md)。产品开关仍为 False，激活 NO-GO。
+
 ## 尚未核销
 
 - 已确定一个前端断链：内部 runtime 被普通 Agent 列表过滤后，`WorkspaceDrawer` 始终误判未就绪。标记正例的行为 RED 失败、普通入口负例通过；两条实现路由分别零输出超时和月额度 429，目前无候选，见[本片实施状态](PROJECT_TASK_WORKSPACE_030_UI_GATE_EXECUTION_STATUS_20260928.md)。
 - `PROJECT_TASK_FILES_MODE_ENABLED = False` 仍是产品默认值；后续临时进程开启的登录态浏览器旅程复现了工作区 RED，刷新/重启/撤权的浏览器矩阵仍未核销，也没有启用生产文件模式。
 - PostgreSQL 专项不是完整 PostgreSQL HTTP/浏览器创建—读写—重启—撤权矩阵，也不是历史生产库升级演练。
-- Windows junction/hardlink HTTP 用例与真实 runtime 贯通用例是分开的；尚缺真实 runtime 下的重解析点执行时竞争验证与明确的 TOCTOU 风险结论。
+- Windows junction/hardlink HTTP 用例与 runtime 贯通用例是分开的；同账号替换受管子目录的真实 Harness 读写竞态现已确定性复现，TOCTOU 风险处置、HTTP 与其余工具、根及祖先链/特殊 reparse 竞争矩阵仍未核销。
 - 本地录制模型只在 WebSocket 旅程中实际执行了 `write_file`，没有逐个执行其余五个文件工具；也没有证明真实供应商模型的调用质量或 WorkBuddy 本地/云端能力对齐。GLM 固定 SHA 补审和 WorkBuddy 逐状态视觉对照另列待办。
 
-本轮 Python 命令使用 `uv run --no-sync`。Windows 没有 `make` 可执行文件，未宣称执行 `make all`；也未重复全仓非 live 回归。上述结果仅是当前主线聚焦验证，激活门禁需独立决策与后续验收。
+上述 pytest 验证使用 `uv run --no-sync`；后续竞态探针直接使用本 checkout 的 `.venv\Scripts\python.exe`，具体绑定见诊断记录。Windows 没有 `make` 可执行文件，未宣称执行 `make all`；也未重复全仓非 live 回归。上述结果仅是当前主线聚焦验证，激活门禁需独立决策与后续验收。

@@ -1,0 +1,38 @@
+{
+  "source": "60341df2fb02daee97a1da34cb5332f976d5fcb3",
+  "capturedAtUtc": "2026-09-28T08:02:50.159079+08:00",
+  "files": [
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\030-toctou-20260928\\probe_windows_tool_race.py",
+      "bytes": 12550,
+      "sha256": "183ae1c80b994d42023cb4b09462adb0053a968be124e632928fd92eee373620"
+    },
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\project_task_file_boundary.py",
+      "bytes": 18724,
+      "sha256": "c7541d162587120ab92167011571b7472defaad686930430300579be47ee9b32"
+    },
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\projects\\file_tasks.py",
+      "bytes": 3607,
+      "sha256": "1764fe3553dcc8908406260a5e33a447bdc3187886fb9a73f8d93ef5ad7da5bd"
+    },
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\tests\\unit\\agents\\test_project_task_file_boundary.py",
+      "bytes": 52713,
+      "sha256": "0085ac0ea5dd35226f4b608c9243d0ec594966490e22e5b13041651b8713bcf4"
+    },
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\.venv\\Lib\\site-packages\\deepagents\\backends\\filesystem.py",
+      "bytes": 69463,
+      "sha256": "d2c1212fd31db504ce339d72914ab207d4f304bcdb109ef5a1a7a7adfbfbcc7c"
+    }
+  ],
+  "selectedTrackedDiff": "",
+  "archivedProbe": {
+    "path": "docs/xiongbao/evidence/ps08-toctou-20260928/probe_windows_tool_race.py",
+    "sha256": "9a60e1760d60fb89980a82417764b1e73bf9bc9d17c5c163d8e8da0a5ab590b7",
+    "bytes": 12549
+  },
+  "archiveNormalization": "Only redundant trailing CR/LF removed; one LF retained. Executed original hash remains files[0].sha256."
+}

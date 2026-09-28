@@ -1,0 +1,4 @@
+cleanup.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+source-bindings.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+tool-race-result.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+probe_windows_tool_race.py -text

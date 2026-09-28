@@ -1,0 +1,377 @@
+{
+  "source": "60341df2fb02daee97a1da34cb5332f976d5fcb3",
+  "repo": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa",
+  "octop_module": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\__init__.py",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "python": "3.13.13",
+  "deepagents_version": "0.7.9",
+  "filesystem_module": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\.venv\\Lib\\site-packages\\deepagents\\backends\\filesystem.py",
+  "source_files_enabled": false,
+  "fixture_files_enabled": false,
+  "temp_base": "C:\\Users\\canqu\\AppData\\Local\\Temp\\xiongbao-030-toctou-spp4udxr",
+  "provider": "local-recording-only",
+  "external_model_requests": 0,
+  "cases": [
+    {
+      "label": "stable-read",
+      "tool": "read_file",
+      "stable_plant": true,
+      "baseline_pass": true,
+      "guard_started": 1,
+      "guard_passed": 0,
+      "guard_refused": 1,
+      "target_open_hits": 0,
+      "swap_fired": false,
+      "junction_installed": true,
+      "tool_status": "error",
+      "outside_canary_in_result": false,
+      "outside_write_observed": false,
+      "events": [
+        {
+          "event": "guard_started"
+        },
+        {
+          "event": "guard_refused"
+        }
+      ],
+      "classification": "STABLE_PLANT_REFUSED",
+      "exception": null,
+      "close_error": null,
+      "restore_error": null,
+      "outside_canary_unchanged": true,
+      "outside_names": [
+        "target.txt"
+      ],
+      "local_model_invocations": 4,
+      "model_tool_sets": [
+        [
+          "ls",
+          "read_file",
+          "write_file",
+          "edit_file",
+          "glob",
+          "grep"
+        ],
+        [
+          "ls",
+          "read_file",
+          "write_file",
+          "edit_file",
+          "glob",
+          "grep"
+        ],
+        [
+          "ls",
+          "read_file",
+          "write_file",
+          "edit_file",
+          "glob",
+          "grep"
+        ],
+        [
+          "ls",
+          "read_file",
+          "write_file",
+          "edit_file",
+          "glob",
+          "grep"
+        ]
+      ],
+      "child_restored": true,
+      "outside_preserved": true,
+      "patches_restored": true
+    },
+    {
+      "label": "race-read",
+      "tool": "read_file",
+      "stable_plant": false,
+      "baseline_pass": true,
+      "guard_started": 1,
+      "guard_passed": 1,
+      "guard_refused": 0,
+      "target_open_hits": 1,
+      "swap_fired": true,
+      "junction_installed": true,
+      "tool_status": "success",
+      "outside_canary_in_result": true,
+      "outside_write_observed": false,
+      "events": [
+        {
+          "event": "guard_started"
+        },
+        {
+          "event": "guard_passed"
+        },
+        {
+          "event": "target_open",
+          "flags": 0,
+          "stack": [
+            {
+              "file": "C:\\Users\\canqu\\AppData\\Roaming\\uv\\python\\cpython-3.13-windows-x86_64-none\\Lib\\threading.py",
+              "line": 1015,
+              "name": "_bootstrap"
+            },
+            {
+              "file": "C:\\Users\\canqu\\AppData\\Roaming\\uv\\python\\cpython-3.13-windows-x86_64-none\\Lib\\threading.py",
+              "line": 1044,
+              "name": "_bootstrap_inner"
+            },
+            {
+              "file": "C:\\Users\\canqu\\AppData\\Roaming\\uv\\python\\cpython-3.13-windows-x86_64-none\\Lib\\threading.py",
+              "line": 995,
+              "name": "run"
+            },
+            {
+              "file": "C:\\Users\\canqu\\AppData\\Roaming\\uv\\python\\cpython-3.13-windows-x86_64-none\\Lib\\concurrent\\futures\\thread.py",
+              "line": 93,
+              "name": "_worker"
+            },
+            {
+              "file": "C:\\Users\\canqu\\AppData\\Roaming\\uv\\python\\cpython-3.13-windows-x86_64-none\\Lib\\concurrent\\futures\\thread.py",
+              "line": 59,
+              "name": "run"
+            },
+            {
+              "file": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\.venv\\Lib\\site-packages\\deepagents\\backends\\filesystem.py",
+              "line": 449,
+              "name": "read"
+            }
+          ]
+        },
+        {
+          "event": "junction_installed",
+          "target": "C:\\Users\\canqu\\AppData\\Local\\Temp\\xiongbao-030-toctou-spp4udxr\\race-read\\outside"
+        }
+      ],
+      "classification": "CHECK_USE_ESCAPE_CONFIRMED",
+      "exception": null,
+      "close_error": null,
+      "restore_error": null,
+      "outside_canary_unchanged": true,
+      "outside_names": [
+        "target.txt"
+      ],
+      "local_model_invocations": 4,
+      "model_tool_sets": [
+        [
+          "ls",
+          "read_file",
+          "write_file",
+          "edit_file",
+          "glob",
+          "grep"
+        ],
+        [
+          "ls",
+          "read_file",
+          "write_file",
+          "edit_file",
+          "glob",
+          "grep"
+        ],
+        [
+          "ls",
+          "read_file",
+          "write_file",
+          "edit_file",
+          "glob",
+          "grep"
+        ],
+        [
+          "ls",
+          "read_file",
+          "write_file",
+          "edit_file",
+          "glob",
+          "grep"
+        ]
+      ],
+      "child_restored": true,
+      "outside_preserved": true,
+      "patches_restored": true
+    },
+    {
+      "label": "stable-write",
+      "tool": "write_file",
+      "stable_plant": true,
+      "baseline_pass": true,
+      "guard_started": 1,
+      "guard_passed": 0,
+      "guard_refused": 1,
+      "target_open_hits": 0,
+      "swap_fired": false,
+      "junction_installed": true,
+      "tool_status": "error",
+      "outside_canary_in_result": false,
+      "outside_write_observed": false,
+      "events": [
+        {
+          "event": "guard_started"
+        },
+        {
+          "event": "guard_refused"
+        }
+      ],
+      "classification": "STABLE_PLANT_REFUSED",
+      "exception": null,
+      "close_error": null,
+      "restore_error": null,
+      "outside_canary_unchanged": true,
+      "outside_names": [
+        "target.txt"
+      ],
+      "local_model_invocations": 4,
+      "model_tool_sets": [
+        [
+          "ls",
+          "read_file",
+          "write_file",
+          "edit_file",
+          "glob",
+          "grep"
+        ],
+        [
+          "ls",
+          "read_file",
+          "write_file",
+          "edit_file",
+          "glob",
+          "grep"
+        ],
+        [
+          "ls",
+          "read_file",
+          "write_file",
+          "edit_file",
+          "glob",
+          "grep"
+        ],
+        [
+          "ls",
+          "read_file",
+          "write_file",
+          "edit_file",
+          "glob",
+          "grep"
+        ]
+      ],
+      "child_restored": true,
+      "outside_preserved": true,
+      "patches_restored": true
+    },
+    {
+      "label": "race-write",
+      "tool": "write_file",
+      "stable_plant": false,
+      "baseline_pass": true,
+      "guard_started": 1,
+      "guard_passed": 1,
+      "guard_refused": 0,
+      "target_open_hits": 1,
+      "swap_fired": true,
+      "junction_installed": true,
+      "tool_status": "success",
+      "outside_canary_in_result": false,
+      "outside_write_observed": true,
+      "events": [
+        {
+          "event": "guard_started"
+        },
+        {
+          "event": "guard_passed"
+        },
+        {
+          "event": "target_open",
+          "flags": 769,
+          "stack": [
+            {
+              "file": "C:\\Users\\canqu\\AppData\\Roaming\\uv\\python\\cpython-3.13-windows-x86_64-none\\Lib\\threading.py",
+              "line": 1015,
+              "name": "_bootstrap"
+            },
+            {
+              "file": "C:\\Users\\canqu\\AppData\\Roaming\\uv\\python\\cpython-3.13-windows-x86_64-none\\Lib\\threading.py",
+              "line": 1044,
+              "name": "_bootstrap_inner"
+            },
+            {
+              "file": "C:\\Users\\canqu\\AppData\\Roaming\\uv\\python\\cpython-3.13-windows-x86_64-none\\Lib\\threading.py",
+              "line": 995,
+              "name": "run"
+            },
+            {
+              "file": "C:\\Users\\canqu\\AppData\\Roaming\\uv\\python\\cpython-3.13-windows-x86_64-none\\Lib\\concurrent\\futures\\thread.py",
+              "line": 93,
+              "name": "_worker"
+            },
+            {
+              "file": "C:\\Users\\canqu\\AppData\\Roaming\\uv\\python\\cpython-3.13-windows-x86_64-none\\Lib\\concurrent\\futures\\thread.py",
+              "line": 59,
+              "name": "run"
+            },
+            {
+              "file": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\.venv\\Lib\\site-packages\\deepagents\\backends\\filesystem.py",
+              "line": 511,
+              "name": "write"
+            }
+          ]
+        },
+        {
+          "event": "junction_installed",
+          "target": "C:\\Users\\canqu\\AppData\\Local\\Temp\\xiongbao-030-toctou-spp4udxr\\race-write\\outside"
+        }
+      ],
+      "classification": "CHECK_USE_ESCAPE_CONFIRMED",
+      "exception": null,
+      "close_error": null,
+      "restore_error": null,
+      "outside_canary_unchanged": true,
+      "outside_names": [
+        "new.txt",
+        "target.txt"
+      ],
+      "local_model_invocations": 4,
+      "model_tool_sets": [
+        [
+          "ls",
+          "read_file",
+          "write_file",
+          "edit_file",
+          "glob",
+          "grep"
+        ],
+        [
+          "ls",
+          "read_file",
+          "write_file",
+          "edit_file",
+          "glob",
+          "grep"
+        ],
+        [
+          "ls",
+          "read_file",
+          "write_file",
+          "edit_file",
+          "glob",
+          "grep"
+        ],
+        [
+          "ls",
+          "read_file",
+          "write_file",
+          "edit_file",
+          "glob",
+          "grep"
+        ]
+      ],
+      "child_restored": true,
+      "outside_preserved": true,
+      "patches_restored": true
+    }
+  ],
+  "outcome": "COMPLETE_WITH_CHECK_USE_ESCAPE",
+  "local_model_invocations": 16,
+  "temp_retained": true,
+  "recursive_cleanup_performed": false
+}

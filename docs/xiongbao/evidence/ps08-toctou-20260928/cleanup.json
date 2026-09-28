@@ -1,0 +1,21 @@
+{
+  "temp_base": "C:\\Users\\canqu\\AppData\\Local\\Temp\\xiongbao-030-toctou-spp4udxr",
+  "capturedAtUtc": "2026-09-28T00:02:50.232032+00:00",
+  "entriesInspected": 39,
+  "remainingReparsePoints": [],
+  "runtimeCloseErrors": [
+    null,
+    null,
+    null,
+    null
+  ],
+  "restoreErrors": [
+    null,
+    null,
+    null,
+    null
+  ],
+  "retained": true,
+  "recursiveDeletePerformed": false,
+  "scope": "Only synthetic fixture; all junctions removed, child directories restored."
+}
