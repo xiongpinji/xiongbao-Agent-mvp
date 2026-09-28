@@ -1,0 +1,846 @@
+{
+  "schema_version": 1,
+  "state": "C1_COMPONENT_GATES_PASS_FROZEN_DELIVERY_CANDIDATE",
+  "base_head": "3b657f24fc5e5c1441f3cc5127201ad2def976d0",
+  "business_file_count": 68,
+  "source_manifest_sha256": "c0954320d68fe0bde1e1c32ee2935335811330ca2642713e0d72ede78381b160",
+  "files": [
+    {
+      "path": "dashboard/src/api/modules/projectTodoCatalog.test.ts",
+      "sha256": "3982846d3da940f6c07c44eff23268273e33d13f124ee40004764e09f4e3a35b",
+      "categories": [
+        "M3-v6"
+      ],
+      "git_filtered_blob": "9133c2b26c11b0414b1ed807804675464e591294"
+    },
+    {
+      "path": "dashboard/src/api/modules/projectTodoCatalog.ts",
+      "sha256": "07d6cf3881d2255012bcb26c79c49df4a86c8d4b0de73065c27dae0d2ca31b59",
+      "categories": [
+        "M3-v6"
+      ],
+      "git_filtered_blob": "d417397f3e90afd4f5e99572cd60288288a9f372"
+    },
+    {
+      "path": "dashboard/src/api/modules/projectTodos.test.ts",
+      "sha256": "ca19cf04f2d98146d2ccbffc8d0d822aca073b5423dd09a9034c9579eb2aeabb",
+      "categories": [
+        "M3-v6"
+      ],
+      "git_filtered_blob": "085551320ac02436afdee19931611dff679e32ce"
+    },
+    {
+      "path": "dashboard/src/api/modules/projectTodos.ts",
+      "sha256": "7621b842d50c5e1cf94cb6f7076f49234bedcca2a8090fb66a33df9ca6ed35a3",
+      "categories": [
+        "M3-v6"
+      ],
+      "git_filtered_blob": "355810ac328f561afbef07af40befb4660f9c557"
+    },
+    {
+      "path": "dashboard/src/api/modules/publishedExperts.test.ts",
+      "sha256": "2a6b0b16a12e9f066a9b796719b3e56c9dbfaed6bb7136fdec3ea0b8ba64ce6d",
+      "categories": [
+        "FE-baseline8"
+      ],
+      "git_filtered_blob": "d65261533a1a849dd4fc84a3b4e696f2a3835f38"
+    },
+    {
+      "path": "dashboard/src/api/request.setup.test.ts",
+      "sha256": "b9ad9dbe9fc289146cf34a9a20a596e4f82af4bdae08f6442a7cb9871bb3bf71",
+      "categories": [
+        "R1"
+      ],
+      "git_filtered_blob": "6f948714b69650329e62b3dac4afb9df73f623c4"
+    },
+    {
+      "path": "dashboard/src/api/request.ts",
+      "sha256": "8d89f1a32ba5f6788be94b504226f0e9bb77d0f878bc7017f42e4b3f3514d55f",
+      "categories": [
+        "R1"
+      ],
+      "git_filtered_blob": "4e802fd2efb804d66ce582268cf9d8a40c0e0de0"
+    },
+    {
+      "path": "dashboard/src/api/request.unauthorized.test.ts",
+      "sha256": "621c69d37e9af2f5c5870855830af67c51c372075a558f99e52de3ccb7280f10",
+      "categories": [
+        "R1"
+      ],
+      "git_filtered_blob": "1d4658d441c7b8d51db7bbab8236057809e2d2be"
+    },
+    {
+      "path": "dashboard/src/components/DocumentPreviewCore.docxSanitize.test.ts",
+      "sha256": "b5683e174f256df948e444a2ff1470054000a1a49e5c4d9ff5188c40f33ef35a",
+      "categories": [
+        "FE-baseline8"
+      ],
+      "git_filtered_blob": "5e311574c83bbcc5b1c06d7cbb306fc167d4674a"
+    },
+    {
+      "path": "dashboard/src/hooks/useKeyboardOffset.test.ts",
+      "sha256": "cb38c8a5971c02608c6caec860747ae9a99583bc018bda67bcfaf0e4b2891115",
+      "categories": [
+        "FE-baseline8"
+      ],
+      "git_filtered_blob": "051cae523a61137b0213987804793364f73cc2cc"
+    },
+    {
+      "path": "dashboard/src/locales/en.json",
+      "sha256": "6a3f6fdfe118f83586408aa663ea1ce61f2b6e4445decb2cd6441822141a2198",
+      "categories": [
+        "M3-v6"
+      ],
+      "git_filtered_blob": "dce71b53b857e67d73d299684a284ee2cb785819"
+    },
+    {
+      "path": "dashboard/src/locales/zh.json",
+      "sha256": "351011b3caef7a314838e5938c15e44fef06e4f86c0084407d8c9df8b17aebda",
+      "categories": [
+        "M3-v6"
+      ],
+      "git_filtered_blob": "5c11abef43f780fa899b273f71bf39923d70bdb1"
+    },
+    {
+      "path": "dashboard/src/pages/Agent/Skills/components/SkillDrawer.test.ts",
+      "sha256": "a3c41b47e70ccfad2abb4e1dbde1873d844b7811a8f0bf4a5b732dffe275b4db",
+      "categories": [
+        "FE-baseline8"
+      ],
+      "git_filtered_blob": "ea4f6ad5d01132acef21cfdcb0dced809cf8598b"
+    },
+    {
+      "path": "dashboard/src/pages/Agent/Skills/skillMarkdown.test.ts",
+      "sha256": "7a48fe8d8259bd10e71b741b6bd9b650d1d6790c45c9218c2f017ba3fd6b1c6d",
+      "categories": [
+        "FE-baseline8"
+      ],
+      "git_filtered_blob": "c962b9485986b26b76f29a70ea7fb9f750909ec9"
+    },
+    {
+      "path": "dashboard/src/pages/Chat/chatInputCore.partial.less",
+      "sha256": "2b1c087db41cf3359200bd18006531ea1e46832001b6ce1c1dbb3448937bbd80",
+      "categories": [
+        "FE-baseline8"
+      ],
+      "git_filtered_blob": "2f90d6797e9efca69721d3fb69f4475d8fa25881"
+    },
+    {
+      "path": "dashboard/src/pages/Chat/chatThemeOverrides.partial.less",
+      "sha256": "8a106d5c88b1efc0127ad9084e1bf0d1e4f5a6e9e97156f0b4952436cd8e4acc",
+      "categories": [
+        "FE-baseline8"
+      ],
+      "git_filtered_blob": "5b572742bfc3c66f4e2a5dfa1cd1315b117bc0c8"
+    },
+    {
+      "path": "dashboard/src/pages/Chat/utils/dockFilePath.privatePath.test.ts",
+      "sha256": "48eafc53cb4ea1fce66e0778c7ec3a98f3b5be3176df3f1813b738dcda99d4a1",
+      "categories": [
+        "FE-baseline8"
+      ],
+      "git_filtered_blob": "f135aa278850e14dece4d21226dd18c976eea93f"
+    },
+    {
+      "path": "dashboard/src/pages/Projects/ProjectDetail.test.tsx",
+      "sha256": "fe4eda7331b8f078be5ac58db1c1ef4bf22426f457a6491c2bf289afbfb8e542",
+      "categories": [
+        "M3-v6"
+      ],
+      "git_filtered_blob": "a80723e9c1df2b456af742ae8aaceb607f9b928a"
+    },
+    {
+      "path": "dashboard/src/pages/Projects/ProjectDetail.tsx",
+      "sha256": "2fe60619c999eeac492996f80c3d233a25e9bd42038fb110c1be27f8091903a9",
+      "categories": [
+        "M3-v6"
+      ],
+      "git_filtered_blob": "204f3c6ae0d28cac96bda6a19b31037fdd9db28c"
+    },
+    {
+      "path": "dashboard/src/pages/Projects/ProjectPlan.module.less",
+      "sha256": "06181bcaeafec3c68d289cb89753e254583fd9b5d3a5e24f3f88997080fb132b",
+      "categories": [
+        "M3-v6"
+      ],
+      "git_filtered_blob": "134103dfe1ff0ee65eb24baeb204e2e1283551c9"
+    },
+    {
+      "path": "dashboard/src/pages/Projects/ProjectPlan.test.tsx",
+      "sha256": "eabd40d990ff350a593d0d7ec77e5def956e100a7cd0a0dc41ab3a5b88bb3976",
+      "categories": [
+        "M3-v6"
+      ],
+      "git_filtered_blob": "6f16c2d27310b89923acde78f2869fffbbcfc6b1"
+    },
+    {
+      "path": "dashboard/src/pages/Projects/ProjectPlan.tsx",
+      "sha256": "4b76832f509ab18c2067fff24aea0ce88a5f7d0937a24293019a28e8a102cd39",
+      "categories": [
+        "M3-v6"
+      ],
+      "git_filtered_blob": "0b96d54f8a59f0be1a23b0b85efccb66fd8493b7"
+    },
+    {
+      "path": "dashboard/src/pages/Projects/ProjectTodoDetail.module.less",
+      "sha256": "4e2324580b185b3493f5f94cc6ec2e07b2712ad308fa39d5ec74af26523ff2cf",
+      "categories": [
+        "M3-v6"
+      ],
+      "git_filtered_blob": "997a0f02c50e42c033f64c61cdc6450e61dd1548"
+    },
+    {
+      "path": "dashboard/src/pages/Projects/ProjectTodoDetail.test.tsx",
+      "sha256": "33aa5e529ee94ffb09cbd1317f73c9965b8d3e0cf268f9f0072e1bce61dcc557",
+      "categories": [
+        "M3-v6"
+      ],
+      "git_filtered_blob": "d4c4aa942665bad0fa2c67a3eb8668d00ed82e23"
+    },
+    {
+      "path": "dashboard/src/pages/Projects/ProjectTodoDetail.tsx",
+      "sha256": "a735c18b5943cf51bde0153dd00fa1ba41e2b8595c9df176124456caeaf77656",
+      "categories": [
+        "M3-v6"
+      ],
+      "git_filtered_blob": "50b03ef873246171d8ebd93f05e1b1aa785ea19d"
+    },
+    {
+      "path": "dashboard/src/pages/Projects/TodoCatalogManager.test.tsx",
+      "sha256": "31326c024a5ca593ea9e4437010c3aa8b2f1d8027c1328037926e7dec2b8a1d4",
+      "categories": [
+        "M3-v6"
+      ],
+      "git_filtered_blob": "855f3a587fcf4eaceea9ec5a9b91782d645ab96f"
+    },
+    {
+      "path": "dashboard/src/pages/Projects/TodoCatalogManager.tsx",
+      "sha256": "127f77e0cb6d45632fed4625e847afd6357350f9db2e7413eadde53ecc0200b3",
+      "categories": [
+        "M3-v6"
+      ],
+      "git_filtered_blob": "9ac31b74752187ae9aa344fe7bf94fd88eccee22"
+    },
+    {
+      "path": "dashboard/src/pages/Projects/TodoFields.module.less",
+      "sha256": "e2723960dbadeda86e74aee6302a70a58bc30de4abe02c6cc3f54995262b52d0",
+      "categories": [
+        "M3-v6"
+      ],
+      "git_filtered_blob": "c958dcf49e9a90d214d18d4d083af676b5628b53"
+    },
+    {
+      "path": "dashboard/src/pages/Projects/TodoFields.test.tsx",
+      "sha256": "0413cf2ab17d1788f0dd66a0acd023ea82a732a398bf0942779bad771c8ef1de",
+      "categories": [
+        "M3-v6"
+      ],
+      "git_filtered_blob": "fe9262faca799e341f510dc3bf46b7057e46a535"
+    },
+    {
+      "path": "dashboard/src/pages/Projects/TodoFields.tsx",
+      "sha256": "18b58fcab850b841807e713c2f98122c7653488f002575b28ca5bd33983b5dd1",
+      "categories": [
+        "M3-v6"
+      ],
+      "git_filtered_blob": "79392204fb4b92b0d31b46278f66a65312f33a7c"
+    },
+    {
+      "path": "dashboard/src/pages/Projects/planDates.test.ts",
+      "sha256": "360ec589c1a029df8e81dbe24bf7da236b19dc9db6b2f2e760f83c54e064a71f",
+      "categories": [
+        "M3-v6"
+      ],
+      "git_filtered_blob": "9c4425ad2c93d89225d45c00dde41bd59d08dce5"
+    },
+    {
+      "path": "dashboard/src/pages/Projects/planDates.ts",
+      "sha256": "2c7ae96c9a15323189294fbaa2a285f814dfa8ddb61207e25b75f9b10a134dd4",
+      "categories": [
+        "M3-v6"
+      ],
+      "git_filtered_blob": "8eef718d83cf55390cfca6f9e8383cb4505fad1a"
+    },
+    {
+      "path": "dashboard/src/pages/Projects/todoCatalog.testFixtures.ts",
+      "sha256": "7d3bd39e1ed523a398de59c7e0490d134eb57ae53ce22ddfdb70bd8253854213",
+      "categories": [
+        "M3-v6"
+      ],
+      "git_filtered_blob": "6701b6ffb9c373902eacf6ed37f989879d32b9a4"
+    },
+    {
+      "path": "dashboard/src/pages/Projects/useTodoCatalog.ts",
+      "sha256": "f9078c68779ed188e2f79f9f35eff5f4e5b8c023a8f5ec0a2a3eaa4650ac0eff",
+      "categories": [
+        "M3-v6"
+      ],
+      "git_filtered_blob": "28f4a1ab0839d40f61ed3ded2536fb4f119efc7e"
+    },
+    {
+      "path": "src/octop/api/app.py",
+      "sha256": "6e77e5ea787a0205cadcdc953c31ecfc3059938898b1fd2e129da19c449ebe13",
+      "categories": [
+        "M2-perf-v2"
+      ],
+      "git_filtered_blob": "1bb3102b0875965e676029fd18f02e1887dbc5eb"
+    },
+    {
+      "path": "src/octop/api/routers/project_activity.py",
+      "sha256": "9a1da4281c0b7d206f54603dbf59c1632e5ce66f1048bcc26527444cdec91269",
+      "categories": [
+        "M2-perf-v2"
+      ],
+      "git_filtered_blob": "91b9a8480ef052046197fa08f9af9f1c4eea1575"
+    },
+    {
+      "path": "src/octop/api/routers/project_todo_catalog.py",
+      "sha256": "3b8531eb719194b16eb130ae6f3dc0560a4209d6d083e10de8682025ba26cfa5",
+      "categories": [
+        "M2-perf-v2"
+      ],
+      "git_filtered_blob": "2048366a283051fe1c7d53d48833e8a58da3491d"
+    },
+    {
+      "path": "src/octop/api/routers/project_todos.py",
+      "sha256": "c891a5c694588817808ce281b295a3ad37c9866bad2f49dbbd613851024610cf",
+      "categories": [
+        "M2-perf-v2"
+      ],
+      "git_filtered_blob": "28717f2f90d390ea00c0d005b7c09326a1af020c"
+    },
+    {
+      "path": "src/octop/i18n/en.json",
+      "sha256": "e9d9bea8812d7f84548558f36b7fb7c5943f281f9a0733094768e7ff3d0fec2c",
+      "categories": [
+        "M2-perf-v2"
+      ],
+      "git_filtered_blob": "bc3f840f190ccf4b594e7145b8b90bc173260310"
+    },
+    {
+      "path": "src/octop/i18n/zh.json",
+      "sha256": "0b5055b27008a294890714f829315bead9d6df069aee0d8ebb54e4fbcdbec45c",
+      "categories": [
+        "M2-perf-v2"
+      ],
+      "git_filtered_blob": "bd57dc7a2014946d4f228986cc95629b6ea14317"
+    },
+    {
+      "path": "src/octop/infra/backup/system_archive.py",
+      "sha256": "89b14a5893d2e8f14e72874af7082a5f28df59b2ea65c5bd44fa5e54f941c61f",
+      "categories": [
+        "Backup-v2"
+      ],
+      "git_filtered_blob": "87df9f1e440d7be2174e69d16af5e5595854e304"
+    },
+    {
+      "path": "src/octop/infra/db/migrate.py",
+      "sha256": "6bcc273b24a8714de56f261f2e0e295e2db6a7e82672fba67ba88db27819c5a0",
+      "categories": [
+        "M1-v2"
+      ],
+      "git_filtered_blob": "613d3725c1723456e7618beace6081d4d314a894"
+    },
+    {
+      "path": "src/octop/infra/db/migrations/034_project_todo_fields.pg.sql",
+      "sha256": "fe5d984e410537045411fb956bd2fcb987cd946cdde0aed9a57e7fe62c1bec75",
+      "categories": [
+        "M1-v2"
+      ],
+      "git_filtered_blob": "bc30860750512983f0f9e3bc350bb78ac07a4f3a"
+    },
+    {
+      "path": "src/octop/infra/db/migrations/034_project_todo_fields.sql",
+      "sha256": "17d34f916a0b431debbb77337c80f99105c546d9fe74c853525d9d3249bf2b8a",
+      "categories": [
+        "M1-v2"
+      ],
+      "git_filtered_blob": "4f2e5ab8d5bba4a91d7c9b44ffcc470631a8a55b"
+    },
+    {
+      "path": "src/octop/infra/db/project_plan_seed.py",
+      "sha256": "e826dc2551cb1a5b3f43480c78a046d70d66666cbecb8168ce36b86497514749",
+      "categories": [
+        "M1-v2"
+      ],
+      "git_filtered_blob": "8f4c48afd490a5f34d1ccf8718791269ddbe60b0"
+    },
+    {
+      "path": "src/octop/infra/db/repos/project_activity.py",
+      "sha256": "8650e0fc3c267a99896ef942d3c6d85f31f97dc5c1583f6569bdc224d53c4fbb",
+      "categories": [
+        "M2-perf-v2"
+      ],
+      "git_filtered_blob": "0c4189bfed0eb4af048927cfc5f092e96c38ee77"
+    },
+    {
+      "path": "src/octop/infra/db/repos/project_plan_locks.py",
+      "sha256": "01cf214b4058a0ad7c9ca7c7c9bd3aa7c9387845de4f2ae234378063e68e10e8",
+      "categories": [
+        "M2-perf-v2"
+      ],
+      "git_filtered_blob": "657cd359bfea02849e99770043808887bc34be74"
+    },
+    {
+      "path": "src/octop/infra/db/repos/project_todo_catalog.py",
+      "sha256": "150c87d7d38b4e7bf4e8fffacb85396ac4a849e530e9e0d688dac7727c4e0af7",
+      "categories": [
+        "M2-perf-v2"
+      ],
+      "git_filtered_blob": "75340570823460e917c6c9ca13086d5bb02d294b"
+    },
+    {
+      "path": "src/octop/infra/db/repos/project_todos.py",
+      "sha256": "2eb85473214dba211f0a71992216d7139b0057c5c5d45f6f80bb0e8650d608fc",
+      "categories": [
+        "M2-perf-v2"
+      ],
+      "git_filtered_blob": "c9f746999b0bbd314b578f1e763976e46cabc801"
+    },
+    {
+      "path": "src/octop/infra/db/repos/projects.py",
+      "sha256": "400e9ab71d4cb275ca7c3505c510e53d5f8774563486db308af3c3473eed599b",
+      "categories": [
+        "M2-perf-v2"
+      ],
+      "git_filtered_blob": "ea65932036557db5df646ef911dce52497421b42"
+    },
+    {
+      "path": "src/octop/infra/db/services.py",
+      "sha256": "ef576cd449dd3f5c839bc446e140d49b65951b0d16711f856f24ec6923ba65d7",
+      "categories": [
+        "M2-perf-v2"
+      ],
+      "git_filtered_blob": "9ef54bc9fa93b7051bec6443395fdfc85cc41e40"
+    },
+    {
+      "path": "src/octop/infra/projects/activity.py",
+      "sha256": "92824f36664f215e2dac53bb4eba9283036e4b21443baa14b1a01334cc40de4e",
+      "categories": [
+        "M2-perf-v2"
+      ],
+      "git_filtered_blob": "dc997a6bed4d5b55ccb9f721e24f414ac1829720"
+    },
+    {
+      "path": "src/octop/infra/projects/todo_catalog.py",
+      "sha256": "aad530ea2d186e21fd767380ee103de1aea454511ff20af4a06f162a390a3a2c",
+      "categories": [
+        "M2-perf-v2"
+      ],
+      "git_filtered_blob": "ee2e7b245e3129266fcb2d9c302b4b186f4f2780"
+    },
+    {
+      "path": "src/octop/infra/projects/todos.py",
+      "sha256": "e9b8660ab0f95d8614eb938016193cd5932c56a2df57b6a30b04d1b08b368973",
+      "categories": [
+        "M2-perf-v2"
+      ],
+      "git_filtered_blob": "89e5b92968122b2bc5e85d6a2893ae4b200bd3af"
+    },
+    {
+      "path": "tests/integration/test_project_todo_catalog_api.py",
+      "sha256": "3873ecb6c105638f4fbbf09c545efc354e1f39716f53fb722a20460e7bd97491",
+      "categories": [
+        "M2-perf-v2"
+      ],
+      "git_filtered_blob": "d270105a7add9bfc43aba8435e84133b174adbf7"
+    },
+    {
+      "path": "tests/integration/test_project_todo_fields_api.py",
+      "sha256": "03d0a4f18e3ed8341951f888f7b4114ee69e596eaeb0848032c3894c146a5d3a",
+      "categories": [
+        "M2-perf-v2"
+      ],
+      "git_filtered_blob": "60d9c02a43cc0659636897cc17447d96c2a15c13"
+    },
+    {
+      "path": "tests/integration/test_project_todo_fields_backup_failure_pg.py",
+      "sha256": "d09e010087e7ccefd90d4443d1be600f233a27abf46562eee99bef1f2712c3d6",
+      "categories": [
+        "Backup-v2"
+      ],
+      "git_filtered_blob": "0b792bb6c6e06fe31dd32baecd66676caa50a3fb"
+    },
+    {
+      "path": "tests/integration/test_project_todo_fields_pg.py",
+      "sha256": "9a03a0507111242051db59105e815322a309241fa2d1fbe6da0a2ec01501e5b3",
+      "categories": [
+        "Root-real-SQLite-PG"
+      ],
+      "git_filtered_blob": "d53015e0d74582aff164bb9f5728f69ba1c9c728"
+    },
+    {
+      "path": "tests/integration/test_project_todos_api.py",
+      "sha256": "16e0296aa6fff5f2048a7826368ab8ffba91aea3ff972830404abb550e8d0606",
+      "categories": [
+        "M2-perf-v2"
+      ],
+      "git_filtered_blob": "c692ef137180e3adb4187fff46580abcfbf69a62"
+    },
+    {
+      "path": "tests/unit/backup/test_project_todo_fields_archive.py",
+      "sha256": "192d0526f595d332631e28ace0b0b559353dc4ee163bfc8ddb58408134b0160e",
+      "categories": [
+        "Root-real-SQLite-PG"
+      ],
+      "git_filtered_blob": "06ee1413a854c5a3de7d9704d115ee9143d2ebb7"
+    },
+    {
+      "path": "tests/unit/backup/test_project_todo_fields_archive_failure.py",
+      "sha256": "4a6ed69f580f5f15ac564fbdf102fdab59b9e7fb0f3b46c4d249be51bdca667e",
+      "categories": [
+        "Backup-v2"
+      ],
+      "git_filtered_blob": "208370dbef5964f4f7e0d2a9ebcc370232bd3440"
+    },
+    {
+      "path": "tests/unit/backup/test_project_todo_fields_recovery_preimages.py",
+      "sha256": "2709e67fc1660a8597b46906c7418a1bc4e32ec5f588c28ee3700e138fd0c015",
+      "categories": [
+        "Backup-v2"
+      ],
+      "git_filtered_blob": "bf78a2983bb36f992f5408ce69b34ca5ae251239"
+    },
+    {
+      "path": "tests/unit/backup/test_system_archive.py",
+      "sha256": "4fd5dcc7e3fd7f6773633e10c5103bd139177187cf9c7e116bffd12e803a6d9a",
+      "categories": [
+        "Backup-v2"
+      ],
+      "git_filtered_blob": "ad17cd489583049967e617ce1254304d9831b36f"
+    },
+    {
+      "path": "tests/unit/db/repos/test_project_todo_fields_batch_reads.py",
+      "sha256": "36f73d957204a54b8abbcc50a609fe6578fd2fd5a9a3261a52939e16ca9e8f75",
+      "categories": [
+        "M2-perf-v2"
+      ],
+      "git_filtered_blob": "b3918768a2eef50cf7d44633cb211480b7b1959e"
+    },
+    {
+      "path": "tests/unit/db/test_project_todo_catalog.py",
+      "sha256": "9cb3c76b3bfd9b8374de65869146f8ca35c0a5a24d7f225289e3d2998d74ee4d",
+      "categories": [
+        "M2-perf-v2"
+      ],
+      "git_filtered_blob": "f2530b5d264ae9dab56b64b0cfaf9fff02878caa"
+    },
+    {
+      "path": "tests/unit/db/test_project_todo_comments.py",
+      "sha256": "02808fcfa0658138411ac7b5830e0cec63ad4c82de69b4d710c9c6f6773f0dae",
+      "categories": [
+        "M1-v2"
+      ],
+      "git_filtered_blob": "eddee57db60280a9192375822b8a6d5d51cfc19f"
+    },
+    {
+      "path": "tests/unit/db/test_project_todo_fields_migration.py",
+      "sha256": "ab1b6e522da0d5ac5e6ed0c5c7e4cceecf448a2bae9828c5ab161d41a6a31051",
+      "categories": [
+        "M1-v2"
+      ],
+      "git_filtered_blob": "a7c2e0eac2026c01a3407d913b74525ab5a0df94"
+    },
+    {
+      "path": "tests/unit/db/test_project_todos.py",
+      "sha256": "4428fcfc83400008a45755c7c6851f00b708b2dd31f7bbd1fffe8d61c80a1544",
+      "categories": [
+        "M2-perf-v2"
+      ],
+      "git_filtered_blob": "6515e384f22be8b23acf73e8b6cc1daa7518ecf3"
+    }
+  ],
+  "readonly_context": {
+    "dashboard/src/components/PdfDocumentPreview.tsx": "54ef7f3b3562ad8b31b349297fc1c83b0f59db99851dd0ce0c32f11083da7d8d",
+    "dashboard/src/components/DocumentPreviewCore.tsx": "4371dfe385d4f5cdcc673448bee2d31db93195f3ff07f675e0d8573f117367a2",
+    "dashboard/src/pages/Agent/Skills/components/SkillDrawer.tsx": "5635b12a2340b3e3d575318e4afd72e78d85fb928f6ea365e99fd1fbb6d98c61",
+    "dashboard/src/api/modules/publishedExperts.ts": "2f1e6f0af8ee21fa00807dba163ce12b5c1fa4f50ad9cde18716d73285b0d2df",
+    "dashboard/vitest.config.ts": "6e16d8006847e2b4c5597b5df80671158a6f9699da36ebb109c05cd446ff373b",
+    "dashboard/src/test/setup.ts": "e4cfe1900428ba53d0b603a23a6e5e891553afb8a1aa656a70eb08fc72f3767b"
+  },
+  "qa_root": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\qa-ps04c-20260928",
+  "gate_results": [
+    {
+      "role": "BE",
+      "path_relative_to_qa": "ship/backend-attempt-4/backend-result.json",
+      "sha256": "9f15c6577e51fe63ac416858aef8f82f2d8cbf8321008c062f3736ccb915639a",
+      "decision_key": "state",
+      "decision": "PASS"
+    },
+    {
+      "role": "FE",
+      "path_relative_to_qa": "ship/frontend-attempt-7/frontend-result.json",
+      "sha256": "96f685204e5bfbdd775e37a11cff3602b5f0929fd649a8bb776716836df11f3d",
+      "decision_key": "state",
+      "decision": "PASS"
+    },
+    {
+      "role": "PG",
+      "path_relative_to_qa": "pg/c1-attempt-3/gate-result.json",
+      "sha256": "8c590989694f486e7ecb2184cf2bd5214bbaca386df4f0c44a3cdf3993c337f9",
+      "decision_key": "state",
+      "decision": "PASSED"
+    },
+    {
+      "role": "PG_CLUSTER",
+      "path_relative_to_qa": "pg/c1-attempt-3/cluster-result.json",
+      "sha256": "fbdfe95926d47e0e321d2437ff8476035eca2cfaca077afd1e2ddcacc7e0e85a",
+      "decision_key": "state",
+      "decision": "STOPPED"
+    },
+    {
+      "role": "BROWSER",
+      "path_relative_to_qa": "browser/browser-pg-attempt-13/command-result.json",
+      "sha256": "9773433ae133e7052f64f25bd6fec1951cacdc7b6bb2f70e43a618f2be65cbbc",
+      "decision_key": "state",
+      "decision": "PASS"
+    },
+    {
+      "role": "BROWSER_JOURNEY",
+      "path_relative_to_qa": "browser/browser-pg-attempt-13/journey/result.json",
+      "sha256": "43bea24401a06f2b154d42af1a12f68fe2bbfebe3c9dde8c60a05710e6ebc179",
+      "decision_key": "state",
+      "decision": "PASS_BROWSER_TCP_JOURNEY"
+    },
+    {
+      "role": "BROWSER_CLUSTER",
+      "path_relative_to_qa": "pg/browser-cluster-attempt-13/cluster-result.json",
+      "sha256": "4565498dbf7ba42edf9e2d0455c1df669fcf0b185207c1b7900aed5e9ea25eac",
+      "decision_key": "state",
+      "decision": "STOPPED"
+    },
+    {
+      "role": "M3_SPEC",
+      "path_relative_to_qa": "m3/spec-review-v6/review-result.json",
+      "sha256": "76326a2eb3075446ed87cd4650de458270cc0e6249d62e1139ab8ef8fbd55817",
+      "decision_key": "status",
+      "decision": "SPEC_PASS"
+    },
+    {
+      "role": "M3_QUALITY",
+      "path_relative_to_qa": "m3/quality-review-v6/review-result.json",
+      "sha256": "eb3cf45cd158b0ea096cdf636607c1ec7ff44a89525a03c178bc8c76ddcacd26",
+      "decision_key": "state",
+      "decision": "QUALITY_PASS"
+    }
+  ],
+  "commands": {
+    "BE": [
+      {
+        "name": "ruff-check",
+        "argv": [
+          "/home/canqu/.local/bin/uv",
+          "run",
+          "--no-sync",
+          "ruff",
+          "check",
+          "src",
+          "tests"
+        ],
+        "exit_code": 0,
+        "seconds": 2.089
+      },
+      {
+        "name": "ruff-format-check",
+        "argv": [
+          "/home/canqu/.local/bin/uv",
+          "run",
+          "--no-sync",
+          "ruff",
+          "format",
+          "--check",
+          "src",
+          "tests"
+        ],
+        "exit_code": 0,
+        "seconds": 2.094
+      },
+      {
+        "name": "mypy",
+        "argv": [
+          "/home/canqu/.local/bin/uv",
+          "run",
+          "--no-sync",
+          "mypy",
+          "src/octop"
+        ],
+        "exit_code": 0,
+        "seconds": 39.596
+      },
+      {
+        "name": "pytest-default",
+        "argv": [
+          "/home/canqu/.local/bin/uv",
+          "run",
+          "--no-sync",
+          "pytest",
+          "-n",
+          "auto",
+          "-m",
+          "not live",
+          "-p",
+          "failure_capture_plugin",
+          "--basetemp",
+          "/tmp/p4c-rzpse1x4/t",
+          "-o",
+          "cache_dir=/tmp/p4c-rzpse1x4/c"
+        ],
+        "exit_code": 0,
+        "seconds": 3007.794
+      }
+    ],
+    "FE": [
+      {
+        "name": "frontend-eslint",
+        "argv": [
+          "C:\\Program Files\\nodejs\\node.exe",
+          "node_modules/eslint/bin/eslint.js",
+          "."
+        ],
+        "exit_code": 0,
+        "seconds": 19.871
+      },
+      {
+        "name": "frontend-prettier",
+        "argv": [
+          "C:\\Program Files\\nodejs\\node.exe",
+          "node_modules/prettier/bin/prettier.cjs",
+          "--check",
+          ".",
+          "--end-of-line",
+          "auto"
+        ],
+        "exit_code": 0,
+        "seconds": 24.312
+      },
+      {
+        "name": "frontend-tsc",
+        "argv": [
+          "C:\\Program Files\\nodejs\\node.exe",
+          "node_modules/typescript/bin/tsc",
+          "-b"
+        ],
+        "exit_code": 0,
+        "seconds": 48.145
+      },
+      {
+        "name": "frontend-vitest",
+        "argv": [
+          "C:\\Program Files\\nodejs\\node.exe",
+          "node_modules/vitest/vitest.mjs",
+          "run",
+          "--maxWorkers",
+          "2"
+        ],
+        "exit_code": 0,
+        "seconds": 821.93
+      },
+      {
+        "name": "frontend-isolated-build",
+        "argv": [
+          "C:\\Program Files\\nodejs\\node.exe",
+          "node_modules/vite/bin/vite.js",
+          "build",
+          "--outDir",
+          "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\qa-ps04c-20260928\\ship\\frontend-attempt-7\\dashboard-build"
+        ],
+        "exit_code": 0,
+        "seconds": 161.275
+      }
+    ]
+  },
+  "supplemental_evidence": [
+    {
+      "path_relative_to_qa": "quality-review/m1-r1-independent-memory-20260928.md",
+      "sha256": "26ef1746f6efadc6008bd5c24f2eb343029ce4b3a67951558ca8c9ee3da77cd5"
+    },
+    {
+      "path_relative_to_qa": "m2/spec-review-v2/result.json",
+      "sha256": "e6b621efeb7327eabe7336d73c82041e58aec516e98555f1bf3dc76b1d996f08"
+    },
+    {
+      "path_relative_to_qa": "m2/quality-review-v2/QUALITY_REVIEW.md",
+      "sha256": "7d23e28f82bef13414e42ee8fc4c5309d0ba2962a02f243fb606da3a286ef500"
+    },
+    {
+      "path_relative_to_qa": "m1/backup-fix/spec-review-v2/result.json",
+      "sha256": "8730a841eb5e6e0d812840c2e4eb9fb8af45349109c44754e5d046d301b51abb"
+    },
+    {
+      "path_relative_to_qa": "m1/backup-fix/quality-review-v2/result.json",
+      "sha256": "183e08af3f385e025bda9e290dcf8bde2766ed769aa8422ed48285163fbd1d0d"
+    },
+    {
+      "path_relative_to_qa": "ship/baseline-repair-review/BASELINE_REPAIR_REVIEW.md",
+      "sha256": "4ec9e9db92ec4a9c65734f0dd7be663eeee126b7dc885ebfddf8788e8a0e0361"
+    },
+    {
+      "path_relative_to_qa": "m3/spec-review-v6/artifacts-sha256.json",
+      "sha256": "912e43db183630822a62fb28adbde358ceb180ac07523ea2ae9f11565b3e6f2f"
+    },
+    {
+      "path_relative_to_qa": "m3/quality-review-v6/QUALITY_REVIEW.md",
+      "sha256": "d3ce66de32b981b27c7cbd3c302a47edb4a7a714792ee8e9e999ca0eab08b709"
+    },
+    {
+      "path_relative_to_qa": "browser/deleted-plan-notice-qa-correction/qa-change.json",
+      "sha256": "7039b4b07b73a65fc2502eab5324127cdb3b16e230c33860e5a3afdd2cdf964a"
+    },
+    {
+      "path_relative_to_qa": "browser/deleted-plan-notice-qa-correction/QA_NOTICE_BASIS_CORRECTION.md",
+      "sha256": "90d195736b6104e92402502fc919f8d722b9fbdfc96f6894a318ad602f4ca6ed"
+    }
+  ],
+  "counts": {
+    "backend": {
+      "passed": 4854,
+      "skipped": 45,
+      "warnings": 47,
+      "mypy_source_files": 551
+    },
+    "frontend": {
+      "files_passed": 236,
+      "tests_passed": 1686
+    },
+    "postgresql": {
+      "tests_passed": 20,
+      "distinct_databases": 20,
+      "cleanup_verified": true
+    },
+    "browser": {
+      "phases_passed": 21,
+      "strict_geometry_measurements": 25,
+      "geometry_failures": 0
+    },
+    "m3_quality_fresh": {
+      "react_antd_scenarios_passed": 14,
+      "date_checks_passed": 4890
+    }
+  },
+  "final_integration": {
+    "state_at_document_freeze": "PENDING_INDEPENDENT_FINAL_REVIEW",
+    "report_relative_to_qa": "ship/c1-integrated-review-final/review-result.json",
+    "required_decision_before_commit": "C1_INTEGRATION_PASS",
+    "final_report_hash_is_bound_in_external_commit_gate": true
+  },
+  "release": {
+    "target_remote": "xiongbao",
+    "target_ref": "refs/heads/main",
+    "state_at_document_freeze": "NOT_YET_COMMITTED_OR_PUSHED",
+    "result_relative_to_qa": "ship/c1-publish-result.json"
+  },
+  "boundaries": {
+    "platform_equivalent_commands": true,
+    "legacy_make_invoked": false,
+    "external_ps04c_cli_jobs_created": false,
+    "glm_review": "PENDING",
+    "c2_business": "NOT_STARTED",
+    "workbuddy_pixel_acceptance": "NOT_VERIFIED",
+    "real_os_clipboard": "NOT_VERIFIED",
+    "real_customer_accounts": "NOT_USED",
+    "paid_providers": "NOT_CALLED",
+    "packaging_or_deployment": "NOT_PERFORMED",
+    "whole_project_space_double_acceptance": "0/11",
+    "project_task_files_mode": "False/NO-GO"
+  }
+}

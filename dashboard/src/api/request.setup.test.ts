@@ -92,4 +92,21 @@ describe("setup lockdown handling", () => {
     );
     expect(replace).not.toHaveBeenCalled();
   });
+
+  it("does not let an old account lockdown response clear the new login", async () => {
+    let finish!: (response: Response) => void;
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const outcome = expect(mod.request("/projects/p1/todos")).rejects.toThrow();
+    mod.setAuthToken("account-b-token");
+    finish(setupRequiredResponse());
+    await outcome;
+    expect(mod.getAuthToken()).toBe("account-b-token");
+    expect(mod.isSetupRequiredKnown()).toBe(false);
+    expect(replace).not.toHaveBeenCalled();
+  });
 });

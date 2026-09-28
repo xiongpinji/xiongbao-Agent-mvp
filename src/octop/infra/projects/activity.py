@@ -62,6 +62,11 @@ class ActivityItemView:
     object_id: str | None
     message_body: str | None
     created_at: int
+    fields: tuple[str, ...] = ()
+    catalog_revision: int | None = None
+    catalog_kind: str | None = None
+    option_id: str | None = None
+    action: str | None = None
 
 
 @dataclass(frozen=True)
@@ -139,6 +144,11 @@ def activity_item_view(row: ActivityRow) -> ActivityItemView | None:
         object_id=None if row.object_kind == "member" else row.object_id,
         message_body=row.message_body,
         created_at=row.created_at,
+        fields=row.fields,
+        catalog_revision=row.catalog_revision,
+        catalog_kind=row.catalog_kind,
+        option_id=row.option_id,
+        action=row.action,
     )
 
 

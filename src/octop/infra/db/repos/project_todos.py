@@ -4,8 +4,8 @@ Authorization policy lives in ``octop.infra.projects.todos``; this module only
 enforces what must be race-safe. Every mutation re-checks membership/role and
 the optimistic ``version`` inside the same transaction, so a stale role or a
 concurrent edit can never win. On PostgreSQL the membership/todo rows are
-locked with ``FOR UPDATE`` (lock order: memberships → todos, matching
-``ProjectRepo.remove_member``); SQLite's ``BEGIN IMMEDIATE`` writer already
+locked with ``FOR UPDATE`` (memberships → project → catalog → sorted todos,
+matching ``ProjectRepo.remove_member``); SQLite's ``BEGIN IMMEDIATE`` writer already
 serializes writes. Events carry ids, changed field names, and status/assignee
 values only — never title/description text.
 """
@@ -13,12 +13,15 @@ values only — never title/description text.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any
 
 from octop.infra.db.pool import DatabasePool
-from octop.infra.db.repos._base import UNSET, DbRow, map_rows, now_ts
+from octop.infra.db.repos import project_plan_locks as locks
+from octop.infra.db.repos._base import UNSET, DbRow, now_ts
 from octop.infra.utils.ulid import new_ulid
 
 EVENT_TODO_CREATED = "project.todo_created"
@@ -29,7 +32,8 @@ MANAGER_ROLES = ("owner", "admin")
 
 _TODO_COLUMNS = (
     "todo_id, project_id, creator_user_id, assignee_user_id, title, description, "
-    "description_format, status, version, created_at, updated_at, deleted_at"
+    "description_format, status, version, created_at, updated_at, deleted_at, "
+    "start_date, due_date, priority_id"
 )
 _TODO_SELECT = f"SELECT {_TODO_COLUMNS} FROM project_todos "
 
@@ -48,9 +52,14 @@ class ProjectTodoRow:
     created_at: int
     updated_at: int
     deleted_at: int | None
+    start_date: str | None
+    due_date: str | None
+    priority_id: str | None
+    tag_ids: list[str]
+    catalog_revision: int
 
     @classmethod
-    def from_row(cls, row: DbRow) -> ProjectTodoRow:
+    def from_row(cls, row: DbRow, *, tag_ids: list[str], catalog_revision: int) -> ProjectTodoRow:
         return cls(
             todo_id=str(row["todo_id"]),
             project_id=str(row["project_id"]),
@@ -66,6 +75,11 @@ class ProjectTodoRow:
             created_at=int(row["created_at"]),
             updated_at=int(row["updated_at"]),
             deleted_at=None if row["deleted_at"] is None else int(row["deleted_at"]),
+            start_date=None if row["start_date"] is None else str(row["start_date"]),
+            due_date=None if row["due_date"] is None else str(row["due_date"]),
+            priority_id=None if row["priority_id"] is None else str(row["priority_id"]),
+            tag_ids=tag_ids,
+            catalog_revision=catalog_revision,
         )
 
 
@@ -146,19 +160,10 @@ class ProjectTodoRepo:
         and todo locks in opposite orders on PostgreSQL. Sorting also avoids
         two writers deadlocking when each assigns a todo to the other actor.
         """
-        roles: dict[int, str] = {}
-        for user_id in sorted(set(user_ids)):
-            row = conn.execute(
-                "SELECT role FROM project_members WHERE project_id = ? AND user_id = ?"
-                + self._lock_suffix(),
-                (project_id, user_id),
-            ).fetchone()
-            if row is not None:
-                roles[user_id] = str(row["role"])
-        return roles
+        return locks.member_roles(self._db, conn, project_id, user_ids, write=True)
 
     def _select_todo(
-        self, conn: Any, project_id: str, todo_id: str, *, lock: bool
+        self, conn: Any, project_id: str, todo_id: str, *, lock: bool, catalog_revision: int
     ) -> ProjectTodoRow | None:
         row = conn.execute(
             _TODO_SELECT
@@ -166,12 +171,116 @@ class ProjectTodoRepo:
             + (self._lock_suffix() if lock else ""),
             (project_id, todo_id),
         ).fetchone()
-        return ProjectTodoRow.from_row(row) if row is not None else None
+        return self._row_with_refs(conn, row, catalog_revision) if row is not None else None
+
+    @staticmethod
+    def _row_with_refs(conn: Any, row: DbRow, revision: int) -> ProjectTodoRow:
+        tags = conn.execute(
+            "SELECT tag_id FROM project_todo_tag_links WHERE project_id = ? AND todo_id = ? "
+            "ORDER BY tag_id",
+            (row["project_id"], row["todo_id"]),
+        ).fetchall()
+        return ProjectTodoRow.from_row(
+            row, tag_ids=[str(tag["tag_id"]) for tag in tags], catalog_revision=revision
+        )
+
+    def _read_revision(self, conn: Any, project_id: str, user_id: int | None) -> int | None:
+        if user_id is not None and user_id not in locks.member_roles(
+            self._db, conn, project_id, [user_id], write=False
+        ):
+            return None
+        if locks.project_row(self._db, conn, project_id, write=False) is None:
+            return None
+        return locks.catalog_revision(self._db, conn, project_id, write=False)
+
+    def _catalog_locked(self, conn: Any, project_id: str) -> tuple[int, list[Any], list[Any]]:
+        if locks.project_row(self._db, conn, project_id, write=True) is None:
+            raise _TodoConflict("not_member")
+        revision = locks.catalog_revision(self._db, conn, project_id, write=True)
+        priorities, tags = locks.catalog_items(self._db, conn, project_id)
+        return revision, priorities, tags
+
+    @staticmethod
+    def _check_catalog_revision(revision: int, expected: Any) -> None:
+        if expected is UNSET:
+            return
+        if isinstance(expected, bool) or not isinstance(expected, int) or expected < 1:
+            raise _TodoConflict("invalid_catalog_revision")
+        if expected != revision:
+            raise _TodoConflict("catalog_stale")
+
+    @staticmethod
+    def _check_references(
+        priorities: list[Any],
+        tags: list[Any],
+        priority_id: Any,
+        tag_ids: Any,
+        current: ProjectTodoRow | None = None,
+    ) -> list[str]:
+        if priority_id is not UNSET and priority_id is not None:
+            priority = next((row for row in priorities if row["priority_id"] == priority_id), None)
+            if priority is None or (
+                priority["archived_at"] is not None
+                and (current is None or current.priority_id != priority_id)
+            ):
+                raise _TodoConflict("invalid_priority")
+        if tag_ids is UNSET:
+            return [] if current is None else current.tag_ids
+        if not isinstance(tag_ids, (list, tuple)) or any(
+            not isinstance(value, str) or not value or len(value) > 64 for value in tag_ids
+        ):
+            raise _TodoConflict("invalid_tags")
+        requested = sorted(set(tag_ids))
+        if len(requested) > 20:
+            raise _TodoConflict("invalid_tags")
+        existing = set(current.tag_ids) if current is not None else set()
+        options = {str(row["tag_id"]): row for row in tags}
+        for tag_id in requested:
+            option = options.get(tag_id)
+            if option is None or (option["archived_at"] is not None and tag_id not in existing):
+                raise _TodoConflict("invalid_tags")
+        return requested
+
+    @staticmethod
+    def _check_dates(start: Any, due: Any, current_due: str | None, timezone: str) -> None:
+        for value in (start, due):
+            if value is None:
+                continue
+            if (
+                not isinstance(value, str)
+                or re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value) is None
+            ):
+                raise _TodoConflict("invalid_dates")
+            try:
+                parsed = date.fromisoformat(value)
+            except ValueError:
+                raise _TodoConflict("invalid_dates") from None
+            if parsed.year < 1900:
+                raise _TodoConflict("invalid_dates")
+        if start is not None and due is not None and start > due:
+            raise _TodoConflict("invalid_dates")
+        if due is not None and due != current_due and due < locks.server_today(timezone):
+            raise _TodoConflict("invalid_dates")
+
+    @staticmethod
+    def _replace_tags(conn: Any, project_id: str, todo_id: str, tag_ids: list[str]) -> None:
+        conn.execute(
+            "DELETE FROM project_todo_tag_links WHERE project_id = ? AND todo_id = ?",
+            (project_id, todo_id),
+        )
+        for tag_id in tag_ids:
+            conn.execute(
+                "INSERT INTO project_todo_tag_links(project_id,todo_id,tag_id) VALUES (?,?,?)",
+                (project_id, todo_id, tag_id),
+            )
 
     def _diagnose(self, conn: Any, project_id: str, todo_id: str) -> str:
         """Classify a failed guarded UPDATE: gone/deleted → missing, else stale."""
-        todo = self._select_todo(conn, project_id, todo_id, lock=False)
-        if todo is None or todo.deleted_at is not None:
+        todo = conn.execute(
+            "SELECT deleted_at FROM project_todos WHERE project_id = ? AND todo_id = ?",
+            (project_id, todo_id),
+        ).fetchone()
+        if todo is None or todo["deleted_at"] is not None:
             return "missing"
         return "stale"
 
@@ -188,25 +297,31 @@ class ProjectTodoRepo:
 
     # ------------------------------------------------------------ read paths
 
-    def get(self, project_id: str, todo_id: str) -> ProjectTodoRow | None:
+    def get(
+        self, project_id: str, todo_id: str, *, user_id: int | None = None
+    ) -> ProjectTodoRow | None:
         """One undeleted todo; deleted, foreign, and unknown ids return None."""
-        with self._db.connect() as conn:
+        with self._db.transaction() as conn:
+            revision = self._read_revision(conn, project_id, user_id)
+            if revision is None:
+                return None
             row = conn.execute(
                 _TODO_SELECT + "WHERE project_id = ? AND todo_id = ? AND deleted_at IS NULL",
                 (project_id, todo_id),
             ).fetchone()
-        return ProjectTodoRow.from_row(row) if row is not None else None
+            return self._row_with_refs(conn, row, revision) if row is not None else None
 
     def list_todos(
         self,
         project_id: str,
         *,
+        user_id: int | None = None,
         q: str = "",
         status: str | None = None,
         assignee_user_id: int | None = None,
         limit: int = 20,
         offset: int = 0,
-    ) -> list[ProjectTodoRow]:
+    ) -> list[ProjectTodoRow] | None:
         """Undeleted todos ordered ``updated_at DESC, todo_id DESC``.
 
         Returns at most ``limit + 1`` rows so the caller can detect
@@ -233,9 +348,28 @@ class ProjectTodoRepo:
             + "ORDER BY updated_at DESC, todo_id DESC "
             + "LIMIT ? OFFSET ?"
         )
-        with self._db.connect() as conn:
+        with self._db.transaction() as conn:
+            revision = self._read_revision(conn, project_id, user_id)
+            if revision is None:
+                return None
             rows = conn.execute(sql, params).fetchall()
-        return map_rows(rows, ProjectTodoRow)
+            if not rows:
+                return []
+            tag_ids_by_todo: dict[str, list[str]] = {str(row["todo_id"]): [] for row in rows}
+            links = conn.execute(
+                "SELECT todo_id, tag_id FROM project_todo_tag_links WHERE project_id = ? "
+                "AND todo_id IN (" + ",".join("?" for _ in tag_ids_by_todo) + ") "
+                "ORDER BY todo_id, tag_id",
+                (project_id, *tag_ids_by_todo),
+            ).fetchall()
+            for link in links:
+                tag_ids_by_todo[str(link["todo_id"])].append(str(link["tag_id"]))
+            return [
+                ProjectTodoRow.from_row(
+                    row, tag_ids=tag_ids_by_todo[str(row["todo_id"])], catalog_revision=revision
+                )
+                for row in rows
+            ]
 
     # ------------------------------------------------------------ mutations
 
@@ -248,6 +382,13 @@ class ProjectTodoRepo:
         description: str = "",
         description_format: str = "plain",
         assignee_user_id: int | None = None,
+        status: str = "todo",
+        start_date: str | None = None,
+        due_date: str | None = None,
+        priority_id: str | None = None,
+        tag_ids: Sequence[str] = (),
+        expected_catalog_revision: Any = UNSET,
+        timezone: str = "UTC",
         ts: int | None = None,
     ) -> TodoMutation:
         """Insert one todo plus its creation event in a single transaction.
@@ -273,11 +414,18 @@ class ProjectTodoRepo:
                         raise _TodoConflict("forbidden")
                     if assignee_user_id not in roles:
                         raise _TodoConflict("invalid_assignee")
+                revision, priorities, tags = self._catalog_locked(conn, project_id)
+                if (priority_id is not None or tag_ids) and expected_catalog_revision is UNSET:
+                    raise _TodoConflict("invalid_catalog_revision")
+                self._check_catalog_revision(revision, expected_catalog_revision)
+                requested_tags = self._check_references(priorities, tags, priority_id, tag_ids)
+                self._check_dates(start_date, due_date, None, timezone)
                 conn.execute(
                     "INSERT INTO project_todos("
                     "todo_id, project_id, creator_user_id, assignee_user_id, title, "
-                    "description, description_format, status, version, created_at, updated_at"
-                    ") VALUES (?, ?, ?, ?, ?, ?, ?, 'todo', 1, ?, ?)",
+                    "description, description_format, status, version, created_at, updated_at, "
+                    "start_date, due_date, priority_id"
+                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)",
                     (
                         todo_id,
                         project_id,
@@ -286,10 +434,15 @@ class ProjectTodoRepo:
                         title,
                         description,
                         description_format,
+                        status,
                         stamp,
                         stamp,
+                        start_date,
+                        due_date,
+                        priority_id,
                     ),
                 )
+                self._replace_tags(conn, project_id, todo_id, requested_tags)
                 payload = json.dumps(
                     {
                         "creator_user_id": creator_user_id,
@@ -299,9 +452,12 @@ class ProjectTodoRepo:
                 _append_todo_event(
                     conn, project_id, creator_user_id, EVENT_TODO_CREATED, todo_id, payload, stamp
                 )
+                row = self._select_todo(
+                    conn, project_id, todo_id, lock=False, catalog_revision=revision
+                )
         except _TodoConflict as conflict:
             return TodoMutation(outcome=conflict.outcome)
-        return TodoMutation(outcome="created", row=self.get(project_id, todo_id))
+        return TodoMutation(outcome="created", row=row)
 
     def update(
         self,
@@ -315,6 +471,12 @@ class ProjectTodoRepo:
         description_format: Any = UNSET,
         status: Any = UNSET,
         assignee_user_id: Any = UNSET,
+        start_date: Any = UNSET,
+        due_date: Any = UNSET,
+        priority_id: Any = UNSET,
+        tag_ids: Any = UNSET,
+        expected_catalog_revision: Any = UNSET,
+        timezone: str = "UTC",
         ts: int | None = None,
     ) -> TodoMutation:
         """Apply one guarded patch; returns an outcome instead of raising.
@@ -345,7 +507,10 @@ class ProjectTodoRepo:
                     raise _TodoConflict("forbidden")
                 if requested_assignee is not None and requested_assignee not in roles:
                     raise _TodoConflict("invalid_assignee")
-                todo = self._select_todo(conn, project_id, todo_id, lock=True)
+                revision, priorities, tags = self._catalog_locked(conn, project_id)
+                todo = self._select_todo(
+                    conn, project_id, todo_id, lock=True, catalog_revision=revision
+                )
                 if todo is None or todo.deleted_at is not None:
                     raise _TodoConflict("missing")
                 if todo.version != expected_version:
@@ -357,6 +522,16 @@ class ProjectTodoRepo:
                     and todo.assignee_user_id != actor_user_id
                 ):
                     raise _TodoConflict("forbidden")
+                has_refs = priority_id is not UNSET or tag_ids is not UNSET
+                if has_refs != (expected_catalog_revision is not UNSET):
+                    raise _TodoConflict("invalid_catalog_revision")
+                self._check_catalog_revision(revision, expected_catalog_revision)
+                requested_tags = self._check_references(
+                    priorities, tags, priority_id, tag_ids, todo
+                )
+                merged_start = todo.start_date if start_date is UNSET else start_date
+                merged_due = todo.due_date if due_date is UNSET else due_date
+                self._check_dates(merged_start, merged_due, todo.due_date, timezone)
                 # Keys below are the only ones interpolated into SET clauses.
                 changes: dict[str, Any] = {}
                 if title is not UNSET and str(title) != todo.title:
@@ -375,20 +550,30 @@ class ProjectTodoRepo:
                     requested = requested_assignee
                     if requested != todo.assignee_user_id:
                         changes["assignee_user_id"] = requested
-                if not changes:
+                for key, value, current_value in (
+                    ("start_date", start_date, todo.start_date),
+                    ("due_date", due_date, todo.due_date),
+                    ("priority_id", priority_id, todo.priority_id),
+                ):
+                    if value is not UNSET and value != current_value:
+                        changes[key] = value
+                tags_changed = tag_ids is not UNSET and requested_tags != todo.tag_ids
+                if not changes and not tags_changed:
                     raise _TodoConflict("no_change")
 
-                set_sql = ", ".join(f"{col} = ?" for col in changes)
+                set_sql = "".join(f"{col} = ?, " for col in changes)
                 updated = conn.execute(
-                    f"UPDATE project_todos SET {set_sql}, version = version + 1, updated_at = ? "
+                    f"UPDATE project_todos SET {set_sql}version = version + 1, updated_at = ? "
                     "WHERE project_id = ? AND todo_id = ? AND version = ? AND deleted_at IS NULL",
                     (*changes.values(), stamp, project_id, todo_id, expected_version),
                 )
                 if getattr(updated, "rowcount", 1) != 1:
                     raise _TodoConflict(self._diagnose(conn, project_id, todo_id))
+                if tags_changed:
+                    self._replace_tags(conn, project_id, todo_id, requested_tags)
                 payload = json.dumps(
                     {
-                        "fields": sorted(changes),
+                        "fields": sorted([*changes, *(["tag_ids"] if tags_changed else [])]),
                         "from_status": todo.status,
                         "to_status": str(changes.get("status", todo.status)),
                         "from_assignee_user_id": todo.assignee_user_id,
@@ -406,9 +591,12 @@ class ProjectTodoRepo:
                     payload,
                     stamp,
                 )
+                row = self._select_todo(
+                    conn, project_id, todo_id, lock=False, catalog_revision=revision
+                )
         except _TodoConflict as conflict:
             return TodoMutation(outcome=conflict.outcome)
-        return TodoMutation(outcome="updated", row=self.get(project_id, todo_id))
+        return TodoMutation(outcome="updated", row=row)
 
     def delete(
         self,
@@ -433,7 +621,10 @@ class ProjectTodoRepo:
                 )
                 if role is None:
                     raise _TodoConflict("not_member")
-                todo = self._select_todo(conn, project_id, todo_id, lock=True)
+                revision, _priorities, _tags = self._catalog_locked(conn, project_id)
+                todo = self._select_todo(
+                    conn, project_id, todo_id, lock=True, catalog_revision=revision
+                )
                 if todo is None or todo.deleted_at is not None:
                     raise _TodoConflict("missing")
                 if todo.version != expected_version:
@@ -511,6 +702,7 @@ class ProjectTodoRepo:
                     and new_assignee not in roles
                 ):
                     raise _TodoConflict("invalid_assignee")
+                revision, _priorities, _tags = self._catalog_locked(conn, project_id)
                 fields_changed: list[str] = []
                 if status is not UNSET:
                     fields_changed.append("status")
@@ -518,12 +710,23 @@ class ProjectTodoRepo:
                     fields_changed.append("assignee_user_id")
                 event_fields = sorted(fields_changed)
 
+                locked_todos: dict[str, ProjectTodoRow] = {}
+                locked_rows: list[DbRow] = []
                 for item_todo_id, expected_version in sorted(items):
-                    todo = self._select_todo(conn, project_id, item_todo_id, lock=True)
-                    if todo is None or todo.deleted_at is not None:
+                    raw = conn.execute(
+                        _TODO_SELECT + "WHERE project_id = ? AND todo_id = ?" + self._lock_suffix(),
+                        (project_id, item_todo_id),
+                    ).fetchone()
+                    if raw is None or raw["deleted_at"] is not None:
                         raise _TodoConflict("missing", item_todo_id)
-                    if todo.version != expected_version:
+                    if int(raw["version"]) != expected_version:
                         raise _TodoConflict("stale", item_todo_id)
+                    locked_rows.append(raw)
+                for raw in locked_rows:
+                    todo = self._row_with_refs(conn, raw, revision)
+                    locked_todos[todo.todo_id] = todo
+                for item_todo_id, expected_version in sorted(items):
+                    todo = locked_todos[item_todo_id]
                     set_parts: list[str] = []
                     params: list[object] = []
                     if status is not UNSET:
@@ -565,7 +768,9 @@ class ProjectTodoRepo:
                     )
                 # Re-read inside the transaction so the response reflects it.
                 for item_todo_id, _expected in items:
-                    row = self._select_todo(conn, project_id, item_todo_id, lock=False)
+                    row = self._select_todo(
+                        conn, project_id, item_todo_id, lock=False, catalog_revision=revision
+                    )
                     if row is None:
                         raise _TodoConflict("missing", item_todo_id)
                     rows.append(row)

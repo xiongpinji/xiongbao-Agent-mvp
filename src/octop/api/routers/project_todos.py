@@ -43,6 +43,9 @@ router = APIRouter(prefix="/projects/{project_id}/todos")
 
 TodoStatus = Literal["todo", "in_progress", "done"]
 TodoDescriptionFormat = Literal["plain", "markdown"]
+PositiveInt = Annotated[int, Field(strict=True, ge=1)]
+PlanDate = Annotated[str, Field(strict=True)]
+CatalogId = Annotated[str, Field(strict=True, min_length=1, max_length=64)]
 
 
 def _todo_service(server: OctopServer) -> ProjectTodoService:
@@ -70,6 +73,11 @@ def _todo_payload(view: TodoView) -> dict[str, Any]:
         "version": view.version,
         "created_at": view.created_at,
         "updated_at": view.updated_at,
+        "start_date": view.start_date,
+        "due_date": view.due_date,
+        "priority_id": view.priority_id,
+        "tag_ids": view.tag_ids,
+        "catalog_revision": view.catalog_revision,
     }
 
 
@@ -79,7 +87,13 @@ class CreateTodoBody(BaseModel):
     title: str
     description: str = ""
     description_format: TodoDescriptionFormat = "plain"
-    assignee_user_id: Annotated[int, Field(ge=1)] | None = None
+    assignee_user_id: PositiveInt | None = None
+    status: TodoStatus = "todo"
+    start_date: PlanDate | None = None
+    due_date: PlanDate | None = None
+    priority_id: CatalogId | None = None
+    tag_ids: list[CatalogId] = Field(default_factory=list)
+    expected_catalog_revision: PositiveInt | None = None
 
     @field_validator("title")
     @classmethod
@@ -91,6 +105,21 @@ class CreateTodoBody(BaseModel):
     def _validate_description(cls, v: str) -> str:
         return validate_todo_description(v)
 
+    @model_validator(mode="after")
+    def _catalog_pair(self) -> CreateTodoBody:
+        if (
+            "expected_catalog_revision" in self.model_fields_set
+            and self.expected_catalog_revision is None
+        ):
+            raise ValueError("expected_catalog_revision cannot be null")
+        if (
+            self.priority_id is not None or self.tag_ids
+        ) and self.expected_catalog_revision is None:
+            raise ValueError("priority or tags require expected_catalog_revision")
+        if len(set(self.tag_ids)) > 20:
+            raise ValueError("a todo may reference at most 20 different tags")
+        return self
+
 
 class UpdateTodoBody(BaseModel):
     """Partial patch. ``assignee_user_id: null`` explicitly clears the assignee
@@ -99,12 +128,17 @@ class UpdateTodoBody(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    expected_version: Annotated[int, Field(ge=1)]
+    expected_version: PositiveInt
     title: str | None = None
     description: str | None = None
     description_format: TodoDescriptionFormat | None = None
     status: TodoStatus | None = None
-    assignee_user_id: Annotated[int, Field(ge=1)] | None = None
+    assignee_user_id: PositiveInt | None = None
+    start_date: PlanDate | None = None
+    due_date: PlanDate | None = None
+    priority_id: CatalogId | None = None
+    tag_ids: list[CatalogId] | None = None
+    expected_catalog_revision: PositiveInt | None = None
 
     @field_validator("title")
     @classmethod
@@ -122,6 +156,14 @@ class UpdateTodoBody(BaseModel):
             self.description_format is None or self.description is None
         ):
             raise ValueError("description_format requires a description and plain or markdown")
+        has_refs = bool({"priority_id", "tag_ids"} & self.model_fields_set)
+        has_revision = "expected_catalog_revision" in self.model_fields_set
+        if has_refs != has_revision or (has_revision and self.expected_catalog_revision is None):
+            raise ValueError("priority or tag fields must be paired with expected_catalog_revision")
+        if "tag_ids" in self.model_fields_set and self.tag_ids is None:
+            raise ValueError("tag_ids cannot be null")
+        if self.tag_ids is not None and len(set(self.tag_ids)) > 20:
+            raise ValueError("a todo may reference at most 20 different tags")
         return self
 
 
@@ -129,7 +171,7 @@ class BulkTodoItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     todo_id: str = Field(min_length=1, max_length=64)
-    expected_version: Annotated[int, Field(ge=1)]
+    expected_version: PositiveInt
 
 
 class BulkUpdateBody(BaseModel):
@@ -137,7 +179,7 @@ class BulkUpdateBody(BaseModel):
 
     items: list[BulkTodoItem] = Field(min_length=1, max_length=BULK_MAX_ITEMS)
     status: TodoStatus | None = None
-    assignee_user_id: Annotated[int, Field(ge=1)] | None = None
+    assignee_user_id: PositiveInt | None = None
 
     @model_validator(mode="after")
     def _check_batch(self) -> BulkUpdateBody:
@@ -147,6 +189,36 @@ class BulkUpdateBody(BaseModel):
         if self.status is None and "assignee_user_id" not in self.model_fields_set:
             raise ValueError("bulk update requires status or assignee_user_id")
         return self
+
+
+class TodoResponse(BaseModel):
+    todo_id: str
+    project_id: str
+    title: str
+    description: str
+    description_format: TodoDescriptionFormat
+    status: TodoStatus
+    creator_user_id: int
+    assignee_user_id: int | None
+    version: int
+    created_at: int
+    updated_at: int
+    start_date: str | None
+    due_date: str | None
+    priority_id: str | None
+    tag_ids: list[str]
+    catalog_revision: int
+
+
+class TodoListResponse(BaseModel):
+    items: list[TodoResponse]
+    limit: int
+    offset: int
+    has_more: bool
+
+
+class BulkTodoResponse(BaseModel):
+    items: list[TodoResponse]
 
 
 class CommentImageResponse(BaseModel):
@@ -200,7 +272,7 @@ def _comment_payload(view: CommentView) -> TodoCommentResponse:
     )
 
 
-@router.post("", status_code=201, summary="Create a project todo")
+@router.post("", status_code=201, response_model=TodoResponse, summary="Create a project todo")
 async def create_todo(
     project_id: str,
     body: CreateTodoBody,
@@ -208,18 +280,29 @@ async def create_todo(
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
     """Any member may create; ordinary members may only assign themselves."""
-    view = _todo_service(server).create_todo(
+    view = await run_in_threadpool(
+        _todo_service(server).create_todo,
         project_id,
         actor_user_id=user.id,
         title=body.title,
         description=body.description,
         description_format=body.description_format,
         assignee_user_id=body.assignee_user_id,
+        status=body.status,
+        start_date=body.start_date,
+        due_date=body.due_date,
+        priority_id=body.priority_id,
+        tag_ids=body.tag_ids,
+        expected_catalog_revision=body.expected_catalog_revision
+        if "expected_catalog_revision" in body.model_fields_set
+        else UNSET,
     )
     return _todo_payload(view)
 
 
-@router.post("/bulk", summary="Bulk-update todos atomically (owner/admin)")
+@router.post(
+    "/bulk", response_model=BulkTodoResponse, summary="Bulk-update todos atomically (owner/admin)"
+)
 async def bulk_update_todos(
     project_id: str,
     body: BulkUpdateBody,
@@ -228,7 +311,8 @@ async def bulk_update_todos(
 ) -> dict[str, Any]:
     """All-or-nothing: any stale version, foreign, or deleted id rejects the
     whole batch with nothing written. Returns every updated row."""
-    views = _todo_service(server).bulk_update_todos(
+    views = await run_in_threadpool(
+        _todo_service(server).bulk_update_todos,
         project_id,
         actor_user_id=user.id,
         items=[(item.todo_id, item.expected_version) for item in body.items],
@@ -240,7 +324,7 @@ async def bulk_update_todos(
     return {"items": [_todo_payload(view) for view in views]}
 
 
-@router.get("", summary="List project todos (members only)")
+@router.get("", response_model=TodoListResponse, summary="List project todos (members only)")
 async def list_todos(
     project_id: str,
     server: OctopServer = Depends(get_server),
@@ -251,7 +335,8 @@ async def list_todos(
     limit: int = Query(DEFAULT_PAGE_LIMIT, ge=1, le=MAX_PAGE_LIMIT),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
-    page = _todo_service(server).list_todos(
+    page = await run_in_threadpool(
+        _todo_service(server).list_todos,
         project_id,
         user_id=user.id,
         q=q,
@@ -268,18 +353,22 @@ async def list_todos(
     }
 
 
-@router.get("/{todo_id}", summary="Get one project todo")
+@router.get("/{todo_id}", response_model=TodoResponse, summary="Get one project todo")
 async def get_todo(
     project_id: str,
     todo_id: str,
     server: OctopServer = Depends(get_server),
     user: User = Depends(current_user),
 ) -> dict[str, Any]:
-    view = _todo_service(server).get_todo(project_id, todo_id, user_id=user.id)
+    view = await run_in_threadpool(
+        _todo_service(server).get_todo, project_id, todo_id, user_id=user.id
+    )
     return _todo_payload(view)
 
 
-@router.patch("/{todo_id}", summary="Update a project todo (optimistic version)")
+@router.patch(
+    "/{todo_id}", response_model=TodoResponse, summary="Update a project todo (optimistic version)"
+)
 async def update_todo(
     project_id: str,
     todo_id: str,
@@ -290,7 +379,8 @@ async def update_todo(
     """Requires ``expected_version``; a stale version returns 409 with no
     partial write. Owner/admin edit everything; the creator or current
     assignee may edit title/description/status but never the assignee."""
-    view = _todo_service(server).update_todo(
+    view = await run_in_threadpool(
+        _todo_service(server).update_todo,
         project_id,
         todo_id,
         actor_user_id=user.id,
@@ -304,6 +394,13 @@ async def update_todo(
         assignee_user_id=(
             body.assignee_user_id if "assignee_user_id" in body.model_fields_set else UNSET
         ),
+        start_date=body.start_date if "start_date" in body.model_fields_set else UNSET,
+        due_date=body.due_date if "due_date" in body.model_fields_set else UNSET,
+        priority_id=body.priority_id if "priority_id" in body.model_fields_set else UNSET,
+        tag_ids=body.tag_ids if "tag_ids" in body.model_fields_set else UNSET,
+        expected_catalog_revision=body.expected_catalog_revision
+        if "expected_catalog_revision" in body.model_fields_set
+        else UNSET,
     )
     return _todo_payload(view)
 
@@ -324,7 +421,8 @@ async def delete_todo(
 ) -> None:
     """Owner/admin or the creator only; deleted todos disappear from every
     read path and can never be returned again."""
-    _todo_service(server).delete_todo(
+    await run_in_threadpool(
+        _todo_service(server).delete_todo,
         project_id,
         todo_id,
         actor_user_id=user.id,

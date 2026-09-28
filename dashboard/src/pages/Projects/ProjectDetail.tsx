@@ -49,6 +49,7 @@ import PageShell from "../../layouts/PageShell";
 import styles from "./ProjectDetail.module.less";
 import { EmptyState } from "../../components/EmptyState";
 import { useServerTimezone } from "../../hooks/useServerTimezone";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { formatServerDateTime } from "../../utils/formatMessageTime";
 import { apiErrorMessage, isNotFoundApiError } from "../../utils/apiError";
 import {
@@ -95,6 +96,10 @@ function instructionPreview(text: string): string {
 }
 
 function useProjectLoader(projectId: string) {
+  const user = useCurrentUser();
+  const key = JSON.stringify([user?.id ?? null, projectId]);
+  const currentKey = useRef(key);
+  currentKey.current = key;
   const [project, setProject] = useState<ProjectRecord | null>(null);
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
   const [members, setMembers] = useState<ProjectMember[] | null>(null);
@@ -116,28 +121,32 @@ function useProjectLoader(projectId: string) {
       projectsApi.members(projectId).catch(() => null),
     ])
       .then(([record, memberRows]) => {
-        if (seq !== requestSeq.current) return;
+        if (key !== currentKey.current || seq !== requestSeq.current) return;
         setProject(record);
         setMembers(memberRows);
         setError(null);
-        setLoadedProjectId(projectId);
+        setLoadedProjectId(key);
       })
       .catch((err: unknown) => {
-        if (seq !== requestSeq.current) return;
+        if (key !== currentKey.current || seq !== requestSeq.current) return;
         setError(err);
-        setLoadedProjectId(projectId);
+        setLoadedProjectId(key);
       })
       .finally(() => {
-        if (seq === requestSeq.current) setLoading(false);
+        if (key === currentKey.current && seq === requestSeq.current)
+          setLoading(false);
       });
-  }, [projectId, reloadKey]);
+    return () => {
+      requestSeq.current += 1;
+    };
+  }, [projectId, key, reloadKey]);
 
   const reload = useCallback(() => setReloadKey((k) => k + 1), []);
   return {
     project,
     setProject,
     members,
-    loading: loading || loadedProjectId !== projectId,
+    loading: loading || loadedProjectId !== key,
     error,
     reload,
   };

@@ -22,12 +22,15 @@ error; the payload text never surfaces in the exception.
 
 from __future__ import annotations
 
+import json
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
 from octop.infra.db.pool import DatabasePool
 from octop.infra.db.repos._base import DbRow, map_rows, now_ts, sql_in_placeholders
+from octop.infra.db.repos.project_todo_catalog import EVENT_TODO_CATALOG_UPDATED
 from octop.infra.db.repos.project_todo_comments import EVENT_TODO_COMMENT_CREATED
 from octop.infra.db.repos.project_todos import (
     EVENT_TODO_CREATED,
@@ -60,6 +63,7 @@ ACTIVITY_EVENT_TYPES: tuple[str, ...] = (
     EVENT_TODO_UPDATED,
     EVENT_TODO_DELETED,
     EVENT_TODO_COMMENT_CREATED,
+    EVENT_TODO_CATALOG_UPDATED,
     EVENT_MESSAGE_CREATED,
 )
 
@@ -76,6 +80,19 @@ _TODO_EVENT_TYPES: tuple[str, ...] = (
     EVENT_TODO_DELETED,
     EVENT_TODO_COMMENT_CREATED,
 )
+
+TODO_FIELD_NAMES = (
+    "title",
+    "description",
+    "description_format",
+    "status",
+    "assignee_user_id",
+    "start_date",
+    "due_date",
+    "priority_id",
+    "tag_ids",
+)
+CATALOG_FIELD_NAMES = ("name", "color", "order", "archived")
 
 # SELECT list shared by the timeline and the post-create message read-back.
 # object_kind is derived from the event type; message bodies come from the
@@ -115,6 +132,11 @@ class ActivityRow:
     object_id: str | None
     message_body: str | None
     created_at: int
+    fields: tuple[str, ...] = ()
+    catalog_revision: int | None = None
+    catalog_kind: str | None = None
+    option_id: str | None = None
+    action: str | None = None
 
     @classmethod
     def from_row(cls, row: DbRow) -> ActivityRow:
@@ -122,6 +144,24 @@ class ActivityRow:
         name = row["actor_name"]
         object_id = row["object_id"]
         body = row["message_body"]
+        keys = row.keys()
+        fields = (
+            tuple(json.loads(str(row["safe_fields_json"]))) if "safe_fields_json" in keys else ()
+        )
+        allowed = (
+            CATALOG_FIELD_NAMES
+            if row["event_type"] == EVENT_TODO_CATALOG_UPDATED
+            else TODO_FIELD_NAMES
+        )
+        safe_fields = tuple(
+            sorted({value for value in fields if isinstance(value, str) and value in allowed})
+        )
+        option_id = row["safe_option_id"] if "safe_option_id" in keys else None
+        if (
+            option_id is not None
+            and re.fullmatch(r"[0-9A-HJKMNP-TV-Z]{26}", str(option_id)) is None
+        ):
+            option_id = None
         return cls(
             event_id=int(row["event_id"]),
             event_type=str(row["event_type"]),
@@ -131,6 +171,13 @@ class ActivityRow:
             object_id=None if object_id is None else str(object_id),
             message_body=None if body is None else str(body),
             created_at=int(row["created_at"]),
+            fields=safe_fields,
+            catalog_revision=row["safe_catalog_revision"]
+            if "safe_catalog_revision" in keys
+            else None,
+            catalog_kind=row["safe_catalog_kind"] if "safe_catalog_kind" in keys else None,
+            option_id=option_id,
+            action=row["safe_action"] if "safe_action" in keys else None,
         )
 
 
@@ -181,6 +228,73 @@ class ProjectActivityRepo:
         self._db = db
 
     # ------------------------------------------------------------ helpers
+
+    def _activity_select(self) -> str:
+        """Select individual safe metadata values; never fetch payload_json."""
+        todo_fields = ",".join(f"'{value}'" for value in TODO_FIELD_NAMES)
+        catalog_fields = ",".join(f"'{value}'" for value in CATALOG_FIELD_NAMES)
+        catalog = f"e.event_type = '{EVENT_TODO_CATALOG_UPDATED}'"
+        updated = f"e.event_type = '{EVENT_TODO_UPDATED}'"
+        if self._db.dialect == "postgresql":
+            payload = "e.payload_json::jsonb"
+            fields = (
+                "CASE WHEN " + catalog + " OR " + updated + " THEN "
+                "(SELECT COALESCE(jsonb_agg(value), '[]'::jsonb)::text FROM "
+                "jsonb_array_elements(CASE WHEN jsonb_typeof(" + payload + "->'fields') = 'array' "
+                "THEN " + payload + "->'fields' ELSE '[]'::jsonb END) AS safe(value) "
+                "WHERE jsonb_typeof(value) = 'string' AND (("
+                + catalog
+                + " AND value#>>'{}' IN ("
+                + catalog_fields
+                + ")) "
+                "OR ("
+                + updated
+                + " AND value#>>'{}' IN ("
+                + todo_fields
+                + ")))) ELSE '[]' END AS safe_fields_json"
+            )
+            values = (
+                f"CASE WHEN {catalog} THEN CASE WHEN jsonb_typeof({payload}->'catalog_revision') = 'number' "
+                f"AND ({payload}->>'catalog_revision') ~ '^[1-9][0-9]{{0,17}}$' "
+                f"THEN ({payload}->>'catalog_revision')::bigint ELSE NULL END ELSE NULL END AS safe_catalog_revision, "
+                f"CASE WHEN {catalog} THEN CASE WHEN {payload}->>'catalog_kind' IN ('priority','tag') "
+                f"THEN {payload}->>'catalog_kind' ELSE NULL END ELSE NULL END AS safe_catalog_kind, "
+                f"CASE WHEN {catalog} THEN CASE WHEN jsonb_typeof({payload}->'option_id') = 'string' "
+                f"THEN {payload}->>'option_id' ELSE NULL END ELSE NULL END AS safe_option_id, "
+                f"CASE WHEN {catalog} THEN CASE WHEN {payload}->>'action' IN ('created','updated','ordered','archived','restored') "
+                f"THEN {payload}->>'action' ELSE NULL END ELSE NULL END AS safe_action"
+            )
+        else:
+            valid = "json_valid(e.payload_json)"
+            fields = (
+                f"CASE WHEN ({catalog} OR {updated}) AND {valid} THEN "
+                "(SELECT json_group_array(value) FROM json_each(CASE WHEN "
+                "json_type(e.payload_json,'$.fields') = 'array' THEN json_extract(e.payload_json,'$.fields') "
+                "ELSE '[]' END) WHERE type = 'text' AND (("
+                + catalog
+                + " AND value IN ("
+                + catalog_fields
+                + ")) "
+                "OR ("
+                + updated
+                + " AND value IN ("
+                + todo_fields
+                + ")))) ELSE '[]' END AS safe_fields_json"
+            )
+            values = (
+                f"CASE WHEN {catalog} AND {valid} THEN CASE WHEN json_type(e.payload_json,'$.catalog_revision') = 'integer' "
+                "AND json_extract(e.payload_json,'$.catalog_revision') > 0 THEN json_extract(e.payload_json,'$.catalog_revision') "
+                "ELSE NULL END ELSE NULL END AS safe_catalog_revision, "
+                f"CASE WHEN {catalog} AND {valid} THEN CASE WHEN json_extract(e.payload_json,'$.catalog_kind') IN ('priority','tag') "
+                "THEN json_extract(e.payload_json,'$.catalog_kind') ELSE NULL END ELSE NULL END AS safe_catalog_kind, "
+                f"CASE WHEN {catalog} AND {valid} THEN CASE WHEN json_type(e.payload_json,'$.option_id') = 'text' "
+                "THEN json_extract(e.payload_json,'$.option_id') ELSE NULL END ELSE NULL END AS safe_option_id, "
+                f"CASE WHEN {catalog} AND {valid} THEN CASE WHEN json_extract(e.payload_json,'$.action') IN ('created','updated','ordered','archived','restored') "
+                "THEN json_extract(e.payload_json,'$.action') ELSE NULL END ELSE NULL END AS safe_action"
+            )
+        return _ACTIVITY_SELECT.replace(
+            "e.created_at AS created_at ", f"e.created_at AS created_at, {fields}, {values} "
+        )
 
     def _member_share_lock(self) -> str:
         # Contract: PostgreSQL validates membership with SELECT ... FOR SHARE
@@ -295,7 +409,7 @@ class ProjectActivityRepo:
             where.append("(e.created_at < ? OR (e.created_at = ? AND e.id < ?))")
             params.extend([int(before[0]), int(before[0]), int(before[1])])
         sql = (
-            _ACTIVITY_SELECT
+            self._activity_select()
             + "WHERE "
             + " AND ".join(where)
             + " ORDER BY e.created_at DESC, e.id DESC LIMIT ?"
@@ -315,7 +429,10 @@ class ProjectActivityRepo:
 
     def _message_row(self, project_id: str, message_id: str) -> ActivityRow | None:
         """Read back one message's activity row through the shared SELECT."""
-        sql = _ACTIVITY_SELECT + "WHERE e.project_id = ? AND e.event_type = ? AND e.object_id = ?"
+        sql = (
+            self._activity_select()
+            + "WHERE e.project_id = ? AND e.event_type = ? AND e.object_id = ?"
+        )
         params: list[Any] = [*_SELECT_PARAMS, project_id, EVENT_MESSAGE_CREATED, message_id]
         with self._db.connect() as conn:
             row = conn.execute(sql, params).fetchone()

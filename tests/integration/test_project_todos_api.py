@@ -31,6 +31,11 @@ _TODO_KEYS = {
     "version",
     "created_at",
     "updated_at",
+    "start_date",
+    "due_date",
+    "priority_id",
+    "tag_ids",
+    "catalog_revision",
 }
 
 
@@ -462,7 +467,10 @@ async def test_create_validation_bounds(env) -> None:
     assert r.json()["description"] == "y" * 4000
 
     r = await client.post(url, headers=ctx["owner_auth"], json={"title": "t", "status": "done"})
-    assert r.status_code == 422, r.text  # status is not settable at create time
+    assert r.status_code == 201, r.text  # C1 permits an explicit initial status.
+    assert r.json()["status"] == "done" and r.json()["version"] == 1
+    r = await client.post(url, headers=ctx["owner_auth"], json={"title": "t", "status": "bogus"})
+    assert r.status_code == 422, r.text
     r = await client.post(
         url, headers=ctx["owner_auth"], json={"title": "t", "assignee_user_id": 0}
     )

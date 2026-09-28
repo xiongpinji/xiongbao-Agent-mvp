@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from octop.infra.db.pool import DatabasePool
+from octop.infra.db.project_plan_seed import seed_todo_catalog
+from octop.infra.db.repos import project_plan_locks
 from octop.infra.db.repos._base import (
     DbRow,
     bool_int,
@@ -385,6 +387,7 @@ class ProjectRepo:
                 "VALUES (?, ?, 'owner', ?)",
                 (project_id, creator_user_id, ts),
             )
+            seed_todo_catalog(conn, project_id, ts)
             conn.execute(
                 "INSERT INTO project_events("
                 "project_id, actor_user_id, event_type, object_id, payload_json, created_at"
@@ -518,8 +521,14 @@ class ProjectRepo:
         )
         payload = json.dumps({"fields": changed})
         with self._db.transaction() as conn:
+            if actor_user_id not in project_plan_locks.member_roles(
+                self._db, conn, project_id, [actor_user_id], write=False
+            ):
+                return None
             exists = conn.execute(
-                "SELECT 1 FROM project_spaces WHERE project_id = ?", (project_id,)
+                "SELECT 1 FROM project_spaces WHERE project_id = ?"
+                + project_plan_locks.lock_suffix(self._db, write=True),
+                (project_id,),
             ).fetchone()
             if exists is None:
                 return None
@@ -1023,13 +1032,16 @@ class ProjectRepo:
         """
         ts = now_ts()
         with self._db.transaction() as conn:
-            row = conn.execute(
-                "SELECT role FROM project_members WHERE project_id = ? AND user_id = ?",
-                (project_id, user_id),
-            ).fetchone()
-            if row is None:
+            roles = project_plan_locks.member_roles(
+                self._db, conn, project_id, [actor_user_id, user_id], write=True
+            )
+            if user_id not in roles or actor_user_id not in roles:
                 return MemberMutation(outcome="missing")
-            current = str(row["role"])
+            if roles[actor_user_id] != "owner":
+                return MemberMutation(outcome="forbidden_role", role=roles[actor_user_id])
+            if project_plan_locks.project_row(self._db, conn, project_id, write=True) is None:
+                return MemberMutation(outcome="missing")
+            current = roles[user_id]
             if current in forbid_roles:
                 return MemberMutation(outcome="forbidden_role", role=current)
             if current == role:
@@ -1064,15 +1076,28 @@ class ProjectRepo:
         """Delete a membership row plus its audit event in one transaction."""
         ts = now_ts()
         with self._db.transaction() as conn:
-            row = conn.execute(
-                "SELECT role FROM project_members WHERE project_id = ? AND user_id = ?",
-                (project_id, user_id),
-            ).fetchone()
-            if row is None:
+            roles = project_plan_locks.member_roles(
+                self._db, conn, project_id, [actor_user_id, user_id], write=True
+            )
+            if user_id not in roles or actor_user_id not in roles:
                 return MemberMutation(outcome="missing")
-            current = str(row["role"])
+            actor_role, current = roles[actor_user_id], roles[user_id]
+            if actor_role not in _PROJECT_EDIT_ROLES:
+                return MemberMutation(outcome="forbidden_role", role=current)
+            if actor_role != "owner" and current == "admin":
+                return MemberMutation(outcome="forbidden_role", role=current)
             if current in forbid_roles:
                 return MemberMutation(outcome="forbidden_role", role=current)
+            if project_plan_locks.project_row(self._db, conn, project_id, write=True) is None:
+                return MemberMutation(outcome="missing")
+            project_plan_locks.catalog_revision(self._db, conn, project_id, write=True)
+            project_plan_locks.catalog_items(self._db, conn, project_id)
+            unassigned = conn.execute(
+                "SELECT todo_id FROM project_todos WHERE project_id = ? "
+                "AND assignee_user_id = ? AND deleted_at IS NULL ORDER BY todo_id"
+                + project_plan_locks.lock_suffix(self._db, write=True),
+                (project_id, user_id),
+            ).fetchall()
             deleted = conn.execute(
                 "DELETE FROM project_members WHERE project_id = ? AND user_id = ? AND role = ?",
                 (project_id, user_id, current),
@@ -1083,14 +1108,12 @@ class ProjectRepo:
             # transaction so no todo points at a user without access. The
             # version bump makes in-flight writes against the old row fail as
             # stale; events carry ids only, never title/description.
-            unassigned = conn.execute(
-                "UPDATE project_todos "
-                "SET assignee_user_id = NULL, version = version + 1, updated_at = ? "
-                "WHERE project_id = ? AND assignee_user_id = ? AND deleted_at IS NULL "
-                "RETURNING todo_id",
-                (ts, project_id, user_id),
-            ).fetchall()
             for todo in unassigned:
+                conn.execute(
+                    "UPDATE project_todos SET assignee_user_id = NULL, "
+                    "version = version + 1, updated_at = ? WHERE project_id = ? AND todo_id = ?",
+                    (ts, project_id, str(todo["todo_id"])),
+                )
                 todo_payload = json.dumps(
                     {
                         "fields": ["assignee_user_id"],

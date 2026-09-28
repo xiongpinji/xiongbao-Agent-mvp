@@ -31,6 +31,11 @@ export interface ProjectTodo {
   description: string;
   description_format: ProjectTodoDescriptionFormat;
   status: ProjectTodoStatus;
+  start_date: string | null;
+  due_date: string | null;
+  priority_id: string | null;
+  tag_ids: string[];
+  catalog_revision: number;
   creator_user_id: number;
   assignee_user_id: number | null;
   version: number;
@@ -94,6 +99,12 @@ export interface ProjectTodoCreateBody {
   description?: string;
   description_format?: ProjectTodoDescriptionFormat;
   assignee_user_id?: number;
+  status?: ProjectTodoStatus;
+  start_date?: string | null;
+  due_date?: string | null;
+  priority_id?: string | null;
+  tag_ids?: string[];
+  expected_catalog_revision?: number;
 }
 
 export interface ProjectTodoUpdateBody {
@@ -105,6 +116,12 @@ export interface ProjectTodoUpdateBody {
   status?: ProjectTodoStatus;
   /** `null` clears the assignee (owner/admin only). */
   assignee_user_id?: number | null;
+  start_date?: string | null;
+  due_date?: string | null;
+  priority_id?: string | null;
+  /** Full replacement set; [] clears all tags. */
+  tag_ids?: string[];
+  expected_catalog_revision?: number;
 }
 
 export interface ProjectTodoBulkItem {

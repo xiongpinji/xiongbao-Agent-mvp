@@ -80,7 +80,9 @@ def test_033_interrupted_upgrade_replays_and_failed_ddl_rolls_back(
         conn.execute("UPDATE _schema_version SET version = 32")
     run_migrations(db)
     with db.connect() as conn:
-        assert conn.execute("SELECT version FROM _schema_version").fetchone()[0] == 33
+        assert conn.execute("SELECT version FROM _schema_version").fetchone()[
+            0
+        ] == _max_discovered_version("sqlite")
         assert (
             conn.execute(
                 "SELECT name FROM sqlite_master WHERE name = 'project_todo_comment_image_usage'"

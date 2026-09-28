@@ -45,13 +45,22 @@ import type { ProjectMember, ProjectRole } from "../../api/modules/projects";
 import { useCurrentUser } from "../../hooks/useCurrentUser";
 import { useServerTimezone } from "../../hooks/useServerTimezone";
 import { formatServerDateTime } from "../../utils/formatMessageTime";
-import {
-  apiErrorMessage,
-  isNotFoundApiError,
-  parseApiError,
-} from "../../utils/apiError";
+import { apiErrorMessage, parseApiError } from "../../utils/apiError";
 import { message } from "../../utils/antdMessage";
 import ProjectTodoDetail from "./ProjectTodoDetail";
+import TodoFields, {
+  emptyTodoFields,
+  todoFieldsEqual,
+  type TodoFieldValues,
+} from "./TodoFields";
+import { useTodoCatalog } from "./useTodoCatalog";
+import { validatePlanDates } from "./planDates";
+import {
+  catalogErrorMessage,
+  isTodoAccessLost as isNotFoundApiError,
+} from "./TodoCatalogManager";
+import type { ProjectTodoCatalog } from "../../api/modules/projectTodoCatalog";
+import styles from "./ProjectPlan.module.less";
 
 const { Text } = Typography;
 
@@ -121,6 +130,8 @@ interface EditorValues {
   title: string;
   description: string;
   assignee: number | null;
+  status: ProjectTodoStatus;
+  fields: TodoFieldValues;
 }
 
 interface TodoEditorModalProps {
@@ -134,6 +145,16 @@ interface TodoEditorModalProps {
   error: string | null;
   onClose: () => void;
   onSubmit: (values: EditorValues) => void;
+  projectId: string;
+  catalog: ProjectTodoCatalog | null;
+  catalogLoading: boolean;
+  catalogError: unknown;
+  onCatalogRetry: () => Promise<unknown>;
+  conflict: boolean;
+  comparison: ProjectTodo | null;
+  onCompare: () => void;
+  onConfirmComparison: () => void;
+  comparisonReady: boolean;
 }
 
 function TodoEditorModal({
@@ -147,6 +168,16 @@ function TodoEditorModal({
   error,
   onClose,
   onSubmit,
+  projectId,
+  catalog,
+  catalogLoading,
+  catalogError,
+  onCatalogRetry,
+  conflict,
+  comparison,
+  onCompare,
+  onConfirmComparison,
+  comparisonReady,
 }: TodoEditorModalProps) {
   const { t } = useTranslation();
   const [title, setTitle] = useState(todo?.title ?? "");
@@ -155,6 +186,20 @@ function TodoEditorModal({
     todo?.assignee_user_id ?? null,
   );
   const [formError, setFormError] = useState<string | null>(null);
+  const [status, setStatus] = useState<ProjectTodoStatus>(
+    todo?.status ?? "todo",
+  );
+  const [fields, setFields] = useState<TodoFieldValues>(
+    todo
+      ? {
+          start_date: todo.start_date,
+          due_date: todo.due_date,
+          priority_id: todo.priority_id,
+          tag_ids: todo.tag_ids,
+        }
+      : emptyTodoFields(),
+  );
+  const originalFields = todo ?? emptyTodoFields();
 
   const canPickAssignee = isManager || mode === "create";
   const assigneeOptions = (
@@ -169,9 +214,36 @@ function TodoEditorModal({
       : todo != null &&
         (trimmedTitle !== todo.title ||
           trimmedDescription !== todo.description ||
+          status !== todo.status ||
+          !todoFieldsEqual(fields, todo) ||
           (isManager && assignee !== todo.assignee_user_id));
 
   const submit = () => {
+    const datesChanged =
+      fields.start_date !== originalFields.start_date ||
+      fields.due_date !== originalFields.due_date;
+    if (datesChanged) {
+      const dateError = validatePlanDates(
+        fields,
+        catalogLoading || catalogError ? null : catalog?.server_today ?? null,
+        originalFields.due_date,
+      );
+      if (dateError) {
+        setFormError(t(`projects.todoFields.${dateError}`));
+        return;
+      }
+    }
+    if (
+      fields.priority_id !== originalFields.priority_id ||
+      JSON.stringify(fields.tag_ids) !== JSON.stringify(originalFields.tag_ids)
+    ) {
+      if (!catalog || catalogLoading || catalogError) {
+        setFormError(
+          t("projects.todoFields.catalogRequired", "请先加载项目目录。"),
+        );
+        return;
+      }
+    }
     if (trimmedTitle.length === 0) {
       setFormError(t("projects.plan.titleRequired", "请输入待办标题"));
       return;
@@ -191,6 +263,8 @@ function TodoEditorModal({
       title: trimmedTitle,
       description: trimmedDescription,
       assignee,
+      status,
+      fields,
     });
   };
 
@@ -209,6 +283,8 @@ function TodoEditorModal({
   return (
     <Modal
       open={open}
+      centered
+      closable={{ "aria-label": t("common.close", "关闭") }}
       title={
         mode === "create"
           ? t("projects.plan.createTitle", "新建待办")
@@ -217,6 +293,10 @@ function TodoEditorModal({
       onCancel={submitting ? undefined : onClose}
       maskClosable={false}
       destroyOnHidden
+      classNames={{ body: styles.editorBody }}
+      styles={{
+        body: { maxHeight: "calc(100dvh - 230px)", overflowY: "auto" },
+      }}
       footer={[
         <Button key="cancel" onClick={onClose} disabled={submitting}>
           {t("common.cancel", "取消")}
@@ -225,7 +305,7 @@ function TodoEditorModal({
           key="submit"
           type="primary"
           loading={submitting}
-          disabled={submitting || (mode === "edit" && !changed)}
+          disabled={submitting || conflict || (mode === "edit" && !changed)}
           onClick={submit}
         >
           {mode === "create"
@@ -247,6 +327,24 @@ function TodoEditorModal({
           "输入待办标题（1–200 字符）",
         )}
         onChange={(event) => setTitle(event.target.value)}
+      />
+      <label style={labelStyle} htmlFor="project-todo-editor-status">
+        {t("projects.plan.statusLabel", "状态")}
+      </label>
+      <Select<ProjectTodoStatus>
+        id="project-todo-editor-status"
+        aria-label={t("projects.plan.statusLabel", "状态")}
+        style={{ width: "100%" }}
+        value={status}
+        disabled={submitting}
+        options={TODO_STATUSES.map((value) => ({
+          value,
+          label:
+            mode === "create" && value === "todo"
+              ? t("projects.todoFields.notStarted", "待开始")
+              : t(`projects.plan.status.${value}`, STATUS_FALLBACKS[value]),
+        }))}
+        onChange={setStatus}
       />
       <label style={labelStyle} htmlFor="project-todo-description">
         {t("projects.plan.descriptionLabel", "描述")}
@@ -288,6 +386,62 @@ function TodoEditorModal({
           )}
         </>
       )}
+      <div className={styles.editorFields}>
+        <TodoFields
+          projectId={projectId}
+          accountId={currentUserId}
+          values={fields}
+          original={originalFields}
+          catalog={catalog}
+          loading={catalogLoading}
+          error={catalogError}
+          onRetry={onCatalogRetry}
+          onCatalogChanged={onCatalogRetry}
+          canManage={isManager}
+          disabled={submitting}
+          onChange={setFields}
+        />
+      </div>
+      {conflict && (
+        <div className={styles.comparison}>
+          <Button disabled={submitting} onClick={onCompare}>
+            {t("projects.todoFields.refreshCompare", "刷新后比较")}
+          </Button>
+          {comparison && (
+            <section
+              aria-label={t("projects.todoFields.serverValues", "服务器当前值")}
+            >
+              <strong>
+                {t("projects.todoFields.serverValues", "服务器当前值")}
+              </strong>
+              <p>{comparison.title}</p>
+              <p>{comparison.description}</p>
+              <p>
+                {t(
+                  `projects.plan.status.${comparison.status}`,
+                  STATUS_FALLBACKS[comparison.status],
+                )}
+              </p>
+              <TodoFields
+                projectId={projectId}
+                accountId={currentUserId}
+                values={comparison}
+                catalog={catalog}
+                canManage={false}
+                readOnly
+              />
+              <Button onClick={onConfirmComparison}>
+                {t("projects.todoFields.confirmCompare", "确认比较")}
+              </Button>
+            </section>
+          )}
+          {mode === "create" && comparisonReady && (
+            <Button onClick={onConfirmComparison}>
+              {t("projects.todoFields.confirmCompare", "确认比较")}
+            </Button>
+          )}
+        </div>
+      )}
       {formError != null && (
         <Alert
           type="warning"
@@ -308,7 +462,17 @@ function TodoEditorModal({
   );
 }
 
-export default function ProjectPlan({
+export default function ProjectPlan(props: Props) {
+  const user = useCurrentUser();
+  return (
+    <ProjectPlanContent
+      key={JSON.stringify([user?.id ?? null, props.projectId])}
+      {...props}
+    />
+  );
+}
+
+function ProjectPlanContent({
   projectId,
   role,
   members,
@@ -346,8 +510,59 @@ export default function ProjectPlan({
   const detailId = onOpenTodo ? selectedTodoId ?? null : localTodoId;
   const [editorSubmitting, setEditorSubmitting] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
+  const [editorConflict, setEditorConflict] = useState(false);
+  const [serverComparison, setServerComparison] = useState<ProjectTodo | null>(
+    null,
+  );
+  const [comparisonReady, setComparisonReady] = useState(false);
+  const editorSeq = useRef(0);
+  const active = useRef(true);
+  const accessLost = useRef<() => void>(() => {});
+  const catalogState = useTodoCatalog(
+    projectId,
+    currentUserId,
+    () => accessLost.current(),
+    todos.map((todo) => todo.catalog_revision),
+  );
+  const catalog = catalogState.catalog;
   /** Monotonic guard so late responses never overwrite fresher results. */
   const fetchSeq = useRef(0);
+  useEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+      fetchSeq.current += 1;
+      editorSeq.current += 1;
+    };
+  }, []);
+
+  const clearPrivatePlan = (
+    err: unknown = new Error('404 - {"error":{"code":"NOT_FOUND"}}'),
+  ) => {
+    if (!active.current) return;
+    fetchSeq.current += 1;
+    editorSeq.current += 1;
+    catalogState.clear();
+    setTodos([]);
+    setHasMore(false);
+    setSelectedIds([]);
+    setBusyIds([]);
+    setBulkBusy(false);
+    setLoading(false);
+    setLoadingMore(false);
+    setEditorOpen(false);
+    setEditing(null);
+    setEditorError(null);
+    setEditorConflict(false);
+    setServerComparison(null);
+    setComparisonReady(false);
+    setLocalTodoId(null);
+    setListError(err);
+    setActionError(null);
+    setConflict(false);
+    detailTrigger.current = null;
+  };
+  accessLost.current = () => clearPrivatePlan();
 
   const reload = useCallback(() => setReloadKey((key) => key + 1), []);
 
@@ -387,6 +602,7 @@ export default function ProjectPlan({
 
   const load = useCallback(
     async (offset: number, append: boolean) => {
+      if (!active.current) return;
       const seq = ++fetchSeq.current;
       if (append) {
         setLoadingMore(true);
@@ -401,7 +617,7 @@ export default function ProjectPlan({
           limit: PROJECT_TODOS_PAGE_SIZE,
           offset,
         });
-        if (seq !== fetchSeq.current) return;
+        if (!active.current || seq !== fetchSeq.current) return;
         setTodos((previous) =>
           append ? mergeUniqueTodos(previous, data.items) : data.items,
         );
@@ -410,15 +626,13 @@ export default function ProjectPlan({
         setListError(null);
         if (!append) setSelectedIds([]);
       } catch (err: unknown) {
-        if (seq !== fetchSeq.current) return;
+        if (!active.current || seq !== fetchSeq.current) return;
         if (isNotFoundApiError(err)) {
-          setTodos([]);
-          setHasMore(false);
-          setSelectedIds([]);
+          accessLost.current();
         }
         setListError(err);
       } finally {
-        if (seq === fetchSeq.current) {
+        if (active.current && seq === fetchSeq.current) {
           setLoading(false);
           setLoadingMore(false);
         }
@@ -439,6 +653,15 @@ export default function ProjectPlan({
     if (reason === "no_change") {
       return t("projects.plan.noChange", "待办内容没有变化。");
     }
+    if (
+      [
+        "invalid_priority",
+        "invalid_tags",
+        "invalid_dates",
+        "catalog_revision_conflict",
+      ].includes(String(reason))
+    )
+      return catalogErrorMessage(err, t);
     return apiErrorMessage(err, fallback, t);
   };
 
@@ -467,21 +690,26 @@ export default function ProjectPlan({
     err: unknown,
     setInline: (value: string | null) => void,
     fallback: string,
+    preserveEditor = false,
   ) => {
     if (isNotFoundApiError(err)) {
-      setTodos([]);
-      setHasMore(false);
-      setSelectedIds([]);
-      setListError(err);
-      setEditorOpen(false);
-      setEditing(null);
+      clearPrivatePlan(err);
       return;
     }
     if (isConflictApiError(err)) {
       setConflict(true);
       reload();
-      setEditorOpen(false);
-      setEditing(null);
+      if (preserveEditor) {
+        setEditorConflict(true);
+        setServerComparison(null);
+        setComparisonReady(false);
+        setInline(
+          t(
+            "projects.todoFields.todoConflict",
+            "待办或目录已被修改，草稿已保留，请刷新后比较。",
+          ),
+        );
+      }
       return;
     }
     setInline(todoErrorMessage(err, fallback));
@@ -511,6 +739,7 @@ export default function ProjectPlan({
     t(`projects.plan.status.${status}`, STATUS_FALLBACKS[status]);
 
   const changeStatus = async (todo: ProjectTodo, status: ProjectTodoStatus) => {
+    if (!active.current) return;
     if (status === todo.status) return;
     setBusyIds((previous) => [...previous, todo.todo_id]);
     setActionError(null);
@@ -519,23 +748,28 @@ export default function ProjectPlan({
         expected_version: todo.version,
         status,
       });
+      if (!active.current) return;
       applyServerTodo(updated);
     } catch (err: unknown) {
+      if (!active.current) return;
       routeMutationError(
         err,
         setActionError,
         t("projects.plan.actionFailed", "待办操作失败"),
       );
     } finally {
-      setBusyIds((previous) => previous.filter((id) => id !== todo.todo_id));
+      if (active.current)
+        setBusyIds((previous) => previous.filter((id) => id !== todo.todo_id));
     }
   };
 
   const deleteTodo = async (todo: ProjectTodo) => {
+    if (!active.current) return;
     setBusyIds((previous) => [...previous, todo.todo_id]);
     setActionError(null);
     try {
       await projectTodosApi.remove(projectId, todo.todo_id, todo.version);
+      if (!active.current) return;
       setTodos((previous) =>
         previous.filter((item) => item.todo_id !== todo.todo_id),
       );
@@ -545,17 +779,20 @@ export default function ProjectPlan({
       reload();
       void message.success(t("projects.plan.deleted", "待办已删除"));
     } catch (err: unknown) {
+      if (!active.current) return;
       routeMutationError(
         err,
         setActionError,
         t("projects.plan.actionFailed", "待办操作失败"),
       );
     } finally {
-      setBusyIds((previous) => previous.filter((id) => id !== todo.todo_id));
+      if (active.current)
+        setBusyIds((previous) => previous.filter((id) => id !== todo.todo_id));
     }
   };
 
   const applyBulkStatus = async () => {
+    if (!active.current || !isManager) return;
     const selectedTodos = selectedIds
       .map((id) => todos.find((item) => item.todo_id === id))
       .filter((item): item is ProjectTodo => item != null);
@@ -579,6 +816,7 @@ export default function ProjectPlan({
         })),
         status: bulkStatus,
       });
+      if (!active.current) return;
       const updated = normalizeTodoBulkResponse(response);
       if (updated.length > 0) {
         setTodos((previous) =>
@@ -596,29 +834,48 @@ export default function ProjectPlan({
         }),
       );
     } catch (err: unknown) {
+      if (!active.current) return;
       routeMutationError(
         err,
         setActionError,
         t("projects.plan.actionFailed", "待办操作失败"),
       );
     } finally {
-      setBulkBusy(false);
+      if (active.current) setBulkBusy(false);
     }
   };
 
   const openCreate = () => {
+    if (!active.current) return;
+    editorSeq.current += 1;
+    setEditorConflict(false);
+    setServerComparison(null);
+    setComparisonReady(false);
     setEditing(null);
     setEditorError(null);
     setEditorOpen(true);
   };
 
   const openEdit = (todo: ProjectTodo) => {
+    if (!active.current || !canEditTodo(todo)) return;
+    editorSeq.current += 1;
+    setEditorConflict(false);
+    setServerComparison(null);
+    setComparisonReady(false);
     setEditing(todo);
     setEditorError(null);
     setEditorOpen(true);
   };
 
   const submitEditor = async (values: EditorValues) => {
+    if (
+      !active.current ||
+      editorSubmitting ||
+      editorConflict ||
+      (editing && !canEditTodo(editing))
+    )
+      return;
+    const seq = editorSeq.current;
     setEditorSubmitting(true);
     setEditorError(null);
     try {
@@ -634,11 +891,26 @@ export default function ProjectPlan({
         if (isManager && values.assignee !== editing.assignee_user_id) {
           body.assignee_user_id = values.assignee;
         }
+        if (values.status !== editing.status) body.status = values.status;
+        if (values.fields.start_date !== editing.start_date)
+          body.start_date = values.fields.start_date;
+        if (values.fields.due_date !== editing.due_date)
+          body.due_date = values.fields.due_date;
+        if (values.fields.priority_id !== editing.priority_id)
+          body.priority_id = values.fields.priority_id;
+        if (
+          JSON.stringify([...values.fields.tag_ids].sort()) !==
+          JSON.stringify([...editing.tag_ids].sort())
+        )
+          body.tag_ids = [...values.fields.tag_ids].sort();
+        if ("priority_id" in body || "tag_ids" in body)
+          body.expected_catalog_revision = catalog?.revision;
         const updated = await projectTodosApi.update(
           projectId,
           editing.todo_id,
           body,
         );
+        if (!active.current || seq !== editorSeq.current) return;
         applyServerTodo(updated);
         setEditorOpen(false);
         setEditing(null);
@@ -647,23 +919,69 @@ export default function ProjectPlan({
         const body: ProjectTodoCreateBody = {
           title: values.title,
           description: values.description,
+          status: values.status,
         };
         if (values.assignee != null) body.assignee_user_id = values.assignee;
+        if (values.fields.start_date !== null)
+          body.start_date = values.fields.start_date;
+        if (values.fields.due_date !== null)
+          body.due_date = values.fields.due_date;
+        if (values.fields.priority_id !== null)
+          body.priority_id = values.fields.priority_id;
+        if (values.fields.tag_ids.length) body.tag_ids = values.fields.tag_ids;
+        if (body.priority_id || body.tag_ids?.length)
+          body.expected_catalog_revision = catalog?.revision;
         await projectTodosApi.create(projectId, body);
+        if (!active.current || seq !== editorSeq.current) return;
         setEditorOpen(false);
         void message.success(t("projects.plan.created", "待办已创建"));
         reload();
       }
     } catch (err: unknown) {
+      if (!active.current || seq !== editorSeq.current) return;
+      if (
+        httpStatus(err) === 422 &&
+        (parseApiError(err)?.details?.reason === "invalid_dates" ||
+          values.fields.start_date !== editing?.start_date ||
+          values.fields.due_date !== editing?.due_date)
+      )
+        void catalogState.reload();
       routeMutationError(
         err,
         setEditorError,
         editing
           ? t("projects.plan.saveFailed", "保存待办失败")
           : t("projects.plan.createFailed", "创建待办失败"),
+        true,
       );
     } finally {
-      setEditorSubmitting(false);
+      if (active.current && seq === editorSeq.current)
+        setEditorSubmitting(false);
+    }
+  };
+  const compareEditor = async () => {
+    const seq = editorSeq.current;
+    setEditorSubmitting(true);
+    try {
+      const [latest, refreshed] = await Promise.all([
+        editing
+          ? projectTodosApi.get(projectId, editing.todo_id)
+          : Promise.resolve(null),
+        catalogState.reload(),
+      ]);
+      if (!active.current || seq !== editorSeq.current) return;
+      setServerComparison(latest);
+      setComparisonReady(editing ? latest !== null : refreshed);
+    } catch (err: unknown) {
+      if (!active.current || seq !== editorSeq.current) return;
+      if (isNotFoundApiError(err)) clearPrivatePlan(err);
+      else
+        setEditorError(
+          todoErrorMessage(err, t("projects.plan.loadFailed", "加载待办失败")),
+        );
+    } finally {
+      if (active.current && seq === editorSeq.current)
+        setEditorSubmitting(false);
     }
   };
 
@@ -766,6 +1084,21 @@ export default function ProjectPlan({
       ),
     },
     {
+      title: t("projects.todoFields.planProperties", "计划属性"),
+      key: "fields",
+      width: 240,
+      render: (_value: unknown, todo: ProjectTodo) => (
+        <TodoFields
+          projectId={projectId}
+          accountId={currentUserId}
+          values={todo}
+          catalog={catalog}
+          canManage={false}
+          readOnly
+        />
+      ),
+    },
+    {
       title: t("projects.plan.updatedAtLabel", "更新时间"),
       dataIndex: "updated_at",
       key: "updated_at",
@@ -859,6 +1192,16 @@ export default function ProjectPlan({
         ) : null}
         <div style={{ ...secondaryStyle, marginTop: 6 }}>
           {assigneeName(todo)}
+        </div>
+        <div style={{ marginTop: 8 }}>
+          <TodoFields
+            projectId={projectId}
+            accountId={currentUserId}
+            values={todo}
+            catalog={catalog}
+            canManage={false}
+            readOnly
+          />
         </div>
         <div
           style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 8 }}
@@ -1069,7 +1412,12 @@ export default function ProjectPlan({
             onClick={reload}
           />
         </Tooltip>
-        <Button type="primary" icon={<Plus size={14} />} onClick={openCreate}>
+        <Button
+          type="primary"
+          icon={<Plus size={14} />}
+          onClick={openCreate}
+          disabled={notFoundError}
+        >
           {t("projects.plan.newTodo", "新建待办")}
         </Button>
         <div style={{ marginLeft: "auto" }}>
@@ -1191,8 +1539,25 @@ export default function ProjectPlan({
           isManager={isManager}
           submitting={editorSubmitting}
           error={editorError}
+          projectId={projectId}
+          catalog={catalog}
+          catalogLoading={catalogState.loading}
+          catalogError={catalogState.error}
+          onCatalogRetry={catalogState.reload}
+          conflict={editorConflict}
+          comparison={serverComparison}
+          comparisonReady={comparisonReady}
+          onCompare={() => void compareEditor()}
+          onConfirmComparison={() => {
+            if (!comparisonReady || (editing && !serverComparison)) return;
+            if (serverComparison) setEditing(serverComparison);
+            setEditorConflict(false);
+            setEditorError(null);
+            setServerComparison(null);
+          }}
           onClose={() => {
             if (editorSubmitting) return;
+            editorSeq.current += 1;
             setEditorOpen(false);
             setEditorError(null);
             setEditing(null);
@@ -1200,21 +1565,20 @@ export default function ProjectPlan({
           onSubmit={(values) => void submitEditor(values)}
         />
       )}
-      {detailId && (
+      {detailId && !notFoundError && (
         <ProjectTodoDetail
-          key={`${projectId}\u0000${detailId}`}
+          key={JSON.stringify([currentUserId, projectId, detailId])}
           projectId={projectId}
           todoId={detailId}
           role={role}
           members={members ?? []}
           currentUserId={currentUserId}
           onClose={closeDetail}
-          onChanged={applyServerTodo}
+          onChanged={(updated) => {
+            if (active.current) applyServerTodo(updated);
+          }}
           onAccessLost={() => {
-            setTodos([]);
-            setHasMore(false);
-            setSelectedIds([]);
-            setListError(new Error('404 - {"error":{"code":"NOT_FOUND"}}'));
+            if (active.current) clearPrivatePlan();
           }}
         />
       )}

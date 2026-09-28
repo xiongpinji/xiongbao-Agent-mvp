@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { privateDockFileTabId, toPrivateWorkspaceRelPath } from "./dockFilePath";
+import {
+  privateDockFileTabId,
+  toPrivateWorkspaceRelPath,
+} from "./dockFilePath";
 
 /**
  * 030A owner-private project-task runtime: true-mode (``from_workspace=true``)

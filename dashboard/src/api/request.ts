@@ -3,6 +3,22 @@ import i18n from "../i18n";
 import { markNavigatingAway } from "../utils/reloadOnStaleChunk";
 
 const AUTH_TOKEN_KEY = "auth_token";
+let authSessionRevision = 0;
+
+interface RequestAuthSession {
+  token: string;
+  revision: number;
+}
+
+function captureAuthSession(): RequestAuthSession {
+  return { token: getAuthToken(), revision: authSessionRevision };
+}
+
+function isCurrentAuthSession(session: RequestAuthSession): boolean {
+  return (
+    session.revision === authSessionRevision && session.token === getAuthToken()
+  );
+}
 
 /**
  * Fired when the session is no longer valid. Cancelable: a listener inside the
@@ -44,6 +60,7 @@ export function isSetupRequiredKnown(): boolean {
 
 /** Save JWT token to localStorage */
 export function setAuthToken(token: string) {
+  authSessionRevision += 1;
   localStorage.setItem(AUTH_TOKEN_KEY, token);
   clearSetupRequired();
 }
@@ -55,13 +72,18 @@ export function getAuthToken(): string {
 
 /** Remove JWT token from localStorage */
 export function clearAuthToken() {
+  authSessionRevision += 1;
   localStorage.removeItem(AUTH_TOKEN_KEY);
   localStorage.removeItem("octop:active-agent");
   setActiveAgentId(null);
 }
 
 /** Persist a sliding-renewed access token from an API response, if present. */
-export function applyRenewedAccessToken(response: Response): void {
+export function applyRenewedAccessToken(
+  response: Response,
+  session: RequestAuthSession = captureAuthSession(),
+): void {
+  if (!isCurrentAuthSession(session)) return;
   const renewed = response.headers.get(ACCESS_TOKEN_RESPONSE_HEADER);
   if (renewed) {
     setAuthToken(renewed);
@@ -119,6 +141,7 @@ function assertNotSetupLocked(path: string): void {
 async function check503ForSetupRequired(
   path: string,
   response: Response,
+  session: RequestAuthSession,
 ): Promise<boolean> {
   if (response.status !== 503) return false;
   let body: unknown = null;
@@ -133,6 +156,7 @@ async function check503ForSetupRequired(
     typeof body === "object" &&
     (body as Record<string, unknown>).setup_required === true
   ) {
+    if (!isCurrentAuthSession(session)) return true;
     markSetupRequired();
     clearAuthToken();
     if (!isSetupApiPath(path)) {
@@ -273,12 +297,15 @@ function handleUnauthorized(): void {
 async function throwIfUnauthorized(
   path: string,
   response: Response,
+  session: RequestAuthSession,
 ): Promise<void> {
   if (response.status !== 401 || path.startsWith("/auth/")) {
     return;
   }
-  clearAuthToken();
-  handleUnauthorized();
+  if (isCurrentAuthSession(session)) {
+    clearAuthToken();
+    handleUnauthorized();
+  }
   let message = "Unauthorized";
   if (path.startsWith("/setup/")) {
     try {
@@ -302,6 +329,7 @@ export async function request<T = unknown>(
   assertNotSetupLocked(path);
 
   const url = getApiUrl(path);
+  const session = captureAuthSession();
 
   const headers = buildHeaders(path, options.headers);
 
@@ -310,15 +338,20 @@ export async function request<T = unknown>(
     headers,
   });
 
-  if (await check503ForSetupRequired(path, response)) {
+  if (await check503ForSetupRequired(path, response, session)) {
     throw new SetupRequiredError();
   }
 
-  await throwIfUnauthorized(path, response);
-  applyRenewedAccessToken(response);
+  await throwIfUnauthorized(path, response, session);
+  const responseForCurrentSession = isCurrentAuthSession(session);
+  applyRenewedAccessToken(response, session);
 
   if (!response.ok) {
-    if (response.status === 403 && isAgentScopedPath(path)) {
+    if (
+      response.status === 403 &&
+      isAgentScopedPath(path) &&
+      responseForCurrentSession
+    ) {
       window.dispatchEvent(
         new CustomEvent(FORBIDDEN_EVENT, { detail: { path } }),
       );
@@ -358,18 +391,19 @@ export async function requestBlob(
   assertNotSetupLocked(path);
 
   const url = getApiUrl(path);
+  const session = captureAuthSession();
   const headers = buildAuthHeaders(path);
   const response = await fetch(url, {
     ...options,
     headers: { ...headers, ...(options.headers as Record<string, string>) },
   });
 
-  if (await check503ForSetupRequired(path, response)) {
+  if (await check503ForSetupRequired(path, response, session)) {
     throw new SetupRequiredError();
   }
 
-  await throwIfUnauthorized(path, response);
-  applyRenewedAccessToken(response);
+  await throwIfUnauthorized(path, response, session);
+  applyRenewedAccessToken(response, session);
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
@@ -411,18 +445,19 @@ export async function probeAuthResource(
   assertNotSetupLocked(path);
 
   const url = getApiUrl(path);
+  const session = captureAuthSession();
   const headers = buildAuthHeaders(path);
   const response = await fetch(url, {
     ...options,
     headers: { ...headers, ...(options.headers as Record<string, string>) },
   });
 
-  if (await check503ForSetupRequired(path, response)) {
+  if (await check503ForSetupRequired(path, response, session)) {
     throw new SetupRequiredError();
   }
 
-  await throwIfUnauthorized(path, response);
-  applyRenewedAccessToken(response);
+  await throwIfUnauthorized(path, response, session);
+  applyRenewedAccessToken(response, session);
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
@@ -451,18 +486,19 @@ export async function requestStream(
   assertNotSetupLocked(path);
 
   const url = getApiUrl(path);
+  const session = captureAuthSession();
   const headers = buildAuthHeaders(path);
   const response = await fetch(url, {
     ...options,
     headers: { ...headers, ...(options.headers as Record<string, string>) },
   });
 
-  if (await check503ForSetupRequired(path, response)) {
+  if (await check503ForSetupRequired(path, response, session)) {
     throw new SetupRequiredError();
   }
 
-  await throwIfUnauthorized(path, response);
-  applyRenewedAccessToken(response);
+  await throwIfUnauthorized(path, response, session);
+  applyRenewedAccessToken(response, session);
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
@@ -498,6 +534,7 @@ export async function requestUpload<T = unknown>(
   assertNotSetupLocked(path);
 
   const url = getApiUrl(path);
+  const session = captureAuthSession();
   const headers = buildAuthHeaders(path);
   const method = options.method ?? "POST";
 
@@ -556,19 +593,19 @@ export async function requestUpload<T = unknown>(
           headers: responseHeaders,
         });
 
-        if (await check503ForSetupRequired(path, response)) {
+        if (await check503ForSetupRequired(path, response, session)) {
           reject(new SetupRequiredError());
           return;
         }
 
         try {
-          await throwIfUnauthorized(path, response);
+          await throwIfUnauthorized(path, response, session);
         } catch (err) {
           reject(err);
           return;
         }
 
-        applyRenewedAccessToken(response);
+        applyRenewedAccessToken(response, session);
 
         if (!response.ok) {
           // Same shape as request() so parseApiError() can read the error envelope.

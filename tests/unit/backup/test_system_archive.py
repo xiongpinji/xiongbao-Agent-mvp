@@ -612,13 +612,23 @@ def test_private_comment_image_swap_rolls_back_on_database_restore_failure(
     old_image = target.project_todo_comment_images / "old"
     old_image.parent.mkdir(parents=True)
     old_image.write_bytes(b"old private bytes")
+    with target_pool.connect() as conn:
+        before_database = tuple(conn.iterdump())
+    real_restore = system_archive.restore_sqlite_into_pool
+    calls: list[Path] = []
 
-    def fail_database_restore(*_args: object, **_kwargs: object) -> None:
-        raise RuntimeError("injected database restore failure")
+    def fail_database_restore(source: Path, pool: SqlitePool) -> None:
+        calls.append(source)
+        if len(calls) == 1:
+            raise RuntimeError("injected database restore failure")
+        real_restore(source, pool)
 
     monkeypatch.setattr(system_archive, "restore_sqlite_into_pool", fail_database_restore)
     with pytest.raises(RuntimeError, match="injected database restore failure"):
         restore_system_backup(archive, paths=target, pool=target_pool, db_config=DatabaseConfig())
+    assert len(calls) == 2
+    with target_pool.connect() as conn:
+        assert tuple(conn.iterdump()) == before_database
     target_pool.close()
     assert old_image.read_bytes() == b"old private bytes"
 

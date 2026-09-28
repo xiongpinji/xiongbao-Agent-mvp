@@ -8,17 +8,24 @@ import {
   type ProjectTodo,
   type ProjectTodoComment,
   type ProjectTodoStatus,
+  type ProjectTodoUpdateBody,
 } from "../../api/modules/projectTodos";
 import type { ProjectMember, ProjectRole } from "../../api/modules/projects";
 import { useServerTimezone } from "../../hooks/useServerTimezone";
 import { formatServerDateTime } from "../../utils/formatMessageTime";
-import {
-  apiErrorMessage,
-  isNotFoundApiError,
-  parseApiError,
-} from "../../utils/apiError";
+import { apiErrorMessage, parseApiError } from "../../utils/apiError";
 import ProjectTodoMarkdown from "./ProjectTodoMarkdown";
 import styles from "./ProjectTodoDetail.module.less";
+import TodoFields, {
+  todoFieldsEqual,
+  type TodoFieldValues,
+} from "./TodoFields";
+import { useTodoCatalog } from "./useTodoCatalog";
+import { validatePlanDates } from "./planDates";
+import {
+  catalogErrorMessage,
+  isTodoAccessLost as isNotFoundApiError,
+} from "./TodoCatalogManager";
 
 interface Props {
   projectId: string;
@@ -73,6 +80,10 @@ function chronological(items: ProjectTodoComment[]): ProjectTodoComment[] {
     (a, b) =>
       a.created_at - b.created_at || a.comment_id.localeCompare(b.comment_id),
   );
+}
+
+function newerTodoSnapshot(current: ProjectTodo | null, incoming: ProjectTodo) {
+  return current && current.version > incoming.version ? current : incoming;
 }
 
 function isConflict(error: unknown): boolean {
@@ -185,8 +196,26 @@ export default function ProjectTodoDetail({
 }: Props) {
   const { t } = useTranslation();
   const timezone = useServerTimezone();
-  const key = `${projectId}\u0000${todoId}`;
-  const [reloadKey, setReloadKey] = useState(0);
+  const key = JSON.stringify([currentUserId, projectId, todoId]);
+  const mounted = useRef(true);
+  const catalogAccessLost = useRef<() => void>(() => {});
+  const [fieldDraft, setFieldDraft] = useState<{
+    key: string;
+    values: TodoFieldValues;
+  } | null>(null);
+  const [comparedVersion, setComparedVersion] = useState<number | null>(null);
+  const [reloadRequest, setReloadRequest] = useState({
+    key: "",
+    sequence: 0,
+    compare: false,
+  });
+  const reloadKey = reloadRequest.sequence;
+  const reloadDetail = (compare = false) =>
+    setReloadRequest((previous) => ({
+      key,
+      sequence: previous.sequence + 1,
+      compare,
+    }));
   const [state, setState] = useState<DetailState>({
     key: "",
     loading: true,
@@ -218,6 +247,8 @@ export default function ProjectTodoDetail({
   const [draftError, setDraftError] = useState<string | null>(null);
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
+  const conflictRef = useRef(conflict);
+  conflictRef.current = conflict;
   const [editingDescription, setEditingDescription] = useState(false);
   const [descriptionDraft, setDescriptionDraft] = useState("");
   const [descriptionPreview, setDescriptionPreview] = useState(false);
@@ -243,6 +274,14 @@ export default function ProjectTodoDetail({
   onAccessLostRef.current = onAccessLost;
 
   const current = state.key === key ? state : null;
+  const fieldCompared =
+    comparedVersion !== null && current?.todo?.version === comparedVersion;
+  const catalogState = useTodoCatalog(
+    projectId,
+    currentUserId,
+    () => catalogAccessLost.current(),
+    current?.todo ? [current.todo.catalog_revision] : [],
+  );
 
   useLayoutEffect(() => {
     closeRef.current?.focus();
@@ -260,6 +299,8 @@ export default function ProjectTodoDetail({
     setDraftImageState({ key, files: [] });
     setDraftError(null);
     setFieldError(null);
+    setFieldDraft(null);
+    setComparedVersion(null);
     setConflict(false);
     setEditingDescription(false);
     setDescriptionDraft("");
@@ -271,7 +312,17 @@ export default function ProjectTodoDetail({
     setLoadingMore(false);
   }, [key]);
 
-  useEffect(() => () => postAbort.current?.abort(), []);
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      postAbort.current?.abort();
+      fetchSeq.current += 1;
+      postSeq.current += 1;
+      fieldSeq.current += 1;
+      moreSeq.current += 1;
+    };
+  }, []);
 
   useLayoutEffect(() => {
     const urls = draftImages.map((file) => URL.createObjectURL(file));
@@ -294,15 +345,19 @@ export default function ProjectTodoDetail({
     const seq = ++fetchSeq.current;
     moreSeq.current += 1;
     setLoadingMore(false);
-    setState({
-      key,
-      loading: true,
-      todo: null,
-      comments: [],
-      nextCursor: null,
-      error: null,
-      notFound: false,
-    });
+    setState((previous) =>
+      previous.key === key
+        ? { ...previous, loading: true, error: null }
+        : {
+            key,
+            loading: true,
+            todo: null,
+            comments: [],
+            nextCursor: null,
+            error: null,
+            notFound: false,
+          },
+    );
     void Promise.all([
       projectTodosApi.get(projectId, todoId),
       projectTodosApi.listComments(projectId, todoId, {
@@ -310,39 +365,71 @@ export default function ProjectTodoDetail({
       }),
     ])
       .then(([todo, page]) => {
-        if (key !== currentKey.current || seq !== fetchSeq.current) return;
-        setState({
+        if (
+          !mounted.current ||
+          key !== currentKey.current ||
+          seq !== fetchSeq.current
+        )
+          return;
+        setState((previous) => ({
           key,
           loading: false,
-          todo,
+          todo: newerTodoSnapshot(
+            previous.key === key ? previous.todo : null,
+            todo,
+          ),
           comments: chronological(page.items),
           nextCursor: page.next_cursor,
           error: null,
           notFound: false,
-        });
+        }));
+        if (
+          reloadRequest.key === key &&
+          reloadRequest.compare &&
+          conflictRef.current
+        )
+          setComparedVersion(todo.version);
       })
       .catch((error: unknown) => {
-        if (key !== currentKey.current || seq !== fetchSeq.current) return;
+        if (
+          !mounted.current ||
+          key !== currentKey.current ||
+          seq !== fetchSeq.current
+        )
+          return;
         const notFound = isNotFoundApiError(error);
-        setState({
-          key,
-          loading: false,
-          todo: null,
-          comments: [],
-          nextCursor: null,
-          error,
-          notFound,
-        });
-        if (notFound) onAccessLostRef.current();
+        if (notFound) catalogAccessLost.current();
+        else
+          setState((previous) =>
+            previous.key === key
+              ? { ...previous, loading: false, error }
+              : {
+                  key,
+                  loading: false,
+                  todo: null,
+                  comments: [],
+                  nextCursor: null,
+                  error,
+                  notFound: false,
+                },
+          );
       });
     return () => {
       fetchSeq.current += 1;
       moreSeq.current += 1;
     };
-  }, [key, projectId, todoId, reloadKey]);
+  }, [
+    key,
+    projectId,
+    todoId,
+    reloadKey,
+    reloadRequest.key,
+    reloadRequest.compare,
+  ]);
 
   const clearPrivateState = () => {
-    if (key !== currentKey.current) return;
+    if (!mounted.current || key !== currentKey.current) return;
+    catalogState.clear();
     fetchSeq.current += 1;
     moreSeq.current += 1;
     postSeq.current += 1;
@@ -365,55 +452,158 @@ export default function ProjectTodoDetail({
     setDraft("");
     setDraftImages([]);
     setDescriptionDraft("");
+    setFieldDraft(null);
+    setComparedVersion(null);
+    setFieldError(null);
+    setDraftError(null);
+    setConflict(false);
     setEditingDescription(false);
     setDescriptionPreview(false);
     descriptionCursor.current = null;
     draftRequestId.current = null;
     onAccessLostRef.current();
   };
+  catalogAccessLost.current = clearPrivateState;
 
   const saveField = async (
-    field:
-      | { status: ProjectTodoStatus }
-      | { assignee_user_id: number | null }
-      | { description: string; description_format: "markdown" },
+    field: Omit<ProjectTodoUpdateBody, "expected_version">,
   ) => {
     const todo = current?.todo;
     if (!todo || fieldBusy) return;
+    const allowed =
+      role === "owner" ||
+      role === "admin" ||
+      todo.creator_user_id === currentUserId ||
+      todo.assignee_user_id === currentUserId;
+    if (
+      !allowed ||
+      ("assignee_user_id" in field && role !== "owner" && role !== "admin")
+    )
+      return;
+    const savesProperties = [
+      "start_date",
+      "due_date",
+      "priority_id",
+      "tag_ids",
+    ].some((name) => name in field);
+    const hasPendingProperties =
+      fieldDraft?.key === key && !todoFieldsEqual(fieldDraft.values, todo);
     const seq = ++fieldSeq.current;
     setFieldBusy(true);
     setFieldError(null);
-    setConflict(false);
     try {
       const updated = await projectTodosApi.update(projectId, todoId, {
         expected_version: todo.version,
         ...field,
       });
-      if (key !== currentKey.current || seq !== fieldSeq.current) return;
+      if (
+        !mounted.current ||
+        key !== currentKey.current ||
+        seq !== fieldSeq.current
+      )
+        return;
       setState((previous) =>
-        previous.key === key ? { ...previous, todo: updated } : previous,
+        previous.key === key
+          ? { ...previous, todo: newerTodoSnapshot(previous.todo, updated) }
+          : previous,
       );
       if ("description" in field) setEditingDescription(false);
+      if (savesProperties) {
+        setFieldDraft(null);
+        setConflict(false);
+      } else if (!hasPendingProperties) setConflict(false);
+      setComparedVersion(null);
       onChangedRef.current(updated);
     } catch (error: unknown) {
-      if (key !== currentKey.current || seq !== fieldSeq.current) return;
+      if (
+        !mounted.current ||
+        key !== currentKey.current ||
+        seq !== fieldSeq.current
+      )
+        return;
       if (isNotFoundApiError(error)) {
         clearPrivateState();
       } else if (isConflict(error)) {
         setConflict(true);
+        setComparedVersion(null);
       } else {
+        if (
+          error instanceof Error &&
+          /\b422\b/.test(error.message) &&
+          ("start_date" in field || "due_date" in field)
+        )
+          void catalogState.reload();
         setFieldError(
-          apiErrorMessage(
-            error,
-            t("projects.todoDetail.saveFailed", "更新待办失败"),
-            t,
-          ),
+          [
+            "invalid_dates",
+            "invalid_priority",
+            "invalid_tags",
+            "no_change",
+          ].includes(String(parseApiError(error)?.details?.reason))
+            ? catalogErrorMessage(error, t)
+            : apiErrorMessage(
+                error,
+                t("projects.todoDetail.saveFailed", "更新待办失败"),
+                t,
+              ),
         );
       }
     } finally {
-      if (key === currentKey.current && seq === fieldSeq.current)
+      if (
+        mounted.current &&
+        key === currentKey.current &&
+        seq === fieldSeq.current
+      )
         setFieldBusy(false);
     }
+  };
+  const saveProperties = () => {
+    const todo = current?.todo,
+      values = fieldDraft?.key === key ? fieldDraft.values : null;
+    if (
+      !todo ||
+      !values ||
+      todoFieldsEqual(values, todo) ||
+      (conflict && !fieldCompared)
+    )
+      return;
+    const patch: Omit<ProjectTodoUpdateBody, "expected_version"> = {};
+    if (
+      values.start_date !== todo.start_date ||
+      values.due_date !== todo.due_date
+    ) {
+      const problem = validatePlanDates(
+        values,
+        catalogState.loading || catalogState.error
+          ? null
+          : catalogState.catalog?.server_today ?? null,
+        todo.due_date,
+      );
+      if (problem) {
+        setFieldError(t(`projects.todoFields.${problem}`));
+        return;
+      }
+      if (values.start_date !== todo.start_date)
+        patch.start_date = values.start_date;
+      if (values.due_date !== todo.due_date) patch.due_date = values.due_date;
+    }
+    if (values.priority_id !== todo.priority_id)
+      patch.priority_id = values.priority_id;
+    if (
+      JSON.stringify([...values.tag_ids].sort()) !==
+      JSON.stringify([...todo.tag_ids].sort())
+    )
+      patch.tag_ids = [...values.tag_ids].sort();
+    if ("priority_id" in patch || "tag_ids" in patch) {
+      if (!catalogState.catalog || catalogState.loading || catalogState.error) {
+        setFieldError(
+          t("projects.todoFields.catalogRequired", "请先加载项目目录。"),
+        );
+        return;
+      }
+      patch.expected_catalog_revision = catalogState.catalog.revision;
+    }
+    void saveField(patch);
   };
 
   const insertDescriptionMarkdown = (
@@ -480,7 +670,12 @@ export default function ProjectTodoDetail({
             }
           : undefined,
       );
-      if (key !== currentKey.current || seq !== postSeq.current) return;
+      if (
+        !mounted.current ||
+        key !== currentKey.current ||
+        seq !== postSeq.current
+      )
+        return;
       setState((previous) =>
         previous.key === key
           ? {
@@ -497,9 +692,14 @@ export default function ProjectTodoDetail({
       setDraft("");
       setDraftImages([]);
       draftRequestId.current = null;
-      setReloadKey((value) => value + 1);
+      reloadDetail();
     } catch (error: unknown) {
-      if (key !== currentKey.current || seq !== postSeq.current) return;
+      if (
+        !mounted.current ||
+        key !== currentKey.current ||
+        seq !== postSeq.current
+      )
+        return;
       if (isNotFoundApiError(error)) {
         clearPrivateState();
       } else {
@@ -512,7 +712,11 @@ export default function ProjectTodoDetail({
         );
       }
     } finally {
-      if (key === currentKey.current && seq === postSeq.current) {
+      if (
+        mounted.current &&
+        key === currentKey.current &&
+        seq === postSeq.current
+      ) {
         if (postAbort.current === controller) postAbort.current = null;
         postBusy.current = false;
         setPosting(false);
@@ -573,7 +777,12 @@ export default function ProjectTodoDetail({
         limit: PROJECT_TODO_COMMENTS_PAGE_SIZE,
         cursor: current.nextCursor,
       });
-      if (key !== currentKey.current || seq !== moreSeq.current) return;
+      if (
+        !mounted.current ||
+        key !== currentKey.current ||
+        seq !== moreSeq.current
+      )
+        return;
       setState((previous) => {
         if (previous.key !== key) return previous;
         const byId = new Map(
@@ -589,7 +798,12 @@ export default function ProjectTodoDetail({
         };
       });
     } catch (error: unknown) {
-      if (key !== currentKey.current || seq !== moreSeq.current) return;
+      if (
+        !mounted.current ||
+        key !== currentKey.current ||
+        seq !== moreSeq.current
+      )
+        return;
       if (isNotFoundApiError(error)) clearPrivateState();
       else
         setDraftError(
@@ -600,7 +814,11 @@ export default function ProjectTodoDetail({
           ),
         );
     } finally {
-      if (key === currentKey.current && seq === moreSeq.current)
+      if (
+        mounted.current &&
+        key === currentKey.current &&
+        seq === moreSeq.current
+      )
         setLoadingMore(false);
     }
   };
@@ -658,7 +876,7 @@ export default function ProjectTodoDetail({
               )}
             />
           </div>
-        ) : current.error || !todo ? (
+        ) : !todo ? (
           <div className={styles.centered}>
             <Alert
               type="error"
@@ -668,7 +886,7 @@ export default function ProjectTodoDetail({
                 t,
               )}
               action={
-                <Button onClick={() => setReloadKey((value) => value + 1)}>
+                <Button onClick={() => reloadDetail()}>
                   {t("common.retry", "重试")}
                 </Button>
               }
@@ -1043,13 +1261,35 @@ export default function ProjectTodoDetail({
                     "待办已被更新，请刷新后比较再保存。",
                   )}
                   action={
-                    <Button onClick={() => setReloadKey((value) => value + 1)}>
-                      {t("common.refresh", "刷新")}
+                    <Button
+                      disabled={current.loading || fieldBusy}
+                      onClick={() => {
+                        setComparedVersion(null);
+                        reloadDetail(true);
+                        void catalogState.reload();
+                      }}
+                    >
+                      {t("projects.todoFields.refreshCompare", "刷新后比较")}
                     </Button>
                   }
                 />
               )}
               {fieldError && <Alert type="error" message={fieldError} />}
+              {!!current.error && (
+                <Alert
+                  type="error"
+                  message={apiErrorMessage(
+                    current.error,
+                    t("projects.todoDetail.loadFailed", "加载待办详情失败"),
+                    t,
+                  )}
+                  action={
+                    <Button onClick={() => reloadDetail()}>
+                      {t("common.retry", "重试")}
+                    </Button>
+                  }
+                />
+              )}
               <div className={styles.property}>
                 <label htmlFor="project-todo-detail-status">
                   {t("projects.plan.statusLabel", "状态")}
@@ -1107,6 +1347,55 @@ export default function ProjectTodoDetail({
                   </span>
                 )}
               </div>
+              <TodoFields
+                projectId={projectId}
+                accountId={currentUserId}
+                values={fieldDraft?.key === key ? fieldDraft.values : todo}
+                original={todo}
+                catalog={catalogState.catalog}
+                loading={catalogState.loading}
+                error={catalogState.error}
+                onRetry={catalogState.reload}
+                onCatalogChanged={catalogState.reload}
+                canManage={isManager}
+                disabled={fieldBusy}
+                readOnly={!canEditStatus}
+                onChange={(values) => setFieldDraft({ key, values })}
+              />
+              {canEditStatus && (
+                <Button
+                  type="primary"
+                  loading={fieldBusy}
+                  disabled={
+                    fieldBusy ||
+                    !fieldDraft ||
+                    todoFieldsEqual(fieldDraft.values, todo) ||
+                    (conflict && !fieldCompared)
+                  }
+                  onClick={saveProperties}
+                >
+                  {t("projects.todoFields.saveProperties", "保存属性")}
+                </Button>
+              )}
+              {conflict && (
+                <section className={styles.propertyComparison}>
+                  {fieldCompared && (
+                    <>
+                      <strong>
+                        {t("projects.todoFields.serverValues", "服务器当前值")}
+                      </strong>
+                      <TodoFields
+                        projectId={projectId}
+                        accountId={currentUserId}
+                        values={todo}
+                        catalog={catalogState.catalog}
+                        canManage={false}
+                        readOnly
+                      />
+                    </>
+                  )}
+                </section>
+              )}
             </aside>
           </div>
         )}

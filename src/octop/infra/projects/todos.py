@@ -31,6 +31,7 @@ from octop.infra.projects.service import (
     ROLE_ADMIN,
     ROLE_OWNER,
 )
+from octop.infra.projects.todo_catalog import plan_error
 
 MAX_TODO_TITLE_LENGTH = 200
 MAX_TODO_DESCRIPTION_LENGTH = 4000
@@ -76,6 +77,11 @@ class TodoView:
     version: int
     created_at: int
     updated_at: int
+    start_date: str | None
+    due_date: str | None
+    priority_id: str | None
+    tag_ids: list[str]
+    catalog_revision: int
 
 
 @dataclass(frozen=True)
@@ -124,6 +130,10 @@ class ProjectTodoService:
     def _project_repo(self) -> Any:
         return self._services.project_repo
 
+    @property
+    def _timezone(self) -> str:
+        return str(self._services.config.default_timezone)
+
     # ------------------------------------------------------------ access
 
     def _require_membership(self, project_id: str, user_id: int) -> Any:
@@ -153,6 +163,15 @@ class ProjectTodoService:
             raise _invalid_assignee()
         if outcome == "stale":
             raise _version_conflict(todo_id)
+        if outcome == "catalog_stale":
+            raise plan_error("catalog_revision_conflict", status=409)
+        if outcome in (
+            "invalid_dates",
+            "invalid_priority",
+            "invalid_tags",
+            "invalid_catalog_revision",
+        ):
+            raise plan_error(outcome)
         if outcome == "no_change":
             raise OctopError(
                 ErrorCode.INVITE_INVALID,
@@ -176,6 +195,11 @@ class ProjectTodoService:
             version=row.version,
             created_at=row.created_at,
             updated_at=row.updated_at,
+            start_date=row.start_date,
+            due_date=row.due_date,
+            priority_id=row.priority_id,
+            tag_ids=row.tag_ids,
+            catalog_revision=row.catalog_revision,
         )
 
     # ------------------------------------------------------------ reads
@@ -191,22 +215,23 @@ class ProjectTodoService:
         limit: int = DEFAULT_PAGE_LIMIT,
         offset: int = 0,
     ) -> TodoListPage:
-        self._require_membership(project_id, user_id)
         rows = self._repo.list_todos(
             project_id,
+            user_id=user_id,
             q=q,
             status=status,
             assignee_user_id=assignee_user_id,
             limit=limit,
             offset=offset,
         )
+        if rows is None:
+            raise OctopError(ErrorCode.NOT_FOUND, "project not found")
         has_more = len(rows) > limit
         items = [self._view(row) for row in rows[:limit]]
         return TodoListPage(items=items, limit=limit, offset=offset, has_more=has_more)
 
     def get_todo(self, project_id: str, todo_id: str, *, user_id: int) -> TodoView:
-        self._require_membership(project_id, user_id)
-        row = self._repo.get(project_id, todo_id)
+        row = self._repo.get(project_id, todo_id, user_id=user_id)
         if row is None:
             raise _todo_not_found()
         return self._view(row)
@@ -222,11 +247,19 @@ class ProjectTodoService:
         description: str = "",
         description_format: str = "plain",
         assignee_user_id: int | None = None,
+        status: str = "todo",
+        start_date: str | None = None,
+        due_date: str | None = None,
+        priority_id: str | None = None,
+        tag_ids: list[str] | None = None,
+        expected_catalog_revision: Any = UNSET,
     ) -> TodoView:
         membership = self._require_membership(project_id, actor_user_id)
         clean_title = validate_todo_title(title)
         clean_description = validate_todo_description(description)
         clean_description_format = validate_todo_description_format(description_format)
+        if status not in TODO_STATUSES:
+            raise ValueError("todo status must be todo, in_progress, or done")
         # Fast pre-check; the repo re-checks inside the write transaction.
         if (
             assignee_user_id is not None
@@ -241,6 +274,13 @@ class ProjectTodoService:
             description=clean_description,
             description_format=clean_description_format,
             assignee_user_id=assignee_user_id,
+            status=status,
+            start_date=start_date,
+            due_date=due_date,
+            priority_id=priority_id,
+            tag_ids=[] if tag_ids is None else tag_ids,
+            expected_catalog_revision=expected_catalog_revision,
+            timezone=self._timezone,
         )
         self._raise_for_outcome(mutation.outcome)
         if mutation.row is None:  # pragma: no cover - created always carries a row
@@ -259,6 +299,11 @@ class ProjectTodoService:
         description_format: Any = UNSET,
         status: Any = UNSET,
         assignee_user_id: Any = UNSET,
+        start_date: Any = UNSET,
+        due_date: Any = UNSET,
+        priority_id: Any = UNSET,
+        tag_ids: Any = UNSET,
+        expected_catalog_revision: Any = UNSET,
     ) -> TodoView:
         self._require_membership(project_id, actor_user_id)
         clean_title = UNSET if title is UNSET else validate_todo_title(title)
@@ -293,6 +338,12 @@ class ProjectTodoService:
             description_format=clean_description_format,
             status=status,
             assignee_user_id=assignee_user_id,
+            start_date=start_date,
+            due_date=due_date,
+            priority_id=priority_id,
+            tag_ids=tag_ids,
+            expected_catalog_revision=expected_catalog_revision,
+            timezone=self._timezone,
         )
         self._raise_for_outcome(mutation.outcome, todo_id=todo_id)
         if mutation.row is None:  # pragma: no cover - updated always carries a row

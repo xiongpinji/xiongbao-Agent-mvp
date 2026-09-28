@@ -12,6 +12,10 @@ import {
   useNavigate,
 } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+const { account } = vi.hoisted(() => ({ account: { id: 1 } }));
+vi.mock("../../hooks/useCurrentUser", () => ({
+  useCurrentUser: () => ({ id: account.id, username: "test" }),
+}));
 
 const { get, members, list, usage } = vi.hoisted(() => ({
   get: vi.fn(),
@@ -283,6 +287,7 @@ function LocationProbe() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  account.id = 1;
   modalProps.current = null;
   get.mockResolvedValue({
     ...summary,
@@ -295,6 +300,45 @@ beforeEach(() => {
 });
 
 describe("ProjectDetail assets tab mount", () => {
+  it("reloads the same project when account identity changes and ignores the previous account's late GET", async () => {
+    let resolveOld!: (value: unknown) => void;
+    get.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveOld = resolve;
+      }),
+    );
+    const tree = () => (
+      <MemoryRouter initialEntries={["/projects/project-1"]}>
+        <Routes>
+          <Route path="/projects/:projectId" element={<ProjectDetail />} />
+        </Routes>
+      </MemoryRouter>
+    );
+    const { rerender } = render(tree());
+    account.id = 9;
+    get.mockResolvedValue({
+      ...summary,
+      name: "新账号项目",
+      instructions: "",
+      instructions_sha256: "new",
+    });
+    rerender(tree());
+    expect(
+      await screen.findByRole("heading", { name: "新账号项目" }),
+    ).toBeInTheDocument();
+    resolveOld({
+      ...summary,
+      name: "旧账号私密项目",
+      instructions: "",
+      instructions_sha256: "old",
+    });
+    await waitFor(() =>
+      expect(screen.queryByText("旧账号私密项目")).toBeNull(),
+    );
+    expect(
+      screen.getByRole("heading", { name: "新账号项目" }),
+    ).toBeInTheDocument();
+  });
   it("opens a direct todo link, removes only todo on close, and follows browser Back", async () => {
     const user = userEvent.setup();
     render(

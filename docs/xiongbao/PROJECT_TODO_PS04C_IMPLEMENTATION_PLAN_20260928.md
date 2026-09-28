@@ -51,6 +51,10 @@ M1/M2/M3 可并行：M2 使用 M1 的 seed_todo_catalog(conn, project_id, ts) �
 | Q4 SQL查询 | Q3 |
 | Q5 实际联调和验收 | Q4、M3、R1；共用页面文件释放 |
 
+## C1 冻结门禁（2026-09-28）
+
+M1/M2/M3/R1 与补偿恢复、前端基线已完成各自规格→质量审查。真实全量后端 4854 通过/45 跳过、前端 236 文件/1686 测试、PG20 和 TCP 浏览器21阶段通过。68项业务字节冻结，最终73文件/文档/提交工具独立整合与精确Git发布仍为本片最后门禁；Q1/Q2业务启动必须由协调者确认其通过并核对远端SHA。详见 [C1冻结记录](PROJECT_TODO_PS04C1_ACCEPTANCE_20260928.md) 与 [机器证据](PROJECT_TODO_PS04C1_EVIDENCE_20260928.json)。C2及整体V未完成，GLM/WorkBuddy视觉保持待验。
+
 ## 测试环境与精确命令
 
 Windows PowerShell 在专用 checkout 执行：
@@ -66,11 +70,11 @@ uv run --no-sync pytest tests/unit/db/test_project_todo_fields_migration.py -q
 
 ## 任务 M1：安全迁移与目录种子
 
-- [ ] 写 tests/unit/db/test_project_todo_fields_migration.py：构造033旧库、待办/评论/图片/usage，再 run_migrations，断言新日期空、公开ID/version/description_format与子行完全保持；PRAGMA foreign_key_check为空，FK目标仍是正式父表。故障在复制后与水位更新前注入，失败旧库完整，重放一次完成。
-- [ ] 运行 uv run --no-sync pytest tests/unit/db/test_project_todo_fields_migration.py -q，保留缺少新列/表的 RED。
-- [ ] 实现 paired034 和专用原子分支。SQLite 同一连接 BEGIN 前关 FK，建临时新父表、复制所有列、替换正式父表，检查 FK/子行/约束和种子，水位同事务；finally恢复 FK。不能先 RENAME 旧父表让子 FK 指向临时表。PG事务 ALTER、复合唯一/FK/约束、回填种子。seed_todo_catalog 只用传入 conn，不开第二连接。
-- [ ] 复跑新用例与 uv run --no-sync pytest tests/unit/db/test_project_todos.py tests/unit/db/test_project_todo_comments.py -q，旧水位断言用动态 _max_discovered_version 保留含义。
-- [ ] 独立规格→质量审查；Codex核验 migration pair、DDL兼容、失败回滚及raw schema并提交 M1 接受证据，未接受不启动Q2。
+- [x] 写 tests/unit/db/test_project_todo_fields_migration.py：构造033旧库、待办/评论/图片/usage，再 run_migrations，断言新日期空、公开ID/version/description_format与子行完全保持；PRAGMA foreign_key_check为空，FK目标仍是正式父表。故障在复制后与水位更新前注入，失败旧库完整，重放一次完成。
+- [x] 运行 uv run --no-sync pytest tests/unit/db/test_project_todo_fields_migration.py -q，保留缺少新列/表的 RED。
+- [x] 实现 paired034 和专用原子分支。SQLite 同一连接 BEGIN 前关 FK，建临时新父表、复制所有列、替换正式父表，检查 FK/子行/约束和种子，水位同事务；finally恢复 FK。不能先 RENAME 旧父表让子 FK 指向临时表。PG事务 ALTER、复合唯一/FK/约束、回填种子。seed_todo_catalog 只用传入 conn，不开第二连接。
+- [x] 复跑新用例与 uv run --no-sync pytest tests/unit/db/test_project_todos.py tests/unit/db/test_project_todo_comments.py -q，旧水位断言用动态 _max_discovered_version 保留含义。
+- [x] 独立规格→质量审查；Codex核验 migration pair、DDL兼容、失败回滚及raw schema并提交 M1 接受证据，未接受不启动Q2。
 
 种子入口固定：
 
@@ -104,11 +108,11 @@ def seed_todo_catalog(conn: Any, project_id: str, ts: int) -> None:
 
 ## 任务 M2a：目录 API 与配置事务
 
-- [ ] 新测试 tests/integration/test_project_todo_catalog_api.py 的首例调用真实路由，断言四级、revision1、server_today/server_timezone，member写403/outsider读404；NFKC同名409、排序全覆盖、停用保留、恢复同名冲突、活跃/总量上限、归档写409读有效。
-- [ ] uv run --no-sync pytest tests/integration/test_project_todo_catalog_api.py -q：404新路由是有效RED。
-- [ ] 领域 todo_catalog.py 做名字/颜色/数量规则，仓储同事务锁成员→项目→状态→项；创建/编辑/排序/停用/恢复 revision恰+1与白名单事件，失败不增。API按C1明确9条写路径注册静态order优先。服务容器注册新repo；ProjectRepo.create_with_owner 原事务调用seed，读不补种子。
-- [ ] 同一命令GREEN，再跑 uv run --no-sync pytest tests/unit/db/test_project_repo.py tests/integration/test_projects_api.py -q。
-- [ ] Codex对完整diff独立复跑，规格审查后质量审查；目录 DTO 不含名字键/rawJSON，安全事件只有允许字段。
+- [x] 新测试 tests/integration/test_project_todo_catalog_api.py 的首例调用真实路由，断言四级、revision1、server_today/server_timezone，member写403/outsider读404；NFKC同名409、排序全覆盖、停用保留、恢复同名冲突、活跃/总量上限、归档写409读有效。
+- [x] uv run --no-sync pytest tests/integration/test_project_todo_catalog_api.py -q：404新路由是有效RED。
+- [x] 领域 todo_catalog.py 做名字/颜色/数量规则，仓储同事务锁成员→项目→状态→项；创建/编辑/排序/停用/恢复 revision恰+1与白名单事件，失败不增。API按C1明确9条写路径注册静态order优先。服务容器注册新repo；ProjectRepo.create_with_owner 原事务调用seed，读不补种子。
+- [x] 同一命令GREEN，再跑 uv run --no-sync pytest tests/unit/db/test_project_repo.py tests/integration/test_projects_api.py -q。
+- [x] Codex对完整diff独立复跑，规格审查后质量审查；目录 DTO 不含名字键/rawJSON，安全事件只有允许字段。
 
 首个 HTTP 断言：
 
@@ -131,35 +135,35 @@ _base 来自 tests/integration/test_project_todos_api.py，后续helpers在新�
 
 ## 任务 M2b：待办字段与并发锁序
 
-- [ ] tests/integration/test_project_todo_fields_api.py 先测状态/日期/目录/标签创建及DTO五字段；PATCH null与省略、过去开始/旧逾期/更改过去截止422、闰日、合并起止；停用只能保留/移除；目录版本冲突和待办版本冲突无写/事件。旧 expected_version 单独400/no_change；孤立 expected_catalog_revision422；bulk重复值仍增版本。
-- [ ] uv run --no-sync pytest tests/integration/test_project_todo_fields_api.py -q，确认字段拒绝或DTO缺失RED。
-- [ ] 扩展 ProjectTodoRow/TodoView 与仓储读写。字段、tags、目录revision在原事务构造DTO，提交后返回，create/update不再 self.get 混版本；old GET offset保持。服务按事务内服务器今天检查，布尔version拒绝。remove_member 先按todo_id锁目标行再清处理人，归档和项目字段锁序一致；日期/目录引用保留。
-- [ ] 运行上述GREEN及 uv run --no-sync pytest tests/integration/test_project_todos_api.py tests/integration/test_project_todo_comments_api.py tests/unit/db/test_project_todos.py -q。新增单元覆盖20tags、32/128priority、100/500tag上限与失败关联原子性。
-- [ ] 真实两PG连接 barrier交错目录停用/新增关联、revision同名赢家、退组/bulk/新字段、归档配置；记录成功或可解释冲突、无死锁、无半关联，独立审查接受后C1后端才算通过。
+- [x] tests/integration/test_project_todo_fields_api.py 先测状态/日期/目录/标签创建及DTO五字段；PATCH null与省略、过去开始/旧逾期/更改过去截止422、闰日、合并起止；停用只能保留/移除；目录版本冲突和待办版本冲突无写/事件。旧 expected_version 单独400/no_change；孤立 expected_catalog_revision422；bulk重复值仍增版本。
+- [x] uv run --no-sync pytest tests/integration/test_project_todo_fields_api.py -q，确认字段拒绝或DTO缺失RED。
+- [x] 扩展 ProjectTodoRow/TodoView 与仓储读写。字段、tags、目录revision在原事务构造DTO，提交后返回，create/update不再 self.get 混版本；old GET offset保持。服务按事务内服务器今天检查，布尔version拒绝。remove_member 先按todo_id锁目标行再清处理人，归档和项目字段锁序一致；日期/目录引用保留。
+- [x] 运行上述GREEN及 uv run --no-sync pytest tests/integration/test_project_todos_api.py tests/integration/test_project_todo_comments_api.py tests/unit/db/test_project_todos.py -q。新增单元覆盖20tags、32/128priority、100/500tag上限与失败关联原子性。
+- [x] 真实两PG连接 barrier交错目录停用/新增关联、revision同名赢家、退组/bulk/新字段、归档配置；记录成功或可解释冲突、无死锁、无半关联，独立审查接受后C1后端才算通过。
 
 ## 任务 M3a：共享字段与目录控件
 
-- [ ] tests先于实现：planDates.test.ts 对1900/9999、闰日、DST无跨日、服务器日期不可用和计算上下界；TodoFields.test.tsx 对过去截止禁用/nullclear/保留停用/20tag/manager入口；TodoCatalogManager.test.tsx 对真实API/409草稿/403/404。
-- [ ] dashboard内 npm test -- src/pages/Projects/planDates.test.ts src/pages/Projects/TodoFields.test.tsx src/pages/Projects/TodoCatalogManager.test.tsx，断言需求缺失RED。
-- [ ] 实现 calendar-day 累加/比较而非 new Date(YYYY-MM-DD)；目录API typed wrappers只通过request模块；共享控件接受完整Todo草稿、catalog/roles及提交回调，管理弹层使用真实CRUD/修订。未知服务器日期阻止日期提交并可重试。
-- [ ] 相同命令GREEN；npx tsc -b，必填DTO夹具补空日期/priority/tag/revision，不把字段改可选躲避错误。
-- [ ] 规格与质量只读审查，后端未接受前仅组件联调候选，不能宣称真实HTTP交付。
+- [x] tests先于实现：planDates.test.ts 对1900/9999、闰日、DST无跨日、服务器日期不可用和计算上下界；TodoFields.test.tsx 对过去截止禁用/nullclear/保留停用/20tag/manager入口；TodoCatalogManager.test.tsx 对真实API/409草稿/403/404。
+- [x] dashboard内 npm test -- src/pages/Projects/planDates.test.ts src/pages/Projects/TodoFields.test.tsx src/pages/Projects/TodoCatalogManager.test.tsx，断言需求缺失RED。
+- [x] 实现 calendar-day 累加/比较而非 new Date(YYYY-MM-DD)；目录API typed wrappers只通过request模块；共享控件接受完整Todo草稿、catalog/roles及提交回调，管理弹层使用真实CRUD/修订。未知服务器日期阻止日期提交并可重试。
+- [x] 相同命令GREEN；npx tsc -b，必填DTO夹具补空日期/priority/tag/revision，不把字段改可选躲避错误。
+- [x] 规格与质量只读审查，后端未接受前仅组件联调候选，不能宣称真实HTTP交付。
 
 ## 任务 M3b：原表格/看板和详情接线
 
-- [ ] ProjectPlan.test.tsx/ProjectTodoDetail.test.tsx 先写新建选状态+日期标签、详情字段、409草稿不关、账号项目切换的late success/error、403保留404清私密、目录管理返回原草稿，保留全部B2测试。
-- [ ] npm test -- src/pages/Projects/ProjectPlan.test.tsx src/pages/Projects/ProjectTodoDetail.test.tsx，只选新增测试先记录RED，随后全文件复跑。
-- [ ] C1字段在TodoEditorModal、表格列/board卡片、双栏属性栏统一显示/编辑；每个mutation capture账号+项目+todo key，detail key加账号；403/422仅写错误，404清私密；409不关闭原编辑器，刷新比较不自动覆盖。返回DTO为提交真值；发现catalog不同刷新目录再映射名称。
-- [ ] 全文件GREEN、npm test -- src/api/modules/projectTodos.test.ts、npx tsc -b；新增locale镜像检查与1280/800滚动/Escape焦点。
-- [ ] C1 SQLite+PG真实登录三角色HTTP/浏览器合成旅程，日期/目录写刷新同ID/版本；保存原图字节/B2行为；通过两阶段审查后记录C1接受再对外推送。
+- [x] ProjectPlan.test.tsx/ProjectTodoDetail.test.tsx 先写新建选状态+日期标签、详情字段、409草稿不关、账号项目切换的late success/error、403保留404清私密、目录管理返回原草稿，保留全部B2测试。
+- [x] npm test -- src/pages/Projects/ProjectPlan.test.tsx src/pages/Projects/ProjectTodoDetail.test.tsx，只选新增测试先记录RED，随后全文件复跑。
+- [x] C1字段在TodoEditorModal、表格列/board卡片、双栏属性栏统一显示/编辑；每个mutation capture账号+项目+todo key，detail key加账号；403/422仅写错误，404清私密；409不关闭原编辑器，刷新比较不自动覆盖。返回DTO为提交真值；发现catalog不同刷新目录再映射名称。
+- [x] 全文件GREEN、npm test -- src/api/modules/projectTodos.test.ts、npx tsc -b；新增locale镜像检查与1280/800滚动/Escape焦点。
+- [x] C1 SQLite+PG真实登录三角色HTTP/浏览器合成旅程，日期/目录写刷新同ID/版本；保存原图字节/B2行为；通过两阶段审查后记录C1接受再对外推送。
 
 ## 任务 R1：请求会话身份与账户切换
 
-- [ ] 在 request.unauthorized.test.ts/request.setup.test.ts 写 deferred fetch：账户A请求发出，切换合成账户B token，然后A晚到401或renewal不得clear/replace B；同会话续期仍正常，setup路径不改变。
-- [ ] dashboard内 npm test -- src/api/request.unauthorized.test.ts src/api/request.setup.test.ts，仅新增用例先记录真实全局副作用RED。
-- [ ] request.ts 在发出时捕获请求token/会话标记，全局更新/清理前与当前标记比较；组件仍负责丢弃旧渲染结果，不用传输guard取代页面key。所有request/requestBlob/requestUpload同规则。
-- [ ] 全两文件GREEN，复跑auth/setup与ProjectDetail账户加载测试；不打印或读取用户实际token。
-- [ ] 独立规格→质量审查，此路径不归字段前端工作者，避免同时修改共享传输文件。
+- [x] 在 request.unauthorized.test.ts/request.setup.test.ts 写 deferred fetch：账户A请求发出，切换合成账户B token，然后A晚到401或renewal不得clear/replace B；同会话续期仍正常，setup路径不改变。
+- [x] dashboard内 npm test -- src/api/request.unauthorized.test.ts src/api/request.setup.test.ts，仅新增用例先记录真实全局副作用RED。
+- [x] request.ts 在发出时捕获请求token/会话标记，全局更新/清理前与当前标记比较；组件仍负责丢弃旧渲染结果，不用传输guard取代页面key。所有request/requestBlob/requestUpload同规则。
+- [x] 全两文件GREEN，复跑auth/setup与ProjectDetail账户加载测试；不打印或读取用户实际token。
+- [x] 独立规格→质量审查，此路径不归字段前端工作者，避免同时修改共享传输文件。
 
 ## 任务 Q1：严格视图定义和游标纯验证
 
@@ -219,9 +223,9 @@ _base 来自 tests/integration/test_project_todos_api.py，后续helpers在新�
 
 ## Checklist
 
-- [ ] M1: 034迁移、种子及旧库失败重放通过独立审查。
-- [ ] M2: C1目录/字段/锁序真实服务和API通过。
-- [ ] M3: C1字段/目录真实UI、账号隔离及冲突草稿通过。
+- [x] M1: 034迁移、种子及旧库失败重放通过独立审查。
+- [x] M2: C1目录/字段/锁序真实服务和API通过。
+- [x] M3: C1字段/目录真实UI、账号隔离及冲突草稿通过。
 - [ ] Q1: 严格五类型定义与compactcursor验证通过。
 - [ ] Q2: 035与所有用户/标题写路径及备份通过。
 - [ ] Q3: 真实共享视图配置与生命周期通过。

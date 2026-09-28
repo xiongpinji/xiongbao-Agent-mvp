@@ -13,10 +13,11 @@ appear.
 
 from __future__ import annotations
 
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict, field_validator
+from starlette.concurrency import run_in_threadpool
 
 from octop.api.deps import current_user, get_server
 from octop.infra.errors import ErrorCode, OctopError
@@ -50,6 +51,11 @@ class ActivityItemResponse(BaseModel):
     object_id: str | None
     message_body: str | None
     created_at: int
+    fields: list[str] | None = None
+    catalog_revision: int | None = None
+    catalog_kind: Literal["priority", "tag"] | None = None
+    option_id: str | None = None
+    action: Literal["created", "updated", "ordered", "archived", "restored"] | None = None
 
 
 class ActivityPageResponse(BaseModel):
@@ -62,6 +68,23 @@ class ActivityPageResponse(BaseModel):
 def _item_payload(view: ActivityItemView) -> ActivityItemResponse:
     """Exactly the contract's fixed item fields — nothing else is serializable
     here, so timeline responses cannot grow payload or credential leaks."""
+    extra: dict[str, Any] = {}
+    if view.event_type == "project.todo_catalog_updated":
+        extra = {
+            "catalog_revision": view.catalog_revision,
+            "catalog_kind": view.catalog_kind,
+            "action": view.action,
+            "fields": list(view.fields),
+        }
+        if view.option_id is not None:
+            extra["option_id"] = view.option_id
+    elif view.event_type == "project.todo_updated" and {
+        "start_date",
+        "due_date",
+        "priority_id",
+        "tag_ids",
+    }.intersection(view.fields):
+        extra["fields"] = list(view.fields)
     return ActivityItemResponse(
         event_id=view.event_id,
         event_type=view.event_type,
@@ -71,6 +94,7 @@ def _item_payload(view: ActivityItemView) -> ActivityItemResponse:
         object_id=view.object_id,
         message_body=view.message_body,
         created_at=view.created_at,
+        **extra,
     )
 
 
@@ -89,6 +113,7 @@ class PostMessageBody(BaseModel):
 @router.get(
     "/activity",
     response_model=ActivityPageResponse,
+    response_model_exclude_unset=True,
     summary="Read the project activity timeline (members only)",
 )
 async def list_activity(
@@ -104,8 +129,13 @@ async def list_activity(
     """Whitelisted events only, filtered and paginated server-side. Malformed
     cursors answer 422 ``PROJECT_ACTIVITY_CURSOR_INVALID``; the cursor is not
     an auth credential — membership is re-checked on every page."""
-    page = _activity_service(server).list_activity(
-        project_id, user_id=user.id, scope=scope, limit=limit, cursor=cursor
+    page = await run_in_threadpool(
+        _activity_service(server).list_activity,
+        project_id,
+        user_id=user.id,
+        scope=scope,
+        limit=limit,
+        cursor=cursor,
     )
     return ActivityPageResponse(
         items=[_item_payload(view) for view in page.items],
@@ -117,6 +147,7 @@ async def list_activity(
     "/messages",
     status_code=201,
     response_model=ActivityItemResponse,
+    response_model_exclude_unset=True,
     summary="Publish a plain-text project message",
 )
 async def post_message(
@@ -128,5 +159,7 @@ async def post_message(
     """Members publish a trimmed plain-text message (1–4000 characters) as
     themselves; the message row and its timeline event are written atomically,
     so a failed write leaves nothing behind."""
-    view = _activity_service(server).post_message(project_id, user_id=user.id, body=body.body)
+    view = await run_in_threadpool(
+        _activity_service(server).post_message, project_id, user_id=user.id, body=body.body
+    )
     return _item_payload(view)

@@ -1474,7 +1474,9 @@ def _reconcile_pre_squash_schema_version(db: DatabasePool) -> None:
     """
     current = _current_version(db)
     max_version = _max_discovered_version(db.dialect)
-    if max_version <= 0 or current <= max_version:
+    # Only the known split-005 watermarks are historical squash candidates.
+    # A newer database opened by older code must keep its future watermark.
+    if max_version <= 0 or current <= max_version or not 6 <= current <= 9:
         return
     if db.dialect == "postgresql":
         # v7 SQL rebuilds tables with RENAME; re-applying it would copy integer
@@ -1746,6 +1748,218 @@ def _ensure_project_todo_comment_images_v33(db: DatabasePool, path: Path) -> Non
             conn.execute(statement)
 
 
+def _seed_project_todo_catalogs_v34(conn: Any) -> None:
+    from octop.infra.db.project_plan_seed import _seed_default_todo_priorities, seed_todo_catalog
+
+    ts = int(time.time())
+    for row in conn.execute("SELECT project_id FROM project_spaces ORDER BY project_id").fetchall():
+        project_id = str(row["project_id"])
+        seed_todo_catalog(conn, project_id, ts)
+        total = conn.execute(
+            "SELECT COUNT(*) FROM project_todo_priorities WHERE project_id=?", (project_id,)
+        ).fetchone()[0]
+        if total >= 4:
+            continue
+        state = conn.execute(
+            "SELECT revision,updated_at FROM project_todo_catalog_state WHERE project_id=?",
+            (project_id,),
+        ).fetchone()
+        tags = conn.execute(
+            "SELECT 1 FROM project_todo_tags WHERE project_id=? LIMIT 1", (project_id,)
+        ).fetchone()
+        links = conn.execute(
+            "SELECT 1 FROM project_todo_tag_links WHERE project_id=? LIMIT 1", (project_id,)
+        ).fetchone()
+        # Four initial rows can only be archived, never physically removed.
+        # A revision-1 state with no catalog content is a provable seed prefix;
+        # an edited or partly populated catalog must not be silently reseeded.
+        if total == 0 and state["revision"] == 1 and tags is None and links is None:
+            _seed_default_todo_priorities(conn, project_id, int(state["updated_at"]))
+        else:
+            raise RuntimeError("034 cannot safely complete an incomplete catalog seed")
+
+
+def _v34_sql_definition(sql: str, *, table_body: bool = False) -> str:
+    """Compare actual 034 DDL, rather than treating present columns as complete."""
+    if table_body:
+        sql = sql[sql.index("(") :]
+    sql = re.sub(r"\bIF NOT EXISTS\b", "", sql, flags=re.IGNORECASE)
+    return re.sub(r"\s+", "", sql.replace('"', "")).rstrip(";").casefold()
+
+
+def _v34_identifier(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _ensure_project_todo_fields_v34(db: DatabasePool, path: Path) -> None:
+    """Rebuild the referenced SQLite parent and seed catalogs atomically.
+
+    ``connect`` holds the pool's RLock throughout PRAGMA changes, the write
+    transaction and FK restoration. Renaming the old parent would retarget
+    031 comments; instead copy to a new table, drop the old formal parent with
+    FK enforcement disabled, and only then rename the checked replacement.
+    All DDL comes from paired 034; no executescript can implicitly commit it.
+    """
+    statements = _split_pg_sql(path.read_text(encoding="utf-8"))
+    parent_ddl = next(
+        statement
+        for statement in statements
+        if statement.startswith("CREATE TABLE project_todos_v34_new")
+    )
+    with db.connect() as conn:
+        if conn.in_transaction:
+            raise RuntimeError("034 requires its own SQLite migration transaction")
+        try:
+            conn.execute("PRAGMA foreign_keys = OFF")
+            if conn.execute("PRAGMA foreign_keys").fetchone()[0] != 0:
+                raise RuntimeError("034 could not disable SQLite foreign keys before BEGIN")
+            conn.execute("BEGIN IMMEDIATE")
+            parent = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='project_todos'"
+            ).fetchone()
+            if parent is None:
+                raise RuntimeError("034 is missing its formal project_todos parent")
+            rebuild = _v34_sql_definition(parent["sql"], table_body=True) != _v34_sql_definition(
+                parent_ddl, table_body=True
+            )
+            old_columns = [row["name"] for row in conn.execute("PRAGMA table_info(project_todos)")]
+            table_names = [
+                row["name"]
+                for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            ]
+            child_fks: dict[str, list[tuple[Any, ...]]] = {}
+            for table in table_names:
+                keys = conn.execute(f"PRAGMA foreign_key_list({_v34_identifier(table)})").fetchall()
+                if any(key["table"] == "project_todos" for key in keys):
+                    child_fks[table] = [tuple(key) for key in keys]
+            child_counts = {
+                table: conn.execute(f"SELECT COUNT(*) FROM {_v34_identifier(table)}").fetchone()[0]
+                for table in (
+                    "project_todo_comments",
+                    "project_todo_comment_images",
+                    "project_todo_comment_image_usage",
+                    "project_todo_tag_links",
+                )
+                if table in table_names
+            }
+            old_indices = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='index' "
+                "AND tbl_name='project_todos' AND sql IS NOT NULL"
+            ).fetchall()
+            old_sequence = conn.execute(
+                "SELECT seq FROM sqlite_sequence WHERE name='project_todos'"
+            ).fetchone()
+            for statement in statements:
+                if statement.startswith("CREATE TABLE project_todos_v34_new"):
+                    if not rebuild:
+                        continue
+                    conn.execute("DROP TABLE IF EXISTS project_todos_v34_new")
+                    conn.execute(statement)
+                elif statement.startswith("INSERT INTO project_todos_v34_new"):
+                    if not rebuild:
+                        continue
+                    target_columns = [
+                        row["name"]
+                        for row in conn.execute("PRAGMA table_info(project_todos_v34_new)")
+                    ]
+                    if set(old_columns) - set(target_columns):
+                        raise RuntimeError("034 cannot discard unknown project_todos columns")
+                    column_list = ",".join(_v34_identifier(column) for column in target_columns)
+                    values = ",".join(
+                        _v34_identifier(column) if column in old_columns else "NULL"
+                        for column in target_columns
+                    )
+                    conn.execute(
+                        f"INSERT INTO project_todos_v34_new ({column_list}) "
+                        f"SELECT {values} FROM project_todos"
+                    )
+                    old_projection = ",".join(_v34_identifier(column) for column in old_columns)
+                    mismatch = conn.execute(
+                        f"SELECT {old_projection} FROM project_todos EXCEPT "
+                        f"SELECT {old_projection} FROM project_todos_v34_new LIMIT 1"
+                    ).fetchone()
+                    count = conn.execute("SELECT COUNT(*) FROM project_todos").fetchone()[0]
+                    copied = conn.execute("SELECT COUNT(*) FROM project_todos_v34_new").fetchone()[
+                        0
+                    ]
+                    if mismatch is not None or count != copied:
+                        raise RuntimeError("034 parent copy did not preserve every old row")
+                elif statement == "DROP TABLE project_todos":
+                    if rebuild:
+                        conn.execute(statement)
+                elif statement.startswith("ALTER TABLE project_todos_v34_new RENAME"):
+                    if not rebuild:
+                        continue
+                    conn.execute(statement)
+                    for index in old_indices:
+                        conn.execute(index["sql"])
+                    if old_sequence is not None:
+                        conn.execute(
+                            "UPDATE sqlite_sequence SET seq=MAX(seq,?) WHERE name='project_todos'",
+                            (old_sequence["seq"],),
+                        )
+                elif statement == "UPDATE _schema_version SET version = 34":
+                    continue
+                else:
+                    conn.execute(statement)
+
+            # Existing complete artifacts are checked even when the watermark
+            # already reads 034. A partial prefix is never mistaken for success.
+            for statement in statements:
+                created = re.match(
+                    r"CREATE (?:UNIQUE )?(TABLE|INDEX)(?: IF NOT EXISTS)? (\w+)", statement
+                )
+                if created is None:
+                    continue
+                kind, name = created.groups()
+                if name == "project_todos_v34_new":
+                    name = "project_todos"
+                actual = conn.execute(
+                    "SELECT sql FROM sqlite_master WHERE type=? AND name=?", (kind.lower(), name)
+                ).fetchone()
+                if actual is None or _v34_sql_definition(
+                    actual["sql"], table_body=kind == "TABLE"
+                ) != _v34_sql_definition(statement, table_body=kind == "TABLE"):
+                    raise RuntimeError(f"034 schema validation failed for {name}")
+            _seed_project_todo_catalogs_v34(conn)
+            for table, count in child_counts.items():
+                if (
+                    conn.execute(f"SELECT COUNT(*) FROM {_v34_identifier(table)}").fetchone()[0]
+                    != count
+                ):
+                    raise RuntimeError(f"034 changed old child rows in {table}")
+            for table, before in child_fks.items():
+                after = [
+                    tuple(key)
+                    for key in conn.execute(f"PRAGMA foreign_key_list({_v34_identifier(table)})")
+                ]
+                if after != before:
+                    raise RuntimeError(f"034 changed the formal child FK target in {table}")
+            if conn.execute("PRAGMA foreign_key_check").fetchall():
+                raise RuntimeError("034 failed SQLite foreign_key_check")
+            conn.execute("UPDATE _schema_version SET version = 34")
+            if conn.execute("SELECT version FROM _schema_version").fetchone()[0] != 34:
+                raise RuntimeError("034 schema watermark did not advance")
+            conn.execute("COMMIT")
+        except BaseException:
+            if conn.in_transaction:
+                conn.execute("ROLLBACK")
+            raise
+        finally:
+            conn.execute("PRAGMA foreign_keys = ON")
+            if conn.execute("PRAGMA foreign_keys").fetchone()[0] != 1:
+                raise RuntimeError("034 could not restore SQLite foreign keys")
+
+
+def _apply_project_todo_fields_pg_v34(conn: Any, sql: str) -> None:
+    """Keep PostgreSQL DDL, same-connection seed and watermark in its transaction."""
+    for statement in _split_pg_sql(sql):
+        if statement != "UPDATE _schema_version SET version = 34":
+            conn.execute(statement)
+    _seed_project_todo_catalogs_v34(conn)
+    conn.execute("UPDATE _schema_version SET version = 34")
+
+
 def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
     """Apply one SQLite migration.
 
@@ -1914,6 +2128,9 @@ def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
     if version == 33:
         _ensure_project_todo_comment_images_v33(db, path)
         return
+    if version == 34:
+        _ensure_project_todo_fields_v34(db, path)
+        return
     sql = path.read_text(encoding="utf-8")
     with db.connect() as conn:
         conn.executescript(sql)
@@ -1923,12 +2140,18 @@ def run_migrations(db: DatabasePool) -> None:
     if db.dialect == "sqlite":
         _repair_legacy_schema(db)
     for version, path in _discover(db.dialect):
-        if version <= _current_version(db):
+        current = _current_version(db)
+        if version <= current:
+            if db.dialect == "sqlite" and version == current == 34:
+                _ensure_project_todo_fields_v34(db, path)
             continue
         if db.dialect == "postgresql":
             sql = path.read_text(encoding="utf-8")
             with db.connect() as conn, conn.transaction():
-                _apply_postgresql_migration(conn, sql)
+                if version == 34:
+                    _apply_project_todo_fields_pg_v34(conn, sql)
+                else:
+                    _apply_postgresql_migration(conn, sql)
             if version == 3:
                 from octop.infra.db.repos.threads import repair_all_legacy_thread_titles
 

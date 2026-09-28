@@ -6,6 +6,7 @@ import json
 import sqlite3
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -81,6 +82,7 @@ class _StubServices:
     def __init__(self, projects: ProjectRepo, todos: ProjectTodoRepo) -> None:
         self.project_repo = projects
         self.project_todo_repo = todos
+        self.config = SimpleNamespace(default_timezone="UTC")
 
 
 def _events(db: SqlitePool, project_id: str) -> list[sqlite3.Row]:
@@ -138,8 +140,25 @@ def test_migration_032_preserves_existing_todo_and_defaults_to_plain(
     )
     run_migrations(pool)
     owner = UserRepo(pool).create(username="format_owner", password_hash="h", role="user")
-    project = ProjectRepo(pool).create_with_owner(creator_user_id=owner, name="旧库")
     stamp = now_ts()
+    # Reproduce the v31 writer's fixture against the v31 schema. The current
+    # project writer correctly requires the catalog tables introduced in v34.
+    project = SimpleNamespace(project_id="LEGACY_PROJECT_032")
+    with pool.transaction() as conn:
+        conn.execute(
+            "INSERT INTO project_spaces(project_id,creator_user_id,name,created_at,updated_at) "
+            "VALUES (?,?,?,?,?)",
+            (project.project_id, owner, "旧库", stamp, stamp),
+        )
+        conn.execute(
+            "INSERT INTO project_members(project_id,user_id,role,joined_at) VALUES (?,?,'owner',?)",
+            (project.project_id, owner, stamp),
+        )
+        conn.execute(
+            "INSERT INTO project_events(project_id,actor_user_id,event_type,object_id,created_at) "
+            "VALUES (?,?,'project.created',?,?)",
+            (project.project_id, owner, project.project_id, stamp),
+        )
     with pool.connect() as conn:
         conn.execute(
             "INSERT INTO project_todos(todo_id,project_id,creator_user_id,title,description,"

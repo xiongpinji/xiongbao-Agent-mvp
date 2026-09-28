@@ -818,6 +818,26 @@
     "speaker_user": "User",
     "dispatch_with_history": "Here is the current group-chat transcript. Use it as context.\n\n{history}\n\n---\nYour task:\n{task}"
   },
+  "project_plan": {
+    "errors": {
+      "catalog_revision_conflict": "The project catalog changed. Refresh it and compare your draft before saving.",
+      "project_archived": "Catalog settings cannot be changed while the project is archived.",
+      "name_conflict": "An active option already uses this name.",
+      "active_limit": "The project has reached the active option limit.",
+      "total_limit": "The project has reached the total option limit, including archived options.",
+      "no_change": "At least one field must change.",
+      "invalid_lifecycle": "This option is already in the requested active or archived state.",
+      "invalid_order": "The order must include every active priority exactly once.",
+      "invalid_dates": "Use valid calendar dates from 1900 to 9999, with start on or before due. A changed due date cannot be before the server's current day.",
+      "invalid_priority": "Choose an active priority from this project. An existing archived priority can only be kept or removed.",
+      "invalid_tags": "Choose up to 20 different tags from this project. Existing archived tags can only be kept or removed.",
+      "invalid_catalog_revision": "A catalog revision must accompany priority or tag changes."
+    },
+    "activity": {
+      "todo_catalog_updated": "Updated the project todo catalog",
+      "todo_updated": "Updated project todo fields"
+    }
+  },
   "conversation_mode": {
     "plan_ready": "Plan saved at `{path}`. Reply “execute the plan” to run it, or keep editing in Plan mode.",
     "execute": "Execute {path}"

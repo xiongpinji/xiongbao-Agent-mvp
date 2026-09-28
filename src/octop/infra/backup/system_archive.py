@@ -427,23 +427,34 @@ def _install_private_comment_images(stage: Path, dest: Path) -> None:
     """Swap the complete private tree on one filesystem, rolling back on error."""
     previous = stage / "previous"
     had_previous = _plain_image_root_if_present(dest)
-    if had_previous:
-        os.replace(dest, previous)
     try:
+        if had_previous:
+            os.replace(dest, previous)
         os.replace(stage / "objects", dest)
     except BaseException:
-        if had_previous:
-            os.replace(previous, dest)
+        _rollback_private_comment_images(stage, dest)
         raise
 
 
 def _rollback_private_comment_images(stage: Path, dest: Path) -> None:
-    """Undo an installed image tree if database replacement or upgrade fails."""
-    assert_plain_directory_chain(dest)
-    os.replace(dest, stage / "objects")
+    """Undo actual swap state, including interrupted transitions and repeated rollback."""
+    assert_plain_directory_chain(stage)
+    assert_plain_directory_chain(dest.parent)
     previous = stage / "previous"
-    if _plain_image_root_if_present(previous):
+    objects = stage / "objects"
+    has_previous = _plain_image_root_if_present(previous)
+    has_objects = _plain_image_root_if_present(objects)
+    has_dest = _plain_image_root_if_present(dest)
+    if has_previous:
+        if has_dest:
+            if has_objects:
+                raise SafeDirectoryError("private image rollback state is inconsistent")
+            os.replace(dest, objects)
         os.replace(previous, dest)
+    elif not has_objects and has_dest:
+        os.replace(dest, objects)
+    # Existing objects with no previous tree mean no install occurred, or the
+    # original tree has already been restored. Never move that original again.
 
 
 def _system_files_path_from_row(row: Any) -> str:
@@ -852,6 +863,23 @@ def restore_system_backup(
         if not db_path.is_file():
             raise OctopError(ErrorCode.SLASH_BAD_ARGS, "backup archive missing database file")
 
+        # Recovery preimages must outlive archive extraction if compensation
+        # fails. mkdtemp has no TemporaryDirectory finalizer that could erase
+        # them after the conditional ExitStack cleanup has chosen to retain.
+        assert_plain_directory_chain(paths.root)
+        recovery_stage = Path(
+            tempfile.mkdtemp(prefix=".todo-comment-image-restore-", dir=paths.root)
+        )
+        keep_recovery = False
+
+        def cleanup_recovery() -> None:
+            if not keep_recovery:
+                assert_plain_directory_chain(recovery_stage)
+                shutil.rmtree(recovery_stage)
+
+        cleanup.callback(cleanup_recovery)
+        ensure_plain_directory_chain(recovery_stage, private_from=recovery_stage)
+
         if manifest.includes_project_todo_comment_images:
             expected_images = _read_private_comment_image_index(extracted)
             if archive_driver == "sqlite":
@@ -864,11 +892,7 @@ def restore_system_backup(
                 raise OctopError(
                     ErrorCode.SLASH_BAD_ARGS, "comment image archive index differs from database"
                 )
-            assert_plain_directory_chain(paths.root)
-            stage_name = cleanup.enter_context(
-                tempfile.TemporaryDirectory(prefix=".todo-comment-image-restore-", dir=paths.root)
-            )
-            image_stage = Path(stage_name)
+            image_stage = recovery_stage
             image_file_count = _stage_private_comment_images(
                 extracted, paths.project_todo_comment_images, image_stage, expected_images
             )
@@ -900,14 +924,30 @@ def restore_system_backup(
                         status=400,
                     )
 
+        # Keep the full current database before installing either resource.
+        # A failed replacement/upgrade must restore this preimage, including
+        # current catalog references, users and chats, together with the tree.
+        previous_database = recovery_stage / "previous-database"
+        if pool.dialect == "postgresql":
+            dump_postgres(db_config.postgresql_conninfo(), previous_database)
+        elif isinstance(pool, SqlitePool):
+            snapshot_sqlite_file(pool.path, previous_database)
+        else:
+            raise OctopError(ErrorCode.INTERNAL_ERROR, "sqlite restore requires SqlitePool")
+
         # Install the staged image tree before database replacement. An image
         # rename failure therefore cannot leave new DB rows pointing at old
         # bytes. Keep the previous tree in the stage until the DB upgrade works.
-        if image_stage is not None:
-            _install_private_comment_images(image_stage, paths.project_todo_comment_images)
-
         ownership_remap: dict[str, int] | None = None
+        database_attempted = False
         try:
+            # Set retention before any destructive call: an interruption can
+            # arrive after the real operation but before its caller returns.
+            keep_recovery = True
+            if image_stage is not None:
+                _install_private_comment_images(image_stage, paths.project_todo_comment_images)
+
+            database_attempted = True
             if pool.dialect == "postgresql":
                 restore_postgres(db_config.postgresql_conninfo(), db_path)
             elif isinstance(pool, SqlitePool):
@@ -929,9 +969,33 @@ def restore_system_backup(
                     f"to {runtime_schema_version}: {exc}",
                     details=details,
                 ) from exc
-        except BaseException:
+        except BaseException as original_error:
+            failed_resources: list[str] = []
+            if database_attempted:
+                try:
+                    if pool.dialect == "postgresql":
+                        restore_postgres(db_config.postgresql_conninfo(), previous_database)
+                    elif isinstance(pool, SqlitePool):
+                        restore_sqlite_into_pool(previous_database, pool)
+                except BaseException:
+                    failed_resources.append("database")
             if image_stage is not None:
-                _rollback_private_comment_images(image_stage, paths.project_todo_comment_images)
+                try:
+                    _rollback_private_comment_images(image_stage, paths.project_todo_comment_images)
+                except BaseException:
+                    failed_resources.append("private_comment_images")
+            if failed_resources:
+                # Do not interpolate tool/OS errors: they can carry connection
+                # information or private paths. Still attempt both resources.
+                raise OctopError(
+                    ErrorCode.INTERNAL_ERROR,
+                    "backup restore failed and rollback did not complete",
+                    details={
+                        "reason": "backup_restore_rollback_failed",
+                        "failed_resources": failed_resources,
+                    },
+                ) from original_error
+            keep_recovery = False
             raise
 
         if restore_config:
@@ -1024,6 +1088,7 @@ def restore_system_backup(
             restore_preserved_chats(pool, saved_chats) if saved_chats is not None else (0, 0)
         )
         schema_version = _current_version(pool)
+        keep_recovery = False
 
     result: dict[str, Any] = {
         "schema_version": schema_version,

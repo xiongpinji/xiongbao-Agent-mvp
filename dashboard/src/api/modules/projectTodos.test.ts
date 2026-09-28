@@ -23,6 +23,11 @@ const todo: ProjectTodo = {
   description: "",
   description_format: "plain",
   status: "todo",
+  start_date: null,
+  due_date: null,
+  priority_id: null,
+  tag_ids: [],
+  catalog_revision: 1,
   creator_user_id: 1,
   assignee_user_id: null,
   version: 2,
@@ -37,6 +42,42 @@ beforeEach(() => {
 });
 
 describe("projectTodosApi", () => {
+  it("preserves C1 null clears, omitted dates, full tag replacement and exact catalog revision", () => {
+    projectTodosApi.update("p1", "t1", {
+      expected_version: 3,
+      due_date: null,
+      priority_id: null,
+      tag_ids: [],
+      expected_catalog_revision: 7,
+    });
+    const body = JSON.parse(request.mock.calls[0][1].body);
+    expect(body).toEqual({
+      expected_version: 3,
+      due_date: null,
+      priority_id: null,
+      tag_ids: [],
+      expected_catalog_revision: 7,
+    });
+    expect(body).not.toHaveProperty("start_date");
+    projectTodosApi.create("p1", {
+      title: "计划",
+      status: "in_progress",
+      start_date: "2020-01-01",
+      due_date: "2026-09-28",
+      priority_id: "pr1",
+      tag_ids: ["a", "b"],
+      expected_catalog_revision: 7,
+    });
+    expect(JSON.parse(request.mock.calls[1][1].body)).toEqual({
+      title: "计划",
+      status: "in_progress",
+      start_date: "2020-01-01",
+      due_date: "2026-09-28",
+      priority_id: "pr1",
+      tag_ids: ["a", "b"],
+      expected_catalog_revision: 7,
+    });
+  });
   it("lists with server-side filters, encoded ids and default paging", () => {
     projectTodosApi.list("p 1/2", { q: "周报 100%_x", status: "in_progress" });
 

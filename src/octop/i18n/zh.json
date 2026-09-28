@@ -818,6 +818,26 @@
     "speaker_user": "用户",
     "dispatch_with_history": "以下是当前群聊记录，请结合上下文完成任务。\n\n{history}\n\n---\n本次任务：\n{task}"
   },
+  "project_plan": {
+    "errors": {
+      "catalog_revision_conflict": "项目目录已变化。请刷新目录并比较草稿后再保存。",
+      "project_archived": "项目已归档，不能修改目录配置。",
+      "name_conflict": "已有有效选项使用此名称。",
+      "active_limit": "项目已达到有效选项数量上限。",
+      "total_limit": "项目已达到含停用选项的总数量上限。",
+      "no_change": "至少需要修改一个字段。",
+      "invalid_lifecycle": "此选项已经处于请求的有效或停用状态。",
+      "invalid_order": "排序必须恰好包含全部有效优先级，且不能重复。",
+      "invalid_dates": "请使用 1900 至 9999 年的有效日历日期，开始日不得晚于截止日。新设或修改的截止日不能早于服务器今天。",
+      "invalid_priority": "请选择本项目的有效优先级。已有的停用优先级仅可保留或移除。",
+      "invalid_tags": "请选择本项目最多 20 个不同标签。已有的停用标签仅可保留或移除。",
+      "invalid_catalog_revision": "修改优先级或标签时必须同时提供目录修订号。"
+    },
+    "activity": {
+      "todo_catalog_updated": "更新了项目待办目录",
+      "todo_updated": "更新了项目待办字段"
+    }
+  },
   "conversation_mode": {
     "plan_ready": "计划已写入 `{path}`。回复「按计划执行」开始执行，或继续改计划。",
     "execute": "请按 {path} 执行"
