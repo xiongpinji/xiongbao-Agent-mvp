@@ -14,6 +14,8 @@ def test_project_experts_migration_recovers_before_watermark(tmp_path: Path) -> 
     # SQLite executes DDL independently; a process can stop after schema
     # changes but before the _schema_version write. Replaying 027 must work.
     with pool.connect() as conn:
+        # Remove only the v35 derived key for this historical-artifact replay.
+        conn.execute("ALTER TABLE project_todos DROP COLUMN title_search_key")
         conn.execute("UPDATE _schema_version SET version = 26")
 
     run_migrations(pool)

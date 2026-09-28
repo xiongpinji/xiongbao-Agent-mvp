@@ -240,6 +240,8 @@ def test_migration_upgrades_from_v21(tmp_path: Path) -> None:
     pool = SqlitePool(tmp_path / "octop.db")
     run_migrations(pool)
     with pool.connect() as conn:
+        # Remove only the v35 derived key for this historical-artifact replay.
+        conn.execute("ALTER TABLE project_todos DROP COLUMN title_search_key")
         conn.executescript(
             """
             DROP TABLE project_messages;

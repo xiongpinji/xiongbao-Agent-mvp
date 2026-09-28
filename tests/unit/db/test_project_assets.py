@@ -337,6 +337,8 @@ def test_migration_023_is_idempotent(db: SqlitePool) -> None:
     """Retry after a partially-applied migration must not fail (IF NOT EXISTS)."""
     sql = (MIGRATIONS / "023_project_assets.sql").read_text(encoding="utf-8")
     with db.connect() as conn:
+        # Remove only the v35 derived key for this historical-artifact replay.
+        conn.execute("ALTER TABLE project_todos DROP COLUMN title_search_key")
         conn.executescript(sql)
         v = conn.execute("SELECT version FROM _schema_version").fetchone()[0]
     assert v == 23
@@ -353,6 +355,8 @@ def test_migration_upgrades_from_v22(tmp_path: Path) -> None:
     pool = SqlitePool(tmp_path / "octop.db")
     run_migrations(pool)
     with pool.connect() as conn:
+        # Remove only the v35 derived key for this historical-artifact replay.
+        conn.execute("ALTER TABLE project_todos DROP COLUMN title_search_key")
         conn.executescript(
             """
             DROP TABLE project_asset_versions;
@@ -3437,6 +3441,9 @@ def test_migration_upgrades_from_v28_preserves_active_nodes(tmp_path: Path) -> N
     assert created.outcome == "created" and created.row is not None
     old_id = created.row.node_id
 
+    with pool.connect() as conn:
+        # Remove only the v35 derived key for this historical-artifact replay.
+        conn.execute("ALTER TABLE project_todos DROP COLUMN title_search_key")
     _downgrade_to_v28(pool)
     assert _watermark(pool) == 28
     assert not (set(_TRASH_COLS) & _columns(pool, "project_asset_nodes"))
@@ -3484,6 +3491,8 @@ def test_migration_029_partial_replay_with_all_artifacts_present(tmp_path: Path)
     pool = SqlitePool(tmp_path / "partial-029.db")
     run_migrations(pool)
     with pool.connect() as conn:
+        # Remove only the v35 derived key for this historical-artifact replay.
+        conn.execute("ALTER TABLE project_todos DROP COLUMN title_search_key")
         conn.execute("UPDATE _schema_version SET version = 28")
     run_migrations(pool)
     assert _watermark(pool) == _max_discovered_version("sqlite")
@@ -3496,6 +3505,8 @@ def test_migration_029_partial_replay_after_prefix_of_ddl_recovers(tmp_path: Pat
     pool = SqlitePool(tmp_path / "partial-029-prefix.db")
     run_migrations(pool)
     with pool.connect() as conn:
+        # Remove only the v35 derived key for this historical-artifact replay.
+        conn.execute("ALTER TABLE project_todos DROP COLUMN title_search_key")
         conn.executescript(
             """
             DROP INDEX IF EXISTS idx_project_asset_nodes_trash;
@@ -3577,6 +3588,8 @@ def test_migration_030_backfills_independent_trash_under_trashed_ancestor(
 
     # Reconstruct an actual v29 layout, before deletion-time snapshots existed.
     with db.connect() as conn:
+        # Remove only the v35 derived key for this historical-artifact replay.
+        conn.execute("ALTER TABLE project_todos DROP COLUMN title_search_key")
         conn.executescript(
             "ALTER TABLE project_asset_nodes DROP COLUMN deleted_from_path;"
             "UPDATE _schema_version SET version = 29;"
@@ -3606,6 +3619,8 @@ def test_migration_030_replays_column_added_before_watermark(
         == "trashed"
     )
     with db.transaction() as conn:
+        # Remove only the v35 derived key for this historical-artifact replay.
+        conn.execute("ALTER TABLE project_todos DROP COLUMN title_search_key")
         conn.execute(
             "UPDATE project_asset_nodes SET deleted_from_path = NULL "
             "WHERE project_id = ? AND node_id = ?",

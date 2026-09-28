@@ -22,6 +22,7 @@ from typing import Any
 from octop.infra.db.pool import DatabasePool
 from octop.infra.db.repos import project_plan_locks as locks
 from octop.infra.db.repos._base import UNSET, DbRow, now_ts
+from octop.infra.utils.project_plan_keys import normalize_project_plan_key
 from octop.infra.utils.ulid import new_ulid
 
 EVENT_TODO_CREATED = "project.todo_created"
@@ -330,10 +331,9 @@ class ProjectTodoRepo:
         """
         where = ["project_id = ?", "deleted_at IS NULL"]
         params: list[object] = [project_id]
-        needle = q.strip().lower()
+        needle = normalize_project_plan_key(q.strip())
         if needle:
-            # LOWER() + ESCAPE keeps behavior identical on SQLite and PostgreSQL.
-            where.append("LOWER(title) LIKE ? ESCAPE '\\'")
+            where.append("title_search_key LIKE ? ESCAPE '\\'")
             params.append(f"%{_escape_like(needle)}%")
         if status is not None:
             where.append("status = ?")
@@ -424,8 +424,8 @@ class ProjectTodoRepo:
                     "INSERT INTO project_todos("
                     "todo_id, project_id, creator_user_id, assignee_user_id, title, "
                     "description, description_format, status, version, created_at, updated_at, "
-                    "start_date, due_date, priority_id"
-                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)",
+                    "start_date, due_date, priority_id, title_search_key"
+                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)",
                     (
                         todo_id,
                         project_id,
@@ -440,6 +440,7 @@ class ProjectTodoRepo:
                         start_date,
                         due_date,
                         priority_id,
+                        normalize_project_plan_key(title),
                     ),
                 )
                 self._replace_tags(conn, project_id, todo_id, requested_tags)
@@ -561,11 +562,16 @@ class ProjectTodoRepo:
                 if not changes and not tags_changed:
                     raise _TodoConflict("no_change")
 
-                set_sql = "".join(f"{col} = ?, " for col in changes)
+                stored_changes = dict(changes)
+                if "title" in changes:
+                    stored_changes["title_search_key"] = normalize_project_plan_key(
+                        changes["title"]
+                    )
+                set_sql = "".join(f"{col} = ?, " for col in stored_changes)
                 updated = conn.execute(
                     f"UPDATE project_todos SET {set_sql}version = version + 1, updated_at = ? "
                     "WHERE project_id = ? AND todo_id = ? AND version = ? AND deleted_at IS NULL",
-                    (*changes.values(), stamp, project_id, todo_id, expected_version),
+                    (*stored_changes.values(), stamp, project_id, todo_id, expected_version),
                 )
                 if getattr(updated, "rowcount", 1) != 1:
                     raise _TodoConflict(self._diagnose(conn, project_id, todo_id))

@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 
 from octop.infra.db.pool import DatabasePool
 from octop.infra.db.repos._base import DbRow, bool_int, insert_returning_id, map_rows, now_ts
+from octop.infra.utils.project_plan_keys import project_plan_display_sort_key
 
 
 def _parse_permissions(raw: object) -> builtins.list[str]:
@@ -107,8 +108,8 @@ class UserRepo:
             return insert_returning_id(
                 conn,
                 "INSERT INTO users(username, password_hash, role, display_name, locale, "
-                "email, sso_provider_id, sso_subject, disabled, created_at, permissions) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)",
+                "email, sso_provider_id, sso_subject, disabled, created_at, permissions, "
+                "project_plan_display_sort_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)",
                 (
                     username,
                     password_hash,
@@ -120,6 +121,7 @@ class UserRepo:
                     sso_subject,
                     now_ts(),
                     perms_json,
+                    project_plan_display_sort_key(username, display_name),
                 ),
             )
 
@@ -248,8 +250,17 @@ class UserRepo:
             params.append(display_name)
         if not fields:
             return
-        params.append(user_id)
         with self._db.transaction() as conn:
+            if display_name is not None:
+                sql = "SELECT username FROM users WHERE id=?"
+                if self._db.dialect == "postgresql":
+                    sql += " FOR UPDATE"
+                user = conn.execute(sql, (user_id,)).fetchone()
+                if user is None:
+                    return
+                fields.append("project_plan_display_sort_key = ?")
+                params.append(project_plan_display_sort_key(str(user["username"]), display_name))
+            params.append(user_id)
             conn.execute(f"UPDATE users SET {', '.join(fields)} WHERE id = ?", params)
 
     def list(self, *, include_disabled: bool = False) -> builtins.list[UserRow]:
@@ -281,9 +292,19 @@ class UserRepo:
 
     def set_display_name(self, user_id: int, display_name: str | None) -> None:
         with self._db.transaction() as conn:
+            sql = "SELECT username FROM users WHERE id=?"
+            if self._db.dialect == "postgresql":
+                sql += " FOR UPDATE"
+            user = conn.execute(sql, (user_id,)).fetchone()
+            if user is None:
+                return
             conn.execute(
-                "UPDATE users SET display_name = ? WHERE id = ?",
-                (display_name, user_id),
+                "UPDATE users SET display_name = ?, project_plan_display_sort_key = ? WHERE id = ?",
+                (
+                    display_name,
+                    project_plan_display_sort_key(str(user["username"]), display_name),
+                    user_id,
+                ),
             )
 
     def set_email(self, user_id: int, email: str | None) -> None:

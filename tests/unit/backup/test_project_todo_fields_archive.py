@@ -14,10 +14,11 @@ from PIL import Image
 
 from octop.config import DatabaseConfig
 from octop.infra.backup.system_archive import create_system_backup, restore_system_backup
-from octop.infra.db.migrate import run_migrations
+from octop.infra.db.migrate import _max_discovered_version, run_migrations
 from octop.infra.db.pool import DatabasePool, SqlitePool
-from octop.infra.db.project_plan_seed import seed_todo_catalog
+from octop.infra.db.project_plan_seed import seed_todo_catalog, seed_todo_views
 from octop.infra.utils.paths import PathLayout
+from octop.infra.utils.project_plan_keys import normalize_project_plan_key
 from octop.infra.utils.ulid import new_ulid
 
 OLD_COLUMNS = (
@@ -41,6 +42,20 @@ def _rows(conn: Any, table: str) -> list[tuple[Any, ...]]:
     return [tuple(row) for row in conn.execute(f"SELECT * FROM {table} ORDER BY 1")]
 
 
+def _has_plan_keys(conn: Any, dialect: str) -> bool:
+    if dialect == "postgresql":
+        return (
+            conn.execute(
+                "SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() "
+                "AND table_name='project_todos' AND column_name='title_search_key'"
+            ).fetchone()
+            is not None
+        )
+    return "title_search_key" in {
+        row["name"] for row in conn.execute("PRAGMA table_info(project_todos)")
+    }
+
+
 def _seed_archive_rows(pool: DatabasePool, layout: PathLayout) -> tuple[str, str, bytes]:
     project_id, todo_id, comment_id, image_id = [new_ulid() for _ in range(4)]
     png = BytesIO()
@@ -48,9 +63,13 @@ def _seed_archive_rows(pool: DatabasePool, layout: PathLayout) -> tuple[str, str
     image_bytes = png.getvalue()
     object_key = f"{project_id}/{image_id}"
     with pool.transaction() as conn:
+        current_keys = _has_plan_keys(conn, pool.dialect)
+        user_column = ",project_plan_display_sort_key" if current_keys else ""
+        user_value = ",?" if current_keys else ""
         conn.execute(
-            "INSERT INTO users(id,username,password_hash,role,created_at) "
-            "VALUES (1,'c1-backup-owner','synthetic-hash','admin',11)"
+            f"INSERT INTO users(id,username,password_hash,role,created_at{user_column}) "
+            f"VALUES (1,'c1-backup-owner','synthetic-hash','admin',11{user_value})",
+            (normalize_project_plan_key("c1-backup-owner"),) if current_keys else (),
         )
         conn.execute(
             "INSERT INTO project_spaces(project_id,creator_user_id,name,created_at,updated_at) "
@@ -67,10 +86,20 @@ def _seed_archive_rows(pool: DatabasePool, layout: PathLayout) -> tuple[str, str
             (29, new_ulid(), 90, "plain"),
         ):
             conn.execute(
-                f"INSERT INTO project_todos({OLD_COLUMNS}) "
-                "VALUES (?,?,?,1,1,'原待办','**原文**','done',7,11,12,?,?)",
-                (pk, current_id, project_id, deleted, fmt),
+                f"INSERT INTO project_todos({OLD_COLUMNS}{',title_search_key' if current_keys else ''}) "
+                f"VALUES (?,?,?,1,1,'原待办','**原文**','done',7,11,12,?,?{',?' if current_keys else ''})",
+                (
+                    pk,
+                    current_id,
+                    project_id,
+                    deleted,
+                    fmt,
+                    *((normalize_project_plan_key("原待办"),) if current_keys else ()),
+                ),
             )
+        if current_keys:
+            seed_todo_catalog(conn, project_id, 11)
+            seed_todo_views(conn, project_id, 11)
         conn.execute(
             "INSERT INTO project_todo_comments(comment_id,todo_id,author_user_id,body_text,"
             "client_request_id,request_fingerprint,created_at) VALUES (?,?,1,'原评论',?,?,13)",
@@ -105,19 +134,19 @@ def test_plan_backup_restore_preserves_ids_references_and_private_bytes(
     source = PathLayout(tmp_path / "source")
     source_pool = SqlitePool(source.db)
     try:
-        if old_archive:
-            migration = import_module("octop.infra.db.migrate")
-            discover = migration._discover
-            with monkeypatch.context() as patch:
-                patch.setattr(
-                    migration,
-                    "_discover",
-                    lambda dialect: [
-                        (version, path) for version, path in discover(dialect) if version <= 33
-                    ],
-                )
-                run_migrations(source_pool)
-        else:
+        source_version = 33 if old_archive else 34
+        migration = import_module("octop.infra.db.migrate")
+        discover = migration._discover
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                migration,
+                "_discover",
+                lambda dialect: [
+                    (version, path)
+                    for version, path in discover(dialect)
+                    if version <= source_version
+                ],
+            )
             run_migrations(source_pool)
         project_id, todo_id, image_bytes = _seed_archive_rows(source_pool, source)
         if not old_archive:
@@ -198,7 +227,7 @@ def test_plan_backup_restore_preserves_ids_references_and_private_bytes(
             db_config=DatabaseConfig(),
             restore_config=False,
         )
-        assert result["schema_version"] == 34
+        assert result["schema_version"] == _max_discovered_version("sqlite")
         with restored_pool.connect() as conn:
             assert [
                 tuple(row)

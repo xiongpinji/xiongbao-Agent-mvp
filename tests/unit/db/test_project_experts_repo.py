@@ -232,6 +232,8 @@ def test_migration_027_upgrades_from_v26(
             (project.project_id,),
         )
     with db.connect() as conn:
+        # Remove only the v35 derived key for this historical-artifact replay.
+        conn.execute("ALTER TABLE project_todos DROP COLUMN title_search_key")
         conn.executescript(
             """
             DROP TABLE project_experts;

@@ -9,6 +9,7 @@ from urllib.parse import quote
 
 from octop.infra.db.pool import DatabasePool, SqlitePool
 from octop.infra.db.repos._base import now_ts
+from octop.infra.utils.project_plan_keys import project_plan_display_sort_key
 
 _JWT_SECRET_KEY = "jwt"
 
@@ -97,7 +98,7 @@ def capture_users_from_pool(pool: DatabasePool) -> list[tuple[object, ...]]:
     """Return all rows from the live *users* table as plain tuples."""
     with pool.connect() as conn:
         rows = conn.execute(f"SELECT {_USER_COLS_SQL} FROM users").fetchall()
-    return [tuple(r) for r in rows]
+    return [tuple(r[column] for column in _USER_COLUMNS) for r in rows]
 
 
 def upsert_users_into_pool(pool: DatabasePool, users: list[tuple[object, ...]]) -> None:
@@ -108,20 +109,25 @@ def upsert_users_into_pool(pool: DatabasePool, users: list[tuple[object, ...]]) 
     if not users:
         return
     set_clause = ", ".join(f"{col} = ?" for col in _USER_COLUMNS[1:])
+    set_clause += ", project_plan_display_sort_key = ?"
     dialect = pool.dialect
     with pool.transaction() as conn:
         for row in users:
             pk = row[0]
             rest = row[1:]
-            cur = conn.execute(f"UPDATE users SET {set_clause} WHERE id = ?", (*rest, pk))
+            key = project_plan_display_sort_key(
+                str(row[1]), None if row[4] is None else str(row[4])
+            )
+            cur = conn.execute(f"UPDATE users SET {set_clause} WHERE id = ?", (*rest, key, pk))
             if dialect == "sqlite":
                 updated = int(conn.execute("SELECT changes()").fetchone()[0]) > 0
             else:
                 updated = int(getattr(cur, "rowcount", 0) or 0) > 0
             if not updated:
                 conn.execute(
-                    f"INSERT INTO users({_USER_COLS_SQL}) VALUES ({_USER_PLACEHOLDERS})",
-                    row,
+                    f"INSERT INTO users({_USER_COLS_SQL}, project_plan_display_sort_key) "
+                    f"VALUES ({_USER_PLACEHOLDERS}, ?)",
+                    (*row, key),
                 )
 
 

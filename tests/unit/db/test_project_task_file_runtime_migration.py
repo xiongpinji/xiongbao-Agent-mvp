@@ -209,6 +209,9 @@ def test_v27_upgrade_preserves_rows_and_pins_defaults(tmp_path: Path) -> None:
     )
     _seed_chat_context(pool, thread_id="thr_chat", project_id=project_id, user_id=other_id)
 
+    with pool.connect() as conn:
+        # Remove only the v35 derived key for this historical-artifact replay.
+        conn.execute("ALTER TABLE project_todos DROP COLUMN title_search_key")
     _downgrade_to_v27(pool)
     assert _watermark(pool) == 27
     assert "runtime_kind" not in _columns(pool, "agents")
@@ -277,6 +280,8 @@ def test_partial_replay_with_all_columns_present_recovers(tmp_path: Path) -> Non
     # A stopped upgrade can leave the full DDL applied while the watermark
     # still reads 27; replaying 028 must be a no-op besides the watermark.
     with pool.connect() as conn:
+        # Remove only the v35 derived key for this historical-artifact replay.
+        conn.execute("ALTER TABLE project_todos DROP COLUMN title_search_key")
         conn.execute("UPDATE _schema_version SET version = 27")
 
     run_migrations(pool)
@@ -296,6 +301,8 @@ def test_partial_replay_after_a_prefix_of_the_ddl_recovers(tmp_path: Path) -> No
     # Simulate a crash after the first ALTERs: runtime_kind and both id
     # columns exist, but ``mode``, the unique index and the watermark do not.
     with pool.connect() as conn:
+        # Remove only the v35 derived key for this historical-artifact replay.
+        conn.execute("ALTER TABLE project_todos DROP COLUMN title_search_key")
         conn.executescript(
             """
             DROP INDEX IF EXISTS idx_project_task_contexts_runtime_agent;

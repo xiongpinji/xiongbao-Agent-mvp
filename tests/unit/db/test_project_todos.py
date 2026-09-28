@@ -139,8 +139,17 @@ def test_migration_032_preserves_existing_todo_and_defaults_to_plain(
         lambda dialect: [entry for entry in real_discover(dialect) if entry[0] <= cutoff],
     )
     run_migrations(pool)
-    owner = UserRepo(pool).create(username="format_owner", password_hash="h", role="user")
     stamp = now_ts()
+    # The current user writer also requires the internal keys added in 035.
+    # Seed the actual v31 writer's values before exercising the v32 upgrade.
+    with pool.transaction() as conn:
+        owner = int(
+            conn.execute(
+                "INSERT INTO users(username,password_hash,role,created_at) "
+                "VALUES ('format_owner','h','user',?) RETURNING id",
+                (stamp,),
+            ).fetchone()[0]
+        )
     # Reproduce the v31 writer's fixture against the v31 schema. The current
     # project writer correctly requires the catalog tables introduced in v34.
     project = SimpleNamespace(project_id="LEGACY_PROJECT_032")
@@ -188,6 +197,19 @@ def test_migration_032_preserves_existing_todo_and_defaults_to_plain(
     with pool.connect() as conn, pytest.raises(sqlite3.IntegrityError):
         conn.execute(
             "UPDATE project_todos SET description_format = 'html' WHERE todo_id = 'LEGACY'"
+        )
+
+    monkeypatch.setattr(migration_module, "_discover", real_discover)
+    run_migrations(pool)
+    with pool.connect() as conn:
+        assert conn.execute("SELECT version FROM _schema_version").fetchone()[0] == (
+            _max_discovered_version("sqlite")
+        )
+        assert (
+            conn.execute(
+                "SELECT title_search_key FROM project_todos WHERE todo_id='LEGACY'"
+            ).fetchone()[0]
+            == "旧任务"
         )
 
 

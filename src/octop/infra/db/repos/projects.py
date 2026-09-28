@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from octop.infra.db.pool import DatabasePool
-from octop.infra.db.project_plan_seed import seed_todo_catalog
+from octop.infra.db.project_plan_seed import seed_todo_catalog, seed_todo_views
 from octop.infra.db.repos import project_plan_locks
 from octop.infra.db.repos._base import (
     DbRow,
@@ -388,6 +388,7 @@ class ProjectRepo:
                 (project_id, creator_user_id, ts),
             )
             seed_todo_catalog(conn, project_id, ts)
+            seed_todo_views(conn, project_id, ts)
             conn.execute(
                 "INSERT INTO project_events("
                 "project_id, actor_user_id, event_type, object_id, payload_json, created_at"

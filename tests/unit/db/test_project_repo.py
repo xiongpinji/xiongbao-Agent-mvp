@@ -9,6 +9,7 @@ import threading
 from pathlib import Path
 
 import pytest
+from tests.unit.db.test_project_todo_views_migration import _build_legacy
 
 from octop.infra.db import migrate as migration_module
 from octop.infra.db.migrate import _max_discovered_version, run_migrations
@@ -236,10 +237,10 @@ def test_migration_upgrades_from_v17(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert v == _max_discovered_version("sqlite")
 
 
-def test_migration_upgrades_from_v18(tmp_path: Path) -> None:
+def test_migration_upgrades_from_v18(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A DB at watermark 18 must gain the invite/request tables by re-running."""
     pool = SqlitePool(tmp_path / "octop.db")
-    run_migrations(pool)
+    _build_legacy(pool, 19, monkeypatch)
     with pool.connect() as conn:
         conn.executescript(
             """

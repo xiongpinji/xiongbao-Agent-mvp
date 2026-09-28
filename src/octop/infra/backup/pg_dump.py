@@ -7,6 +7,7 @@ import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 
+from octop.infra.db.pool import DatabasePool
 from octop.infra.errors import ErrorCode, OctopError
 
 
@@ -44,14 +45,83 @@ def dump_postgres(
         )
 
 
-def restore_postgres(conninfo: str, dump_file: Path) -> None:
+def _require_restore_success(proc: subprocess.CompletedProcess[str], stage: str) -> None:
+    if proc.returncode != 0:
+        raise OctopError(
+            ErrorCode.INTERNAL_ERROR,
+            "PostgreSQL backup restore tool failed",
+            details={
+                "reason": "backup_restore_tool_failed",
+                "stage": stage,
+                "exit_code": proc.returncode,
+            },
+        )
+
+
+def restore_postgres(
+    conninfo: str,
+    dump_file: Path,
+    *,
+    pool: DatabasePool,
+    schema_version: int,
+) -> None:
+    """Restore a dump, removing only known later project-plan tables first.
+
+    The caller retains the complete database preimage and compensates failures.
+    Cleanup commits before the separate, atomic pg_restore transaction starts.
+    Public app objects recreated by --no-owner belong to the restoring role.
+    """
+    if type(schema_version) is not int or schema_version < 0:
+        raise OctopError(
+            ErrorCode.INTERNAL_ERROR,
+            "PostgreSQL backup schema version is invalid",
+            details={"reason": "backup_restore_schema_version_invalid"},
+        )
+    if pool.dialect != "postgresql":
+        raise OctopError(ErrorCode.INTERNAL_ERROR, "PostgreSQL restore requires a PostgreSQL pool")
     pg_restore = _require_tool("pg_restore")
+    inspected = subprocess.run(
+        [pg_restore, "--list", str(dump_file)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    _require_restore_success(inspected, "inspect")
+
+    # --clean only drops objects present in the dump. Later FK-bearing plan
+    # tables would otherwise prevent an older dump from dropping its tables.
+    # RESTRICT makes unrelated dependencies reject and roll back this cleanup.
+    if schema_version < 35:
+        try:
+            with pool.transaction() as conn:
+                conn.execute(
+                    "DROP TABLE IF EXISTS public.project_todo_view_state, "
+                    "public.project_todo_views RESTRICT"
+                )
+                if schema_version < 34:
+                    conn.execute(
+                        "ALTER TABLE IF EXISTS public.project_todos "
+                        "DROP CONSTRAINT IF EXISTS fk_project_todos_priority"
+                    )
+                    conn.execute(
+                        "DROP TABLE IF EXISTS public.project_todo_tag_links, "
+                        "public.project_todo_tags, public.project_todo_priorities, "
+                        "public.project_todo_catalog_state RESTRICT"
+                    )
+        except Exception:
+            raise OctopError(
+                ErrorCode.INTERNAL_ERROR,
+                "PostgreSQL backup restore cleanup failed",
+                details={"reason": "backup_restore_cleanup_failed"},
+            ) from None
+
     proc = subprocess.run(
         [
             pg_restore,
             "--clean",
             "--if-exists",
             "--no-owner",
+            "--single-transaction",
             "--dbname",
             conninfo,
             str(dump_file),
@@ -60,9 +130,4 @@ def restore_postgres(conninfo: str, dump_file: Path) -> None:
         text=True,
         check=False,
     )
-    # pg_restore may return 1 with warnings; treat only >=2 as hard fail.
-    if proc.returncode >= 2:
-        raise OctopError(
-            ErrorCode.INTERNAL_ERROR,
-            f"pg_restore failed: {proc.stderr.strip() or proc.stdout.strip()}",
-        )
+    _require_restore_success(proc, "restore")

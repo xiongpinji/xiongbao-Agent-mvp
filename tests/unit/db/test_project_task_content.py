@@ -491,6 +491,8 @@ def test_migration_upgrades_from_v24_without_backfill(tmp_path: Path) -> None:
         == "created"
     )
     with pool.connect() as conn:
+        # Remove only the v35 derived key for this historical-artifact replay.
+        conn.execute("ALTER TABLE project_todos DROP COLUMN title_search_key")
         conn.executescript(
             """
             DROP TABLE IF EXISTS project_task_content_grants;

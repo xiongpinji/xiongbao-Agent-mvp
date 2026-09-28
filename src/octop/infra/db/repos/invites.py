@@ -8,6 +8,7 @@ from typing import Any
 
 from octop.infra.db.pool import DatabasePool
 from octop.infra.db.repos._base import DbRow, insert_returning_id, map_rows, now_ts
+from octop.infra.utils.project_plan_keys import project_plan_display_sort_key
 
 
 @dataclass(frozen=True)
@@ -149,8 +150,8 @@ class InviteRepo:
             user_id = insert_returning_id(
                 conn,
                 "INSERT INTO users(username, password_hash, role, display_name, locale, "
-                "email, sso_provider_id, sso_subject, disabled, created_at, permissions) "
-                "VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, 0, ?, ?)",
+                "email, sso_provider_id, sso_subject, disabled, created_at, permissions, "
+                "project_plan_display_sort_key) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, 0, ?, ?, ?)",
                 (
                     username,
                     password_hash,
@@ -160,6 +161,7 @@ class InviteRepo:
                     email,
                     ts,
                     json.dumps([], ensure_ascii=False),
+                    project_plan_display_sort_key(username, display_name),
                 ),
             )
             updated = conn.execute(

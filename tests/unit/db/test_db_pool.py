@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 import pytest
+from tests.unit.db.test_project_todo_views_migration import _build_legacy
 
 from octop.infra.db.migrate import _max_discovered_version, run_migrations
 from octop.infra.db.pool import SqlitePool
@@ -189,7 +190,9 @@ def test_migration_002_idempotent_when_column_already_present(tmp_path: Path) ->
     }
 
 
-def test_migration_005_preserves_populated_users_and_constraints(tmp_path: Path) -> None:
+def test_migration_005_preserves_populated_users_and_constraints(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A populated v4 DB keeps users and their foreign-key references at v5."""
     db_path = tmp_path / "octop.db"
     pool = SqlitePool(db_path)
@@ -216,7 +219,9 @@ def test_migration_005_preserves_populated_users_and_constraints(tmp_path: Path)
             ("legacy-agent", 101, "Legacy Agent", 10, 20),
         )
 
-    run_migrations(pool)
+    # Keep the original v5 public columns plus the pre-existing v6 permissions
+    # check, then verify the current upgrade after every original constraint.
+    _build_legacy(pool, 6, monkeypatch)
 
     with pool.connect() as conn:
         user = conn.execute("SELECT * FROM users WHERE id = ?", (101,)).fetchone()
@@ -300,6 +305,18 @@ def test_migration_005_preserves_populated_users_and_constraints(tmp_path: Path)
                 """,
                 ("duplicate-sso", None, "user", 30, 1, "subject-1"),
             )
+
+    run_migrations(pool)
+    with pool.connect() as conn:
+        assert conn.execute("SELECT version FROM _schema_version").fetchone()[0] == (
+            _max_discovered_version("sqlite")
+        )
+        assert (
+            conn.execute("SELECT project_plan_display_sort_key FROM users WHERE id=101").fetchone()[
+                0
+            ]
+            == "legacy user"
+        )
 
 
 def test_stuck_version_6_without_permissions_column_is_repaired(tmp_path: Path) -> None:
@@ -635,9 +652,11 @@ def test_v7_sqlite_sql_upgrades_legacy_text_pks(tmp_path: Path) -> None:
     assert doc["filename"] == "a.md"
 
 
-def test_v14_to_v15_adds_sso_provider_kind_without_rebuilding(tmp_path: Path) -> None:
+def test_v14_to_v15_adds_sso_provider_kind_without_rebuilding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     pool = SqlitePool(tmp_path / "octop.db")
-    run_migrations(pool)
+    _build_legacy(pool, 15, monkeypatch)
     with pool.connect() as conn:
         conn.execute("DROP INDEX IF EXISTS idx_sso_providers_kind")
         conn.execute("ALTER TABLE sso_providers DROP COLUMN extra")

@@ -53,7 +53,7 @@ M1/M2/M3 可并行：M2 使用 M1 的 seed_todo_catalog(conn, project_id, ts) �
 
 ## C1 冻结门禁（2026-09-28）
 
-M1/M2/M3/R1 与补偿恢复、前端基线已完成各自规格→质量审查。真实全量后端 4854 通过/45 跳过、前端 236 文件/1686 测试、PG20 和 TCP 浏览器21阶段通过。68项业务字节冻结，最终73文件/文档/提交工具独立整合与精确Git发布仍为本片最后门禁；Q1/Q2业务启动必须由协调者确认其通过并核对远端SHA。详见 [C1冻结记录](PROJECT_TODO_PS04C1_ACCEPTANCE_20260928.md) 与 [机器证据](PROJECT_TODO_PS04C1_EVIDENCE_20260928.json)。C2及整体V未完成，GLM/WorkBuddy视觉保持待验。
+M1/M2/M3/R1与补偿恢复、C1全量/真实PG/TCP浏览器和最终73文件整合审查已完成，发布 b613b90c；详见原C1冻结记录与仓库外实际发布结果。C2的Q1两源及Q2最终38件各自SPEC→不同人QUALITY已PASS/open0并由root组件接受。第四版PG6为62项零失败错误跳过，62库严格zero/drop及STOPPED；原并发P2四例真实RED、6项回归与9旧模块313项、2010原断言保留。当前完整BE3为5197通过/87跳过，Ruff/format/mypy均0，1283输入raw起止一致，owned进程闭合；FE236文件1686测试与静态/build PASS的1266当前输入也已只读核验。所有旧FAIL/格式失败保留。Q3已在独立worktree按新8/共享10路径并行实施，首个新GET404 RED与73项活动dev GREEN有证据；完整Q3、Q4、Q5及整体C2/V未完成，GLM/WorkBuddy视觉仍待验。此处是Q1/Q2源码检查点的发布前封存状态，实际Git/远程结果单独核验。
 
 ## 测试环境与精确命令
 
@@ -167,19 +167,19 @@ _base 来自 tests/integration/test_project_todos_api.py，后续helpers在新�
 
 ## 任务 Q1：严格视图定义和游标纯验证
 
-- [ ] 新 tests/unit/projects/test_plan_definition.py：五类型defaults、额外键/错类型/过量filters、NULL in/not_in结构、boolversion、非法日期、重复keys、memberids验证标记、200 FDFA标题；compactcursor只有v/fingerprint/id/version且无padding、2KiB限制。
-- [ ] uv run --no-sync pytest tests/unit/projects/test_plan_definition.py -q 缺少需求RED。
-- [ ] 实现 plan_definition.py 的 strict Pydantic unions 与 defaults/normalization；错误不接受任意SQL/表达式。纯结构与项目引用检查分离，query先选override再校验当前引用。紧凑游标不传标题、完整成员名或SQL元组。
-- [ ] 同命令GREEN、uv run --no-sync ruff check src/octop/infra/projects/plan_definition.py tests/unit/projects/test_plan_definition.py。
-- [ ] 独立规格→质量接受Q1后交Q3/Q4用同一解析器，不再另造宽松前端专用后门。
+- [x] 新 tests/unit/projects/test_plan_definition.py：五类型defaults、额外键/错类型/过量filters、NULL in/not_in结构、boolversion、非法日期、重复keys、memberids验证标记、200 FDFA标题；compactcursor只有v/fingerprint/id/version且无padding、2KiB限制。
+- [x] uv run --no-sync pytest tests/unit/projects/test_plan_definition.py -q 缺少需求RED；保留原缺键隐私失败及修复9例RED。
+- [x] 实现 plan_definition.py 的 strict Pydantic unions 与 defaults/normalization；错误不接受任意SQL/表达式。纯结构与项目引用检查分离，query先选override再校验当前引用。紧凑游标不传标题、完整成员名或SQL元组。
+- [x] 同命令GREEN；纯项目单位231通过，限定Ruff/format/mypy通过。
+- [x] 独立SPEC v2→不同人QUALITY v2接受Q1；root组件记录 q1-acceptance-v2/acceptance-result.json=f3ecb828e863aba10dd43860bf2ea842af88794c17356f83f7a01eec057254ce。仅纯验证接受，Q3/Q4仍须等Q2。
 
 ## 任务 Q2：视图迁移与所有派生键写路径
 
-- [ ] C1已整合验收且M1释放迁移文件后，新 tests/unit/db/test_project_todo_views_migration.py、test_project_plan_sort_keys.py：033→034→035，默认两视图、title完整NFKCcasefold；UserRepo create/update、InviteRepo.accept、snapshot.upsert最终恢复名同事务派生键。
-- [ ] uv run --no-sync pytest tests/unit/db/test_project_todo_views_migration.py tests/unit/db/test_project_plan_sort_keys.py -q RED。
-- [ ] paired035建state/views/复合约束/新索引，回填全标题/全username或displayname，不截断；种子seed_todo_views同conn；用户派生字段不进入公开DTO/UserSnapshot凭据模型。现有自定义配置不重种，迁移/恢复失败事务回滚。
-- [ ] 同命令GREEN，并 uv run --no-sync pytest tests/unit/db/test_repo_users.py tests/unit/users/test_invites.py tests/unit/backup/test_snapshot.py -q；新旧受控备份实际roundtrip日期目录关联视图/default/version与评论图片。
-- [ ] 同一tree两阶段审查；M1和M2释放shared files后接线，归档包派生值不可信，GLM补审状态仍未完成。
+- [x] C1已整合验收且M1释放迁移文件后，新 tests/unit/db/test_project_todo_views_migration.py、test_project_plan_sort_keys.py：033→034→035，默认两视图、title完整NFKCcasefold；UserRepo create/update、InviteRepo.accept、snapshot.upsert最终恢复名同事务派生键。
+- [x] uv run --no-sync pytest tests/unit/db/test_project_todo_views_migration.py tests/unit/db/test_project_plan_sort_keys.py -q RED。
+- [x] paired035建state/views/复合约束/新索引，回填全标题/全username或displayname，不截断；种子seed_todo_views同conn；用户派生字段不进入公开DTO/UserSnapshot凭据模型。现有自定义配置不重种，迁移/恢复失败事务回滚。
+- [x] 同命令GREEN，并 uv run --no-sync pytest tests/unit/db/test_repo_users.py tests/unit/users/test_invites.py tests/unit/backup/test_snapshot.py -q；新旧受控备份实际roundtrip日期目录关联视图/default/version与评论图片。
+- [x] 同一tree两阶段审查；M1和M2释放shared files后接线，归档包派生值不可信，GLM补审状态仍未完成。
 
 ## 任务 Q3：共享视图 CRUD 与生命周期
 
@@ -226,8 +226,8 @@ _base 来自 tests/integration/test_project_todos_api.py，后续helpers在新�
 - [x] M1: 034迁移、种子及旧库失败重放通过独立审查。
 - [x] M2: C1目录/字段/锁序真实服务和API通过。
 - [x] M3: C1字段/目录真实UI、账号隔离及冲突草稿通过。
-- [ ] Q1: 严格五类型定义与compactcursor验证通过。
-- [ ] Q2: 035与所有用户/标题写路径及备份通过。
+- [x] Q1: 严格五类型定义与compactcursor验证通过（组件接受，不等于五视图UI或整体C2交付）。
+- [x] Q2: 035与所有用户/标题写路径及受控备份通过（组件验收，非整体C2交付）。
 - [ ] Q3: 真实共享视图配置与生命周期通过。
 - [ ] Q4: SQL全项目query/filters/groups/counts/seek跨双库通过。
 - [ ] Q5: 五类型真实UI与日期/键盘操作通过。

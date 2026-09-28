@@ -786,6 +786,26 @@ def _replace_tree_from_archive(extracted: Path, dest: Path, arc_name: str) -> in
     return count
 
 
+def _postgres_preimage_schema_version(pool: DatabasePool) -> int:
+    """Read an initialized public database's actual compensation watermark."""
+    try:
+        with pool.connect() as conn:
+            rows = conn.execute("SELECT version FROM public._schema_version").fetchall()
+    except Exception:
+        raise OctopError(
+            ErrorCode.INTERNAL_ERROR,
+            "Cannot read PostgreSQL backup preimage schema version",
+            details={"reason": "backup_preimage_schema_version_unavailable"},
+        ) from None
+    if len(rows) != 1 or type(rows[0][0]) is not int or rows[0][0] < 0:
+        raise OctopError(
+            ErrorCode.INTERNAL_ERROR,
+            "Cannot read PostgreSQL backup preimage schema version",
+            details={"reason": "backup_preimage_schema_version_unavailable"},
+        )
+    return int(rows[0][0])
+
+
 def restore_system_backup(
     source: Path | bytes,
     *,
@@ -927,6 +947,9 @@ def restore_system_backup(
         # Keep the full current database before installing either resource.
         # A failed replacement/upgrade must restore this preimage, including
         # current catalog references, users and chats, together with the tree.
+        previous_schema_version = (
+            _postgres_preimage_schema_version(pool) if pool.dialect == "postgresql" else None
+        )
         previous_database = recovery_stage / "previous-database"
         if pool.dialect == "postgresql":
             dump_postgres(db_config.postgresql_conninfo(), previous_database)
@@ -949,7 +972,12 @@ def restore_system_backup(
 
             database_attempted = True
             if pool.dialect == "postgresql":
-                restore_postgres(db_config.postgresql_conninfo(), db_path)
+                restore_postgres(
+                    db_config.postgresql_conninfo(),
+                    db_path,
+                    pool=pool,
+                    schema_version=manifest.schema_version,
+                )
             elif isinstance(pool, SqlitePool):
                 restore_sqlite_into_pool(db_path, pool)
             else:
@@ -974,7 +1002,13 @@ def restore_system_backup(
             if database_attempted:
                 try:
                     if pool.dialect == "postgresql":
-                        restore_postgres(db_config.postgresql_conninfo(), previous_database)
+                        assert previous_schema_version is not None
+                        restore_postgres(
+                            db_config.postgresql_conninfo(),
+                            previous_database,
+                            pool=pool,
+                            schema_version=previous_schema_version,
+                        )
                     elif isinstance(pool, SqlitePool):
                         restore_sqlite_into_pool(previous_database, pool)
                 except BaseException:

@@ -11,15 +11,16 @@ from typing import Any
 
 import pytest
 from PIL import Image
-from tests.unit.backup.test_project_todo_fields_archive import _seed_archive_rows
+from tests.unit.backup.test_project_todo_fields_archive import _has_plan_keys, _seed_archive_rows
 
 from octop.config import DatabaseConfig
 from octop.infra.backup import system_archive
-from octop.infra.db.migrate import run_migrations
+from octop.infra.db.migrate import _max_discovered_version, run_migrations
 from octop.infra.db.pool import DatabasePool, SqlitePool
 from octop.infra.db.project_plan_seed import seed_todo_catalog
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.utils.paths import PathLayout
+from octop.infra.utils.project_plan_keys import normalize_project_plan_key
 from octop.infra.utils.ulid import new_ulid
 
 
@@ -70,7 +71,9 @@ def _seed_plan_fields(
         )
         conn.execute(
             "UPDATE project_todos SET title=?,description=?,version=?,start_date=?,due_date=?,"
-            "priority_id=? WHERE todo_id=?",
+            "priority_id=?"
+            + (",title_search_key=?" if _has_plan_keys(conn, pool.dialect) else "")
+            + " WHERE todo_id=?",
             (
                 f"{marker} todo",
                 f"{marker} description",
@@ -78,6 +81,11 @@ def _seed_plan_fields(
                 "2000-02-29" if marker == "current" else "1900-01-01",
                 "9999-12-31" if marker == "current" else "1900-03-01",
                 priority_id,
+                *(
+                    (normalize_project_plan_key(f"{marker} todo"),)
+                    if _has_plan_keys(conn, pool.dialect)
+                    else ()
+                ),
                 todo_id,
             ),
         )
@@ -252,7 +260,10 @@ def test_database_replace_failure_preserves_complete_current_state_and_retry_suc
     _assert_unchanged(restore_case)
     assert len(calls) == 2
     result = _restore(restore_case)
-    assert result["schema_version"] == 34 and result["project_todo_comment_image_files"] == 1
+    assert (
+        result["schema_version"] == _max_discovered_version("sqlite")
+        and result["project_todo_comment_image_files"] == 1
+    )
     assert _database_dump(restore_case["pool"]) == restore_case["source_database"]
     assert _private_tree(restore_case["target"]) == restore_case["source_tree"]
 

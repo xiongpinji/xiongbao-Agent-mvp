@@ -21,7 +21,7 @@ import pytest
 
 from octop.config import DatabaseConfig
 from octop.infra.backup.system_archive import create_system_backup, restore_system_backup
-from octop.infra.db.migrate import run_migrations
+from octop.infra.db.migrate import _max_discovered_version, run_migrations
 from octop.infra.db.pool import PostgresPool
 from octop.infra.db.project_plan_seed import seed_todo_catalog
 from octop.infra.db.repos.project_todo_catalog import ProjectTodoCatalogRepo
@@ -102,14 +102,17 @@ def postgres_pair(
                 with pool.connect() as conn:
                     report[f"pool_{index}_pid"] = _identify(conn, context, database)
             assert report["pool_0_pid"] != report["pool_1_pid"]
-            if getattr(request, "param", None) == 33:
+            historical_version = getattr(request, "param", None)
+            if historical_version in (33, 34):
                 migration = import_module("octop.infra.db.migrate")
                 discover = migration._discover
                 with monkeypatch.context() as patch:
                     patch.setattr(
                         migration,
                         "_discover",
-                        lambda dialect: [(v, p) for v, p in discover(dialect) if v <= 33],
+                        lambda dialect: [
+                            (v, p) for v, p in discover(dialect) if v <= historical_version
+                        ],
                     )
                     run_migrations(pools[0])
             else:
@@ -125,9 +128,20 @@ def postgres_pair(
         finally:
             for pool in pools:
                 pool.close()
-            report["remaining_connections"] = admin.execute(
-                "SELECT COUNT(*) FROM pg_stat_activity WHERE datname=%s", (database,)
-            ).fetchone()[0]
+            cleanup_started = time.monotonic()
+            close_checks = []
+            while True:
+                report["remaining_connections"] = admin.execute(
+                    "SELECT COUNT(*) FROM pg_stat_activity WHERE datname=%s", (database,)
+                ).fetchone()[0]
+                elapsed = time.monotonic() - cleanup_started
+                close_checks.append(
+                    {"elapsed_seconds": elapsed, "connections": report["remaining_connections"]}
+                )
+                if report["remaining_connections"] == 0 or elapsed >= 2:
+                    break
+                time.sleep(min(0.02, 2 - elapsed))
+            report["connection_cleanup"] = {"timeout_seconds": 2, "checks": close_checks}
             try:
                 assert report["remaining_connections"] == 0
                 admin.execute(SQL("DROP DATABASE {}").format(Identifier(database)))
@@ -894,7 +908,10 @@ def test_real_pg_dump_restore_keeps_plan_and_private_attachment_chain(
         db_config=config,
         restore_config=False,
     )
-    assert result["schema_version"] == 34 and result["project_todo_comment_image_files"] == 1
+    assert (
+        result["schema_version"] == _max_discovered_version("postgresql")
+        and result["project_todo_comment_image_files"] == 1
+    )
     with first.connect() as conn:
         assert _identify(conn, context, env["database"]) == env["report"]["pool_0_pid"]
         assert [

@@ -35,6 +35,18 @@ OLD_COLUMNS = (
 DEFAULTS = [("紧急", "red", 0), ("高", "orange", 1), ("中", "blue", 2), ("低", "gray", 3)]
 
 
+def _run_historical_034(pool: SqlitePool, monkeypatch: pytest.MonkeyPatch) -> None:
+    migration = import_module("octop.infra.db.migrate")
+    discover = migration._discover
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            migration,
+            "_discover",
+            lambda dialect: [(v, p) for v, p in discover(dialect) if v <= 34],
+        )
+        run_migrations(pool)
+
+
 def _projects(conn: Any) -> None:
     conn.execute(
         "INSERT INTO users(id,username,password_hash,role,created_at) "
@@ -165,8 +177,10 @@ def test_034_fresh_schema_and_numbered_pair(tmp_path: Path) -> None:
         run_migrations(pool)
         with pool.connect() as conn:
             _assert_schema(conn)
-            assert conn.execute("SELECT version FROM _schema_version").fetchone()[0] == 34
-        assert _max_discovered_version("sqlite") == _max_discovered_version("postgresql") == 34
+            assert conn.execute("SELECT version FROM _schema_version").fetchone()[
+                0
+            ] == _max_discovered_version("sqlite")
+        assert _max_discovered_version("sqlite") == _max_discovered_version("postgresql")
         assert (34, MIGRATIONS / "034_project_todo_fields.sql") in _discover("sqlite")
         assert (34, MIGRATIONS / "034_project_todo_fields.pg.sql") in _discover("postgresql")
     finally:
@@ -273,8 +287,11 @@ def test_034_failure_rolls_back_whole_upgrade_and_replays(
         _assert_defaults(conn)
 
 
-def test_034_replay_preserves_existing_calendar_and_catalog(old_db: SqlitePool) -> None:
-    run_migrations(old_db)
+def test_034_replay_preserves_existing_calendar_and_catalog(
+    old_db: SqlitePool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _run_historical_034(old_db, monkeypatch)
     with old_db.transaction() as conn:
         priority_id = conn.execute(
             "SELECT priority_id FROM project_todo_priorities WHERE project_id='p1' AND position=0"
@@ -293,7 +310,7 @@ def test_034_replay_preserves_existing_calendar_and_catalog(old_db: SqlitePool) 
         options = [
             tuple(row) for row in conn.execute("SELECT * FROM project_todo_priorities ORDER BY id")
         ]
-    run_migrations(old_db)
+    _run_historical_034(old_db, monkeypatch)
     with old_db.connect() as conn:
         _assert_schema(conn)
         assert _snapshot(conn) == before
@@ -476,10 +493,11 @@ def test_034_preserves_future_watermark_schema_and_values_across_two_runs(
     old_db: SqlitePool,
 ) -> None:
     run_migrations(old_db)
+    future_version = _max_discovered_version("sqlite") + 1
     with old_db.transaction() as conn:
         conn.execute("ALTER TABLE project_todos ADD COLUMN future_035 TEXT")
         conn.execute("UPDATE project_todos SET future_035='future value' WHERE todo_id='t1'")
-        conn.execute("UPDATE _schema_version SET version=35")
+        conn.execute("UPDATE _schema_version SET version=?", (future_version,))
         before = _snapshot(conn)
         catalog = _catalog_snapshot(conn)
         schema = [
@@ -488,7 +506,9 @@ def test_034_preserves_future_watermark_schema_and_values_across_two_runs(
     for _ in range(2):
         run_migrations(old_db)
         with old_db.connect() as conn:
-            assert conn.execute("SELECT version FROM _schema_version").fetchone()[0] == 35
+            assert (
+                conn.execute("SELECT version FROM _schema_version").fetchone()[0] == future_version
+            )
             assert _snapshot(conn) == before
             assert _catalog_snapshot(conn) == catalog
             assert [
@@ -540,9 +560,11 @@ def test_034_completes_state_only_seed_prefix_without_changing_state(old_db: Sql
 
 @pytest.mark.parametrize("all_archived", [False, True])
 def test_034_migration_and_seed_preserve_edited_or_all_archived_catalog(
-    old_db: SqlitePool, all_archived: bool
+    old_db: SqlitePool,
+    all_archived: bool,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    run_migrations(old_db)
+    _run_historical_034(old_db, monkeypatch)
     with old_db.transaction() as conn:
         priority_id = conn.execute(
             "SELECT priority_id FROM project_todo_priorities WHERE project_id='p1' AND position=0"
@@ -567,7 +589,7 @@ def test_034_migration_and_seed_preserve_edited_or_all_archived_catalog(
         import_module("octop.infra.db.project_plan_seed").seed_todo_catalog(conn, "p1", 99)
         assert _catalog_snapshot(conn) == catalog
     for _ in range(2):
-        run_migrations(old_db)
+        _run_historical_034(old_db, monkeypatch)
         with old_db.connect() as conn:
             assert _snapshot(conn) == before
             assert _catalog_snapshot(conn) == catalog

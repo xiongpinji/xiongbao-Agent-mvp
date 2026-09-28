@@ -10,6 +10,7 @@ import pytest
 
 from octop.config import DatabaseConfig
 from octop.infra.backup import system_archive
+from octop.infra.db.migrate import _max_discovered_version
 from octop.infra.db.pool import PostgresPool
 from octop.infra.errors import OctopError
 from octop.infra.utils.paths import PathLayout
@@ -108,7 +109,9 @@ def test_real_pg_failed_restore_recovers_current_database_and_private_bytes(
     def fail_after_real_upgrade(target_pool: PostgresPool) -> None:
         real_migrate(target_pool)
         with target_pool.connect() as conn:
-            assert conn.execute("SELECT version FROM _schema_version").fetchone()[0] == 34
+            assert conn.execute("SELECT version FROM _schema_version").fetchone()[
+                0
+            ] == _max_discovered_version("postgresql")
             assert (
                 conn.execute(
                     "SELECT title FROM project_todos WHERE todo_id=?", (todo_id,)

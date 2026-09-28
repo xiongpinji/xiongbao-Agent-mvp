@@ -10,6 +10,7 @@ from importlib import import_module
 from pathlib import Path
 
 import pytest
+from tests.unit.db.test_project_todo_views_migration import _build_legacy
 
 from octop.infra.db.migrate import _discover, _max_discovered_version, run_migrations
 from octop.infra.db.pool import SqlitePool
@@ -72,9 +73,11 @@ def test_033_image_tables_and_paired_postgresql_script(db: SqlitePool) -> None:
 
 
 def test_033_interrupted_upgrade_replays_and_failed_ddl_rolls_back(
-    db: SqlitePool,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    db = SqlitePool(tmp_path / "interrupted-v33.db")
+    _build_legacy(db, 33, monkeypatch)
     with db.transaction() as conn:
         conn.execute("DROP TABLE project_todo_comment_image_usage")
         conn.execute("UPDATE _schema_version SET version = 32")
@@ -143,9 +146,11 @@ def test_031_migration_shape_and_paired_postgresql_script(db: SqlitePool) -> Non
         assert token in sqlite_sql and token in pg_sql
 
 
-def test_031_upgrades_existing_v30_database(tmp_path: Path) -> None:
+def test_031_upgrades_existing_v30_database(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     pool = SqlitePool(tmp_path / "old.db")
-    run_migrations(pool)
+    _build_legacy(pool, 30, monkeypatch)
     with pool.connect() as conn:
         conn.executescript(
             "DROP TABLE IF EXISTS project_todo_comments; UPDATE _schema_version SET version = 30;"

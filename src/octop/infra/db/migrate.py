@@ -1960,6 +1960,159 @@ def _apply_project_todo_fields_pg_v34(conn: Any, sql: str) -> None:
     conn.execute("UPDATE _schema_version SET version = 34")
 
 
+def _v34_parent_items(sql: str) -> set[str]:
+    """Compare complete old definitions while allowing unrelated added columns."""
+    body = _v34_sql_definition(sql, table_body=True)[1:-1]
+    parts: list[str] = []
+    start, depth, quoted = 0, 0, False
+    for index, char in enumerate(body):
+        if char == "'":
+            quoted = not quoted
+        elif not quoted:
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+            elif char == "," and depth == 0:
+                parts.append(body[start:index])
+                start = index + 1
+    parts.append(body[start:])
+    return set(parts)
+
+
+def _project_todo_fields_ready_for_views(db: DatabasePool, path: Path) -> bool:
+    """Avoid a 034 parent rebuild on a complete 034 database upgrading to 035."""
+    with db.connect() as conn:
+        for statement in _split_pg_sql(path.read_text(encoding="utf-8")):
+            created = re.match(
+                r"CREATE (?:UNIQUE )?(TABLE|INDEX)(?: IF NOT EXISTS)? (\w+)", statement
+            )
+            if created is None:
+                continue
+            kind, name = created.groups()
+            parent = name == "project_todos_v34_new"
+            if parent:
+                name = "project_todos"
+            actual = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type=? AND name=?", (kind.lower(), name)
+            ).fetchone()
+            if actual is None:
+                return False
+            if parent:
+                if not _v34_parent_items(statement) <= _v34_parent_items(str(actual["sql"])):
+                    return False
+            elif _v34_sql_definition(
+                str(actual["sql"]), table_body=kind == "TABLE"
+            ) != _v34_sql_definition(statement, table_body=kind == "TABLE"):
+                return False
+        incomplete_catalog = conn.execute(
+            "SELECT p.project_id FROM project_spaces p "
+            "LEFT JOIN project_todo_catalog_state s ON s.project_id=p.project_id "
+            "WHERE s.project_id IS NULL OR "
+            "(SELECT COUNT(*) FROM project_todo_priorities r WHERE r.project_id=p.project_id)<4 "
+            "LIMIT 1"
+        ).fetchone()
+        return (
+            incomplete_catalog is None and not conn.execute("PRAGMA foreign_key_check").fetchall()
+        )
+
+
+def _apply_project_todo_views_v35(conn: Any, sql: str, *, dialect: str) -> None:
+    """Keep schema, full keys, view seed and the final watermark in one transaction."""
+    from octop.infra.db.project_plan_seed import seed_todo_views
+    from octop.infra.utils.project_plan_keys import (
+        normalize_project_plan_key,
+        project_plan_display_sort_key,
+    )
+
+    statements = _split_pg_sql(sql)
+    for statement in statements:
+        if statement == "UPDATE _schema_version SET version = 35":
+            continue
+        column = re.match(r"ALTER TABLE (\w+) ADD COLUMN (?:IF NOT EXISTS )?(\w+) ", statement)
+        if column is not None:
+            table, name = column.groups()
+            if dialect == "sqlite":
+                columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+            else:
+                columns = {
+                    row[0]
+                    for row in conn.execute(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema=current_schema() AND table_name=?",
+                        (table,),
+                    )
+                }
+            if name in columns:
+                continue
+        conn.execute(statement)
+
+    for row in conn.execute(
+        "SELECT id,title,title_search_key FROM project_todos ORDER BY id"
+    ).fetchall():
+        key = normalize_project_plan_key(str(row["title"]))
+        if row["title_search_key"] != key:
+            # A replay must not overwrite a concurrent writer's key from an older source.
+            conn.execute(
+                "UPDATE project_todos SET title_search_key=? WHERE id=? AND title=?",
+                (key, row["id"], row["title"]),
+            )
+    for row in conn.execute(
+        "SELECT id,username,display_name,project_plan_display_sort_key FROM users ORDER BY id"
+    ).fetchall():
+        key = project_plan_display_sort_key(
+            str(row["username"]),
+            None if row["display_name"] is None else str(row["display_name"]),
+        )
+        if row["project_plan_display_sort_key"] != key:
+            conn.execute(
+                "UPDATE users SET project_plan_display_sort_key=? "
+                "WHERE id=? AND username=? "
+                "AND (display_name=? OR (display_name IS NULL AND CAST(? AS TEXT) IS NULL))",
+                (key, row["id"], row["username"], row["display_name"], row["display_name"]),
+            )
+
+    ts = int(time.time())
+    for row in conn.execute("SELECT project_id FROM project_spaces ORDER BY project_id").fetchall():
+        seed_todo_views(conn, str(row["project_id"]), ts)
+
+    if dialect == "sqlite":
+        for statement in statements:
+            created = re.match(
+                r"CREATE (?:UNIQUE )?(TABLE|INDEX)(?: IF NOT EXISTS)? (\w+)", statement
+            )
+            if created is None:
+                continue
+            kind, name = created.groups()
+            actual = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type=? AND name=?", (kind.lower(), name)
+            ).fetchone()
+            if actual is None or _v34_sql_definition(
+                actual["sql"], table_body=kind == "TABLE"
+            ) != _v34_sql_definition(statement, table_body=kind == "TABLE"):
+                raise RuntimeError(f"035 schema validation failed for {name}")
+        if conn.execute("PRAGMA foreign_key_check").fetchall():
+            raise RuntimeError("035 failed SQLite foreign_key_check")
+    conn.execute("UPDATE _schema_version SET version = 35")
+    if conn.execute("SELECT version FROM _schema_version").fetchone()[0] != 35:
+        raise RuntimeError("035 schema watermark did not advance")
+
+
+def _ensure_project_todo_views_v35(db: DatabasePool, path: Path) -> None:
+    """Use the existing SQLite connection and roll back interrupts as well as errors."""
+    with db.connect() as conn:
+        if conn.in_transaction:
+            raise RuntimeError("035 requires its own SQLite migration transaction")
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            _apply_project_todo_views_v35(conn, path.read_text(encoding="utf-8"), dialect="sqlite")
+            conn.execute("COMMIT")
+        except BaseException:
+            if conn.in_transaction:
+                conn.execute("ROLLBACK")
+            raise
+
+
 def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
     """Apply one SQLite migration.
 
@@ -2131,6 +2284,9 @@ def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
     if version == 34:
         _ensure_project_todo_fields_v34(db, path)
         return
+    if version == 35:
+        _ensure_project_todo_views_v35(db, path)
+        return
     sql = path.read_text(encoding="utf-8")
     with db.connect() as conn:
         conn.executescript(sql)
@@ -2143,13 +2299,26 @@ def run_migrations(db: DatabasePool) -> None:
         current = _current_version(db)
         if version <= current:
             if db.dialect == "sqlite" and version == current == 34:
-                _ensure_project_todo_fields_v34(db, path)
+                if _max_discovered_version(
+                    db.dialect
+                ) < 35 or not _project_todo_fields_ready_for_views(db, path):
+                    _ensure_project_todo_fields_v34(db, path)
+            elif version == current == 35:
+                if db.dialect == "sqlite":
+                    _ensure_project_todo_views_v35(db, path)
+                else:
+                    with db.connect() as conn, conn.transaction():
+                        _apply_project_todo_views_v35(
+                            conn, path.read_text(encoding="utf-8"), dialect="postgresql"
+                        )
             continue
         if db.dialect == "postgresql":
             sql = path.read_text(encoding="utf-8")
             with db.connect() as conn, conn.transaction():
                 if version == 34:
                     _apply_project_todo_fields_pg_v34(conn, sql)
+                elif version == 35:
+                    _apply_project_todo_views_v35(conn, sql, dialect="postgresql")
                 else:
                     _apply_postgresql_migration(conn, sql)
             if version == 3:
