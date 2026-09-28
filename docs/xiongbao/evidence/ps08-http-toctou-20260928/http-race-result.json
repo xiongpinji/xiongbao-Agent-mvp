@@ -1,0 +1,456 @@
+{
+  "source": "cb72fe4833711f8a32bdbb8bcd2df58a4299c856",
+  "repo": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa",
+  "octop_module": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\__init__.py",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "python": "3.13.13",
+  "python_executable": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\.venv\\Scripts\\python.exe",
+  "deepagents_version": "0.7.9",
+  "harness_agent_distribution": "orcakit-harness-agent",
+  "harness_agent_version": "1.0.14",
+  "temp_base": "C:\\Users\\canqu\\AppData\\Local\\Temp\\xiongbao-030-http-toctou-vchaskzr",
+  "source_files_enabled": false,
+  "fixture_files_enabled": true,
+  "transport": "local ASGI only; no TCP/browser",
+  "provider": "local recording factory only; no model turn submitted",
+  "external_model_requests": 0,
+  "external_model_requests_basis": "fixed local model factory, not network capture",
+  "cases": [
+    {
+      "label": "stable-read",
+      "method": "GET",
+      "stable_plant": true,
+      "home": "C:\\Users\\canqu\\AppData\\Local\\Temp\\xiongbao-030-http-toctou-vchaskzr\\stable-read\\user-home\\.octop",
+      "outside": "C:\\Users\\canqu\\AppData\\Local\\Temp\\xiongbao-030-http-toctou-vchaskzr\\stable-read\\outside",
+      "baseline_pass": true,
+      "acl": [
+        {
+          "identity": "project_owner",
+          "http_status": 403,
+          "target_open_hits": 0
+        },
+        {
+          "identity": "admin",
+          "http_status": 403,
+          "target_open_hits": 0
+        },
+        {
+          "identity": "outsider",
+          "http_status": 403,
+          "target_open_hits": 0
+        },
+        {
+          "identity": "owner_as_user",
+          "http_status": 403,
+          "target_open_hits": 0
+        }
+      ],
+      "guard_started": 1,
+      "guard_passed": 0,
+      "guard_refused": 1,
+      "backend_checked": 0,
+      "target_open_hits": 0,
+      "real_open_delegated": 0,
+      "junction_installed": true,
+      "swap_fired": false,
+      "events": [
+        {
+          "event": "junction_installed",
+          "target": "C:\\Users\\canqu\\AppData\\Local\\Temp\\xiongbao-030-http-toctou-vchaskzr\\stable-read\\outside"
+        },
+        {
+          "event": "route_guard_started"
+        },
+        {
+          "event": "route_guard_refused"
+        },
+        {
+          "event": "junction_removed"
+        },
+        {
+          "event": "child_restored"
+        }
+      ],
+      "classification": "STABLE_PLANT_REFUSED",
+      "http_status": 403,
+      "outside_canary_in_response": false,
+      "outside_overwrite_observed": false,
+      "outside_hash_before": "df8ae749c57ea353a229e0ec34e2c248bb9371f7b0886c2e77c251443014f45d",
+      "outside_hash_after": "df8ae749c57ea353a229e0ec34e2c248bb9371f7b0886c2e77c251443014f45d",
+      "exception": null,
+      "restore_error": null,
+      "stop_error": null,
+      "server_stop_completed": true,
+      "local_model_invocations": 0,
+      "server_start_completed": true,
+      "sqlite_paths_before_open": [
+        "C:\\Users\\canqu\\AppData\\Local\\Temp\\xiongbao-030-http-toctou-vchaskzr\\stable-read\\user-home\\.octop\\octop.db"
+      ],
+      "sqlite_identity_verified": true,
+      "runtime_id": "ptfJSK552HVYGMX8GAB",
+      "root": "C:\\Users\\canqu\\AppData\\Local\\Temp\\xiongbao-030-http-toctou-vchaskzr\\stable-read\\user-home\\.octop\\project-task-files\\ptfJSK552HVYGMX8GAB",
+      "create_http_status": 201,
+      "child_restored": true,
+      "inside_original_unchanged": true,
+      "server_stop_calls": 1,
+      "diagnostic_log_handlers_closed": 1
+    },
+    {
+      "label": "race-read",
+      "method": "GET",
+      "stable_plant": false,
+      "home": "C:\\Users\\canqu\\AppData\\Local\\Temp\\xiongbao-030-http-toctou-vchaskzr\\race-read\\user-home\\.octop",
+      "outside": "C:\\Users\\canqu\\AppData\\Local\\Temp\\xiongbao-030-http-toctou-vchaskzr\\race-read\\outside",
+      "baseline_pass": true,
+      "acl": [
+        {
+          "identity": "project_owner",
+          "http_status": 403,
+          "target_open_hits": 0
+        },
+        {
+          "identity": "admin",
+          "http_status": 403,
+          "target_open_hits": 0
+        },
+        {
+          "identity": "outsider",
+          "http_status": 403,
+          "target_open_hits": 0
+        },
+        {
+          "identity": "owner_as_user",
+          "http_status": 403,
+          "target_open_hits": 0
+        }
+      ],
+      "guard_started": 1,
+      "guard_passed": 1,
+      "guard_refused": 0,
+      "backend_checked": 1,
+      "target_open_hits": 1,
+      "real_open_delegated": 1,
+      "junction_installed": true,
+      "swap_fired": true,
+      "events": [
+        {
+          "event": "route_guard_started"
+        },
+        {
+          "event": "route_guard_passed",
+          "result": "child/target.txt"
+        },
+        {
+          "event": "materialize_returned",
+          "path": "C:\\Users\\canqu\\AppData\\Local\\Temp\\xiongbao-030-http-toctou-vchaskzr\\race-read\\user-home\\.octop\\project-task-files\\ptf838QP0QERYAPD55B\\child\\target.txt"
+        },
+        {
+          "event": "target_open_wrapper_entered",
+          "mode": "r",
+          "flags": null,
+          "stack": [
+            {
+              "file": "C:\\Users\\canqu\\AppData\\Roaming\\uv\\python\\cpython-3.13-windows-x86_64-none\\Lib\\threading.py",
+              "line": 1015,
+              "name": "_bootstrap"
+            },
+            {
+              "file": "C:\\Users\\canqu\\AppData\\Roaming\\uv\\python\\cpython-3.13-windows-x86_64-none\\Lib\\threading.py",
+              "line": 1044,
+              "name": "_bootstrap_inner"
+            },
+            {
+              "file": "C:\\Users\\canqu\\AppData\\Roaming\\uv\\python\\cpython-3.13-windows-x86_64-none\\Lib\\threading.py",
+              "line": 995,
+              "name": "run"
+            },
+            {
+              "file": "C:\\Users\\canqu\\AppData\\Roaming\\uv\\python\\cpython-3.13-windows-x86_64-none\\Lib\\concurrent\\futures\\thread.py",
+              "line": 93,
+              "name": "_worker"
+            },
+            {
+              "file": "C:\\Users\\canqu\\AppData\\Roaming\\uv\\python\\cpython-3.13-windows-x86_64-none\\Lib\\concurrent\\futures\\thread.py",
+              "line": 59,
+              "name": "run"
+            },
+            {
+              "file": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\.venv\\Lib\\site-packages\\harness_agent\\backends\\workspace.py",
+              "line": 643,
+              "name": "read_text"
+            },
+            {
+              "file": "C:\\Users\\canqu\\AppData\\Roaming\\uv\\python\\cpython-3.13-windows-x86_64-none\\Lib\\pathlib\\_local.py",
+              "line": 546,
+              "name": "read_text"
+            },
+            {
+              "file": "C:\\Users\\canqu\\AppData\\Roaming\\uv\\python\\cpython-3.13-windows-x86_64-none\\Lib\\pathlib\\_abc.py",
+              "line": 632,
+              "name": "read_text"
+            },
+            {
+              "file": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\030-http-toctou-20260928-v2\\probe_windows_http_race.py",
+              "line": 331,
+              "name": "traced_path_open"
+            },
+            {
+              "file": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\030-http-toctou-20260928-v2\\probe_windows_http_race.py",
+              "line": 321,
+              "name": "before_open"
+            }
+          ]
+        },
+        {
+          "event": "junction_installed",
+          "target": "C:\\Users\\canqu\\AppData\\Local\\Temp\\xiongbao-030-http-toctou-vchaskzr\\race-read\\outside"
+        },
+        {
+          "event": "junction_removed"
+        },
+        {
+          "event": "child_restored"
+        }
+      ],
+      "classification": "CHECK_USE_READ_ESCAPE_CONFIRMED",
+      "http_status": 200,
+      "outside_canary_in_response": true,
+      "outside_overwrite_observed": false,
+      "outside_hash_before": "df8ae749c57ea353a229e0ec34e2c248bb9371f7b0886c2e77c251443014f45d",
+      "outside_hash_after": "df8ae749c57ea353a229e0ec34e2c248bb9371f7b0886c2e77c251443014f45d",
+      "exception": null,
+      "restore_error": null,
+      "stop_error": null,
+      "server_stop_completed": true,
+      "local_model_invocations": 0,
+      "server_start_completed": true,
+      "sqlite_paths_before_open": [
+        "C:\\Users\\canqu\\AppData\\Local\\Temp\\xiongbao-030-http-toctou-vchaskzr\\race-read\\user-home\\.octop\\octop.db"
+      ],
+      "sqlite_identity_verified": true,
+      "runtime_id": "ptf838QP0QERYAPD55B",
+      "root": "C:\\Users\\canqu\\AppData\\Local\\Temp\\xiongbao-030-http-toctou-vchaskzr\\race-read\\user-home\\.octop\\project-task-files\\ptf838QP0QERYAPD55B",
+      "create_http_status": 201,
+      "child_restored": true,
+      "inside_original_unchanged": true,
+      "server_stop_calls": 1,
+      "diagnostic_log_handlers_closed": 1
+    },
+    {
+      "label": "stable-write",
+      "method": "PUT",
+      "stable_plant": true,
+      "home": "C:\\Users\\canqu\\AppData\\Local\\Temp\\xiongbao-030-http-toctou-vchaskzr\\stable-write\\user-home\\.octop",
+      "outside": "C:\\Users\\canqu\\AppData\\Local\\Temp\\xiongbao-030-http-toctou-vchaskzr\\stable-write\\outside",
+      "baseline_pass": true,
+      "acl": [
+        {
+          "identity": "project_owner",
+          "http_status": 403,
+          "target_open_hits": 0
+        },
+        {
+          "identity": "admin",
+          "http_status": 403,
+          "target_open_hits": 0
+        },
+        {
+          "identity": "outsider",
+          "http_status": 403,
+          "target_open_hits": 0
+        },
+        {
+          "identity": "owner_as_user",
+          "http_status": 403,
+          "target_open_hits": 0
+        }
+      ],
+      "guard_started": 1,
+      "guard_passed": 0,
+      "guard_refused": 1,
+      "backend_checked": 0,
+      "target_open_hits": 0,
+      "real_open_delegated": 0,
+      "junction_installed": true,
+      "swap_fired": false,
+      "events": [
+        {
+          "event": "junction_installed",
+          "target": "C:\\Users\\canqu\\AppData\\Local\\Temp\\xiongbao-030-http-toctou-vchaskzr\\stable-write\\outside"
+        },
+        {
+          "event": "route_guard_started"
+        },
+        {
+          "event": "route_guard_refused"
+        },
+        {
+          "event": "junction_removed"
+        },
+        {
+          "event": "child_restored"
+        }
+      ],
+      "classification": "STABLE_PLANT_REFUSED",
+      "http_status": 403,
+      "outside_canary_in_response": false,
+      "outside_overwrite_observed": false,
+      "outside_hash_before": "df8ae749c57ea353a229e0ec34e2c248bb9371f7b0886c2e77c251443014f45d",
+      "outside_hash_after": "df8ae749c57ea353a229e0ec34e2c248bb9371f7b0886c2e77c251443014f45d",
+      "exception": null,
+      "restore_error": null,
+      "stop_error": null,
+      "server_stop_completed": true,
+      "local_model_invocations": 0,
+      "server_start_completed": true,
+      "sqlite_paths_before_open": [
+        "C:\\Users\\canqu\\AppData\\Local\\Temp\\xiongbao-030-http-toctou-vchaskzr\\stable-write\\user-home\\.octop\\octop.db"
+      ],
+      "sqlite_identity_verified": true,
+      "runtime_id": "ptfDFJVB6PT0V56QCG8",
+      "root": "C:\\Users\\canqu\\AppData\\Local\\Temp\\xiongbao-030-http-toctou-vchaskzr\\stable-write\\user-home\\.octop\\project-task-files\\ptfDFJVB6PT0V56QCG8",
+      "create_http_status": 201,
+      "child_restored": true,
+      "inside_original_unchanged": true,
+      "server_stop_calls": 1,
+      "diagnostic_log_handlers_closed": 1
+    },
+    {
+      "label": "race-write",
+      "method": "PUT",
+      "stable_plant": false,
+      "home": "C:\\Users\\canqu\\AppData\\Local\\Temp\\xiongbao-030-http-toctou-vchaskzr\\race-write\\user-home\\.octop",
+      "outside": "C:\\Users\\canqu\\AppData\\Local\\Temp\\xiongbao-030-http-toctou-vchaskzr\\race-write\\outside",
+      "baseline_pass": true,
+      "acl": [
+        {
+          "identity": "project_owner",
+          "http_status": 403,
+          "target_open_hits": 0
+        },
+        {
+          "identity": "admin",
+          "http_status": 403,
+          "target_open_hits": 0
+        },
+        {
+          "identity": "outsider",
+          "http_status": 403,
+          "target_open_hits": 0
+        },
+        {
+          "identity": "owner_as_user",
+          "http_status": 403,
+          "target_open_hits": 0
+        }
+      ],
+      "guard_started": 1,
+      "guard_passed": 1,
+      "guard_refused": 0,
+      "backend_checked": 1,
+      "target_open_hits": 1,
+      "real_open_delegated": 1,
+      "junction_installed": true,
+      "swap_fired": true,
+      "events": [
+        {
+          "event": "route_guard_started"
+        },
+        {
+          "event": "route_guard_passed",
+          "result": "child/target.txt"
+        },
+        {
+          "event": "backend_resolve_returned",
+          "path": "C:\\Users\\canqu\\AppData\\Local\\Temp\\xiongbao-030-http-toctou-vchaskzr\\race-write\\user-home\\.octop\\project-task-files\\ptf34PDZGJNXB2ZAPKZ\\child\\target.txt"
+        },
+        {
+          "event": "target_open_wrapper_entered",
+          "mode": null,
+          "flags": 769,
+          "stack": [
+            {
+              "file": "C:\\Users\\canqu\\AppData\\Roaming\\uv\\python\\cpython-3.13-windows-x86_64-none\\Lib\\threading.py",
+              "line": 1015,
+              "name": "_bootstrap"
+            },
+            {
+              "file": "C:\\Users\\canqu\\AppData\\Roaming\\uv\\python\\cpython-3.13-windows-x86_64-none\\Lib\\threading.py",
+              "line": 1044,
+              "name": "_bootstrap_inner"
+            },
+            {
+              "file": "C:\\Users\\canqu\\AppData\\Roaming\\uv\\python\\cpython-3.13-windows-x86_64-none\\Lib\\threading.py",
+              "line": 995,
+              "name": "run"
+            },
+            {
+              "file": "C:\\Users\\canqu\\AppData\\Roaming\\uv\\python\\cpython-3.13-windows-x86_64-none\\Lib\\concurrent\\futures\\thread.py",
+              "line": 93,
+              "name": "_worker"
+            },
+            {
+              "file": "C:\\Users\\canqu\\AppData\\Roaming\\uv\\python\\cpython-3.13-windows-x86_64-none\\Lib\\concurrent\\futures\\thread.py",
+              "line": 59,
+              "name": "run"
+            },
+            {
+              "file": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\.venv\\Lib\\site-packages\\deepagents\\backends\\filesystem.py",
+              "line": 1430,
+              "name": "upload_files"
+            },
+            {
+              "file": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\030-http-toctou-20260928-v2\\probe_windows_http_race.py",
+              "line": 338,
+              "name": "traced_os_open"
+            },
+            {
+              "file": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\030-http-toctou-20260928-v2\\probe_windows_http_race.py",
+              "line": 321,
+              "name": "before_open"
+            }
+          ]
+        },
+        {
+          "event": "junction_installed",
+          "target": "C:\\Users\\canqu\\AppData\\Local\\Temp\\xiongbao-030-http-toctou-vchaskzr\\race-write\\outside"
+        },
+        {
+          "event": "junction_removed"
+        },
+        {
+          "event": "child_restored"
+        }
+      ],
+      "classification": "CHECK_USE_OVERWRITE_ESCAPE_CONFIRMED",
+      "http_status": 200,
+      "outside_canary_in_response": false,
+      "outside_overwrite_observed": true,
+      "outside_hash_before": "df8ae749c57ea353a229e0ec34e2c248bb9371f7b0886c2e77c251443014f45d",
+      "outside_hash_after": "0b6f9e22ead86e5860d09ce9e9fc917f5da2ff9ba1ed2afd34d474f63d81c717",
+      "exception": null,
+      "restore_error": null,
+      "stop_error": null,
+      "server_stop_completed": true,
+      "local_model_invocations": 0,
+      "server_start_completed": true,
+      "sqlite_paths_before_open": [
+        "C:\\Users\\canqu\\AppData\\Local\\Temp\\xiongbao-030-http-toctou-vchaskzr\\race-write\\user-home\\.octop\\octop.db"
+      ],
+      "sqlite_identity_verified": true,
+      "runtime_id": "ptf34PDZGJNXB2ZAPKZ",
+      "root": "C:\\Users\\canqu\\AppData\\Local\\Temp\\xiongbao-030-http-toctou-vchaskzr\\race-write\\user-home\\.octop\\project-task-files\\ptf34PDZGJNXB2ZAPKZ",
+      "create_http_status": 201,
+      "child_restored": true,
+      "inside_original_unchanged": true,
+      "server_stop_calls": 1,
+      "diagnostic_log_handlers_closed": 1
+    }
+  ],
+  "outcome": "COMPLETE_WITH_HTTP_CHECK_USE_ESCAPE",
+  "cleanup": {
+    "entries_examined": 878,
+    "remaining_reparse_points": []
+  },
+  "source_and_patch_restoration_verified": true
+}

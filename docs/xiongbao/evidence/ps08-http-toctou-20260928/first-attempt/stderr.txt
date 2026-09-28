@@ -1,0 +1,20 @@
+Traceback (most recent call last):
+  File "C:\Users\canqu\AppData\Roaming\uv\python\cpython-3.13-windows-x86_64-none\Lib\importlib\metadata\__init__.py", line 407, in from_name
+    return next(iter(cls.discover(name=name)))
+StopIteration
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\canqu\Documents\Codex\2026-09-23\qctop-work-buddy-agent-logo-ui-3\work\output\qa\030-http-toctou-20260928\probe_windows_http_race.py", line 121, in <module>
+    "harness_agent_version": importlib.metadata.version("harness-agent"),
+                             ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\canqu\AppData\Roaming\uv\python\cpython-3.13-windows-x86_64-none\Lib\importlib\metadata\__init__.py", line 987, in version
+    return distribution(distribution_name).version
+           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\canqu\AppData\Roaming\uv\python\cpython-3.13-windows-x86_64-none\Lib\importlib\metadata\__init__.py", line 960, in distribution
+    return Distribution.from_name(distribution_name)
+           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\canqu\AppData\Roaming\uv\python\cpython-3.13-windows-x86_64-none\Lib\importlib\metadata\__init__.py", line 409, in from_name
+    raise PackageNotFoundError(name)
+importlib.metadata.PackageNotFoundError: No package metadata was found for harness-agent

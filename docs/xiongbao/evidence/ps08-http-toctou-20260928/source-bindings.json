@@ -1,0 +1,85 @@
+{
+  "source": "cb72fe4833711f8a32bdbb8bcd2df58a4299c856",
+  "files": [
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\030-http-toctou-20260928-v2\\probe_windows_http_race.py",
+      "bytes": 28583,
+      "sha256": "382c23dd2044e33b27b514d1852311863f5bbf0565ba1410024794cc6f0cbf26"
+    },
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\.venv\\Lib\\site-packages\\deepagents\\backends\\filesystem.py",
+      "bytes": 69463,
+      "sha256": "d2c1212fd31db504ce339d72914ab207d4f304bcdb109ef5a1a7a7adfbfbcc7c"
+    },
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\.venv\\Lib\\site-packages\\harness_agent\\backends\\workspace.py",
+      "bytes": 48507,
+      "sha256": "8795b8d8bc6d3f9e47f1b91ed8673cb242f6e6dc78ff9e3df44940deb632c41b"
+    },
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\workspace.py",
+      "bytes": 28903,
+      "sha256": "a021d778f90b6413dbd313652d5304dace110bedc150f3b24ee8283a951633a6"
+    },
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\common\\workspace.py",
+      "bytes": 11965,
+      "sha256": "216fa77162ffc7e5b8e60f98d7f7de7f15355afe5eaa18fff7a101ab1e4cffc6"
+    },
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\middleware\\project_task_file_gate.py",
+      "bytes": 8218,
+      "sha256": "1986c5acb4fbf935c0a97c98e399373a6f8d6556d7319679cc67e6e2672483b5"
+    },
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\backend\\project_task_file_paths.py",
+      "bytes": 14842,
+      "sha256": "e65603e79cd0c4a59a47598026ad11673e7dc053b06755b35d90732790cf603b"
+    },
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\projects\\file_tasks.py",
+      "bytes": 3607,
+      "sha256": "1764fe3553dcc8908406260a5e33a447bdc3187886fb9a73f8d93ef5ad7da5bd"
+    },
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\config.py",
+      "bytes": 23844,
+      "sha256": "de7dfffb3f3b1363889a8ca1f9fc6654b75c826ff50ae0cbaa6978b262401c7f"
+    },
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\pool.py",
+      "bytes": 5647,
+      "sha256": "312c1363bdd1a5973621df6f23a05424eac8fe9dac49fc925863027f58709576"
+    },
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\proactive\\scheduler.py",
+      "bytes": 14996,
+      "sha256": "fef45bd901f4b6cc06508c68e14cf7043d6a6cf0f030e3c93a4c428869c7d310"
+    },
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\server.py",
+      "bytes": 23827,
+      "sha256": "9c2811c87b12dd1967f25be352b7d9cab335f29d4290a094124dffedef15df56"
+    },
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\tests\\integration\\test_project_task_file_real_runtime_http.py",
+      "bytes": 13814,
+      "sha256": "758a874bef4dd9f325b4bf3cbe2092234b14651745b23bf272a50eae453bf8ac"
+    },
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\tests\\support\\app.py",
+      "bytes": 3010,
+      "sha256": "74d0adcc959802b0ad196ef6fb68247c19c2ab63c4c9dd0a4b0158a5aae57a31"
+    },
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\tests\\support\\auth.py",
+      "bytes": 5628,
+      "sha256": "03641bfff1c2e7155b55d0d33241192484c16e38d27e8cde71573e5d1d788274"
+    },
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\tests\\unit\\agents\\test_project_task_file_boundary.py",
+      "bytes": 52713,
+      "sha256": "0085ac0ea5dd35226f4b608c9243d0ec594966490e22e5b13041651b8713bcf4"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "source": "cb72fe4833711f8a32bdbb8bcd2df58a4299c856",
+  "probe_sha256": "29b44922f4e8b7b4d280ae402f4052f30bdd4cac157db9e35d76025ee57921f2",
+  "watchdog_sha256": "d4ee20cde9b2078a3a83f997cb291c1307ee6912158c3752d4e73a6bab8b6a62",
+  "hard_timeout_seconds": 300,
+  "timed_out": false,
+  "child_returncode": 1,
+  "scope": "one disposable native Python process; timeout is INCONCLUSIVE",
+  "child_pid": 49724,
+  "child_observed_stopped": true,
+  "outcome": "CHILD_EXITED"
+}

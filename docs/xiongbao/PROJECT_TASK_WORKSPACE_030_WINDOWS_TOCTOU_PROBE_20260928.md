@@ -33,6 +33,8 @@
 
 后续风险处置应按既有设计单独评审；本轮没有批准自定义 backend、上游依赖变更或翻开关。真实浏览器工作区的独立 RED 仍见 [TCP 浏览器记录](PROJECT_TASK_WORKSPACE_030_PS08_TCP_BROWSER_RED_20260928.md)，PS-08 不核销。
 
+随后固定 `cb72fe48` 的[真实 HTTP 补验](PROJECT_TASK_WORKSPACE_030_WINDOWS_HTTP_TOCTOU_PROBE_20260928.md)独立执行了公共 ASGI 运行体的 GET／PUT 文本路径，确认读到根外 canary 和覆盖根外已有合成文件；稳定对照及 16 次非 owner／as_user 请求均拒绝。它补充的是另一调用链证据，不改变本文工具组件病例的范围，也不核销完整 HTTP 或激活门禁。
+
 ## 证据与复原
 
 - [四组原始结果](evidence/ps08-toctou-20260928/tool-race-result.json)：源码 SHA、模块路径、版本、调用序、工具名集合、合成根外结果及运行体关闭状态。
