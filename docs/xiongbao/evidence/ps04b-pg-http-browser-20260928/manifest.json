@@ -1,0 +1,494 @@
+{
+  "source_head": "e72f72758a4f91c00738127e1a46850c9fd54174",
+  "scope": "PS04B adapter plus two test files and bounded TCP browser journey",
+  "files": [
+    {
+      "file": "http-suite/cluster-context.json",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\cluster-context.json",
+      "bytes": 668,
+      "sha256": "4c6ee2459cff441a6deed5de1a4c44f68bc1f8eca9aee332febaf730dc9a63c7"
+    },
+    {
+      "file": "http-suite/cluster-result.json",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\cluster-result.json",
+      "bytes": 764,
+      "sha256": "931611966f08f07289fa270f59ca6ac7acb97091a9321091cd29b8d93d44e94e"
+    },
+    {
+      "file": "http-suite/cluster_lease.py",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\cluster_lease.py",
+      "bytes": 6380,
+      "sha256": "8039c3e3ba0e777524998e9f8dd368f96b4ca57b1646b4ade0180b8041a4f5c9"
+    },
+    {
+      "file": "http-suite/owned_process.py",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\owned_process.py",
+      "bytes": 5598,
+      "sha256": "6433a13b1ab147244a9ed1d26683d0bcfa883416484777948be698cd1e502a5e"
+    },
+    {
+      "file": "http-suite/ps04b_pg_fixture.py",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\ps04b_pg_fixture.py",
+      "bytes": 14157,
+      "sha256": "b38a82fcae45619e164c042a96187db2a4cab85a2e3911875374af892fe8a2ba"
+    },
+    {
+      "file": "http-suite/run_http_tests.py",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\run_http_tests.py",
+      "bytes": 12352,
+      "sha256": "e07130b1bb177026c34eaef3304784831947c7e5be0d6e1c0cd867c890b41e19"
+    },
+    {
+      "file": "http-suite/smoke_owned_job.py",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\smoke_owned_job.py",
+      "bytes": 3123,
+      "sha256": "e2810eaa25af0492e7bd21a8595264dbc09afab2b21dbaa3d3be4736ed20db02"
+    },
+    {
+      "file": "http-suite/smoke_owned_job_v2.py",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\smoke_owned_job_v2.py",
+      "bytes": 3132,
+      "sha256": "aeec876ff12c7053e8d402d9d4ff226014c39c6546c535b8faecc728eccc5dbc"
+    },
+    {
+      "file": "http-suite/job-timeout-smoke.json",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\job-timeout-smoke.json",
+      "bytes": 693,
+      "sha256": "adda69825b5348b36210568455e5ac3dbd81eea7bf255a696fee2872b6bc23b6"
+    },
+    {
+      "file": "http-suite/job-timeout-smoke-v2.json",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\job-timeout-smoke-v2.json",
+      "bytes": 448,
+      "sha256": "d68359bf9ef2399fdbc579c6577977944081a99a622e897e465cbe3144760465"
+    },
+    {
+      "file": "http-suite/tcp/verify_sqlite.py",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\tcp\\verify_sqlite.py",
+      "bytes": 5838,
+      "sha256": "c2ff725daa2cbe730aaebf1e8024dcc1d19db148a97bb47cb84ded98831bcade"
+    },
+    {
+      "file": "http-suite/tcp/verify_sqlite_v2.py",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\tcp\\verify_sqlite_v2.py",
+      "bytes": 5826,
+      "sha256": "5b36a3708121dcfcf747885b137ef83c2aec93abcf055b55cf5c609ff7973865"
+    },
+    {
+      "file": "http-suite/tcp/probe_launch.py",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\tcp\\probe_launch.py",
+      "bytes": 1848,
+      "sha256": "a9009d64c05b3ae77c5e3d956a7657788d525d0904d9e881f1d263390d54a081"
+    },
+    {
+      "file": "http-suite/tcp/probe_launch.cjs",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\tcp\\probe_launch.cjs",
+      "bytes": 1622,
+      "sha256": "7c811aab70b55fdc34b6d2600f903aafce3c5c02b1c3b416a21efe582d089a3c"
+    },
+    {
+      "file": "http-suite/tcp/launch-normal-environment.json",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\tcp\\launch-normal-environment.json",
+      "bytes": 152,
+      "sha256": "b9a1cef7a10998824e5d05d19076a9ad41e8d25f61de400424fee39c18b2a685"
+    },
+    {
+      "file": "http-suite/tcp/launch-normal-job.json",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\tcp\\launch-normal-job.json",
+      "bytes": 276,
+      "sha256": "bcfd619b5d37e57b2adb59c291d6fffccf4889d5d50c7043caabd8b22a665400"
+    },
+    {
+      "file": "http-suite/red-pg/command-result.json",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\red-pg\\command-result.json",
+      "bytes": 209058,
+      "sha256": "870f01c58703990e4bed714cd738afafc1effd08fcf51a70086196d50c0c8456"
+    },
+    {
+      "file": "http-suite/red-pg/pg-http-bindings.json",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\red-pg\\pg-http-bindings.json",
+      "bytes": 93636,
+      "sha256": "e27f7adfb6967f75f050bfa6eda2c03ed27f651a65e92aa734543771ebeee69b"
+    },
+    {
+      "file": "http-suite/red-pg/junit.xml",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\red-pg\\junit.xml",
+      "bytes": 2048,
+      "sha256": "61c2111db2a7f6c549c858a5aeb8dd5a3c1680d34ead3ec3c88c203e20f5cb87"
+    },
+    {
+      "file": "http-suite/green-pg/command-result.json",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\green-pg\\command-result.json",
+      "bytes": 209175,
+      "sha256": "4880e4497563d3edce20b7f087caf09ead5f27c06c79481e522f4ab694430879"
+    },
+    {
+      "file": "http-suite/green-pg/pg-http-bindings.json",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\green-pg\\pg-http-bindings.json",
+      "bytes": 183294,
+      "sha256": "6d72a31470e06824a9d90d7a11a4ad294c5c2a86699fb3c5bd407fd7182eff60"
+    },
+    {
+      "file": "http-suite/green-pg/junit.xml",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\green-pg\\junit.xml",
+      "bytes": 5465,
+      "sha256": "df499066e7d71fb99a0067918a0ba68f80e104f16592f04d616d7a91ab611fb1"
+    },
+    {
+      "file": "http-suite/sqlite-compat/command-result.json",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\sqlite-compat\\command-result.json",
+      "bytes": 172384,
+      "sha256": "edf1fa1c54f0c50edb7f03da4c16dbd51abf10443e0db34c124528cb5451d113"
+    },
+    {
+      "file": "http-suite/sqlite-compat-v2/command-result.json",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\sqlite-compat-v2\\command-result.json",
+      "bytes": 174325,
+      "sha256": "7f4dc31ba2af56d5c853008433d91a25fe2f1d27976087509f0dac2bc5552929"
+    },
+    {
+      "file": "http-suite/sqlite-compat-v2/junit.xml",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\sqlite-compat-v2\\junit.xml",
+      "bytes": 5465,
+      "sha256": "59e18b5c129d40fa830170444577efebac581a2f7d4a81c23f9c1c4ddab1e51d"
+    },
+    {
+      "file": "http-suite/browser-pg/command-result.json",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\browser-pg\\command-result.json",
+      "bytes": 568030,
+      "sha256": "aa8c3737e1cde89af8ddef987ea1df59a1aef76bbfa104233d4b314555fe4e3e"
+    },
+    {
+      "file": "http-suite/browser-pg/server-result.json",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\browser-pg\\server-result.json",
+      "bytes": 1692,
+      "sha256": "0405a835cf3832541e1a983ca437f54123bf140d73408b8d2e7c837e35ba770f"
+    },
+    {
+      "file": "http-suite/browser-pg/scripts/browser_flow.cjs",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\browser-pg\\scripts\\browser_flow.cjs",
+      "bytes": 40822,
+      "sha256": "45f0913606b98dd24ffeab8d15ed4f44e89c382a0b2b6ce60d5a59c2e6e72f67"
+    },
+    {
+      "file": "http-suite/browser-pg/scripts/browser_server.py",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\browser-pg\\scripts\\browser_server.py",
+      "bytes": 11799,
+      "sha256": "165db1e5b2c19f8690a4d10f9d7f88aeef96240560348266e3860ff3fbd52a52"
+    },
+    {
+      "file": "http-suite/browser-pg/scripts/run_browser.py",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\browser-pg\\scripts\\run_browser.py",
+      "bytes": 11921,
+      "sha256": "e4cd40e7ff041e1d4decb3540b149e0447259eb3a5b7692ebb64cbe723f8606b"
+    },
+    {
+      "file": "http-suite/browser-pg/scripts/owned_process.py",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\browser-pg\\scripts\\owned_process.py",
+      "bytes": 5598,
+      "sha256": "6433a13b1ab147244a9ed1d26683d0bcfa883416484777948be698cd1e502a5e"
+    },
+    {
+      "file": "http-suite/browser-pg-attempt-2/command-result.json",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\browser-pg-attempt-2\\command-result.json",
+      "bytes": 568643,
+      "sha256": "5e36b541d41caa1b7c9f3565e4773c60a7b267d37061cae06e024449905f474f"
+    },
+    {
+      "file": "http-suite/browser-pg-attempt-2/server-result.json",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\browser-pg-attempt-2\\server-result.json",
+      "bytes": 1692,
+      "sha256": "7326fb0080a4e07a6404d3725ee9d3f65fb6e0db59e39fbc8d639b3bec35f758"
+    },
+    {
+      "file": "http-suite/browser-pg-attempt-2/journey/result.json",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\browser-pg-attempt-2\\journey\\result.json",
+      "bytes": 23733,
+      "sha256": "ede7f4a698389dc6b37ad042f8b0b5941dc482d41611a4797ce1e5d457d63366"
+    },
+    {
+      "file": "http-suite/browser-pg-attempt-2/scripts/browser_flow.cjs",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\browser-pg-attempt-2\\scripts\\browser_flow.cjs",
+      "bytes": 41723,
+      "sha256": "3bcb128967a5d0c3260757d6905a6f6d6afc78e36e82a3ff859097559c3878c6"
+    },
+    {
+      "file": "http-suite/browser-pg-attempt-2/scripts/browser_server.py",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\browser-pg-attempt-2\\scripts\\browser_server.py",
+      "bytes": 11799,
+      "sha256": "165db1e5b2c19f8690a4d10f9d7f88aeef96240560348266e3860ff3fbd52a52"
+    },
+    {
+      "file": "http-suite/browser-pg-attempt-2/scripts/run_browser.py",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\browser-pg-attempt-2\\scripts\\run_browser.py",
+      "bytes": 12210,
+      "sha256": "54cab734689f78b44f22266c93afbba510dd65fe8d2305882daef45680718caa"
+    },
+    {
+      "file": "http-suite/browser-pg-attempt-2/scripts/owned_process.py",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-http-browser-20260928\\browser-pg-attempt-2\\scripts\\owned_process.py",
+      "bytes": 5598,
+      "sha256": "6433a13b1ab147244a9ed1d26683d0bcfa883416484777948be698cd1e502a5e"
+    },
+    {
+      "file": "tcp-browser/cluster-context.json",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\cluster-context.json",
+      "bytes": 668,
+      "sha256": "df1015a82a5e272027d132f28764328cb4776124c2bfd046ef1b7faa9e2b5049"
+    },
+    {
+      "file": "tcp-browser/cluster-result.json",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\cluster-result.json",
+      "bytes": 764,
+      "sha256": "1bfe993560bda7f5d92a9615f3f1961dd54f6c02d57deaa156a7ea07a1dd41ee"
+    },
+    {
+      "file": "tcp-browser/cluster_lease.py",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\cluster_lease.py",
+      "bytes": 6381,
+      "sha256": "33aab6f1c8efdc42fdaf271de18bdde68ba09c4483b3aca67468bd4c173c3155"
+    },
+    {
+      "file": "tcp-browser/owned_process.py",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\owned_process.py",
+      "bytes": 5598,
+      "sha256": "6433a13b1ab147244a9ed1d26683d0bcfa883416484777948be698cd1e502a5e"
+    },
+    {
+      "file": "tcp-browser/browser_flow.cjs",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser_flow.cjs",
+      "bytes": 44402,
+      "sha256": "d6e12dab6a80a6a0d35622c763ab233bb15ab1714e52aece5961c3fce0fc5d2b"
+    },
+    {
+      "file": "tcp-browser/tcp/browser_server.py",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\tcp\\browser_server.py",
+      "bytes": 11799,
+      "sha256": "165db1e5b2c19f8690a4d10f9d7f88aeef96240560348266e3860ff3fbd52a52"
+    },
+    {
+      "file": "tcp-browser/tcp/run_browser.py",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\tcp\\run_browser.py",
+      "bytes": 12615,
+      "sha256": "59861ba237a66149b72f43a373c4bcc6629dab211895fdae1c26b8db68c7abf9"
+    },
+    {
+      "file": "tcp-browser/browser-pg/command-result.json",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg\\command-result.json",
+      "bytes": 569260,
+      "sha256": "586b4a71f148bec61ff8128bb74158446042741156f6ee1b64fd955a218156e4"
+    },
+    {
+      "file": "tcp-browser/browser-pg/server-result.json",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg\\server-result.json",
+      "bytes": 1692,
+      "sha256": "a079e1f237a8d7da329b12ca8199b317fc4ff7541ce941d89aeced234de51989"
+    },
+    {
+      "file": "tcp-browser/browser-pg/journey/result.json",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg\\journey\\result.json",
+      "bytes": 8650,
+      "sha256": "8dd6054e921c851079d82ce899ca675ea21df2e69f6720bbc474f7ed5516de02"
+    },
+    {
+      "file": "tcp-browser/browser-pg/scripts/browser_flow.cjs",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg\\scripts\\browser_flow.cjs",
+      "bytes": 43132,
+      "sha256": "58c0da335dc78af32c582a6051b6bcf6d561c43887c2d4e1225c47c6494d5272"
+    },
+    {
+      "file": "tcp-browser/browser-pg/scripts/browser_server.py",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg\\scripts\\browser_server.py",
+      "bytes": 11799,
+      "sha256": "165db1e5b2c19f8690a4d10f9d7f88aeef96240560348266e3860ff3fbd52a52"
+    },
+    {
+      "file": "tcp-browser/browser-pg/scripts/run_browser.py",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg\\scripts\\run_browser.py",
+      "bytes": 12615,
+      "sha256": "59861ba237a66149b72f43a373c4bcc6629dab211895fdae1c26b8db68c7abf9"
+    },
+    {
+      "file": "tcp-browser/browser-pg/scripts/owned_process.py",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg\\scripts\\owned_process.py",
+      "bytes": 5598,
+      "sha256": "6433a13b1ab147244a9ed1d26683d0bcfa883416484777948be698cd1e502a5e"
+    },
+    {
+      "file": "tcp-browser/browser-pg-attempt-2/command-result.json",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg-attempt-2\\command-result.json",
+      "bytes": 569270,
+      "sha256": "2af5efd6b7c03a462d18b630d67f235230e5dfd7693b247829473e073428c5ba"
+    },
+    {
+      "file": "tcp-browser/browser-pg-attempt-2/server-result.json",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg-attempt-2\\server-result.json",
+      "bytes": 1692,
+      "sha256": "5ff7772cf857e241371416914129e40e06a0730913fe1e6c00b04cdc6927022d"
+    },
+    {
+      "file": "tcp-browser/browser-pg-attempt-2/journey/result.json",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg-attempt-2\\journey\\result.json",
+      "bytes": 10676,
+      "sha256": "3523ad80b84f023d677c243083d04c027bd92abe26ded956cfdbba0dd6f7aad9"
+    },
+    {
+      "file": "tcp-browser/browser-pg-attempt-2/scripts/browser_flow.cjs",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg-attempt-2\\scripts\\browser_flow.cjs",
+      "bytes": 43821,
+      "sha256": "711ffb4ac0366d94e8fc97868beaf7cda5be468b3bdf3b59edc85cd5478a1d66"
+    },
+    {
+      "file": "tcp-browser/browser-pg-attempt-2/scripts/browser_server.py",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg-attempt-2\\scripts\\browser_server.py",
+      "bytes": 11799,
+      "sha256": "165db1e5b2c19f8690a4d10f9d7f88aeef96240560348266e3860ff3fbd52a52"
+    },
+    {
+      "file": "tcp-browser/browser-pg-attempt-2/scripts/run_browser.py",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg-attempt-2\\scripts\\run_browser.py",
+      "bytes": 12615,
+      "sha256": "59861ba237a66149b72f43a373c4bcc6629dab211895fdae1c26b8db68c7abf9"
+    },
+    {
+      "file": "tcp-browser/browser-pg-attempt-2/scripts/owned_process.py",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg-attempt-2\\scripts\\owned_process.py",
+      "bytes": 5598,
+      "sha256": "6433a13b1ab147244a9ed1d26683d0bcfa883416484777948be698cd1e502a5e"
+    },
+    {
+      "file": "tcp-browser/browser-pg-attempt-2/journey/screenshots/failure-owner-1280x768.png",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg-attempt-2\\journey\\screenshots\\failure-owner-1280x768.png",
+      "bytes": 23443,
+      "sha256": "b7bb128cf119da3aacc08f5815197dd01dadea5fdebedb6859045d374829bc83"
+    },
+    {
+      "file": "tcp-browser/browser-pg-attempt-3/command-result.json",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg-attempt-3\\command-result.json",
+      "bytes": 657476,
+      "sha256": "1dbba1d514661a196ab2535163f1237baa7042eec6cdc93fbc6a94b5eeb42f77"
+    },
+    {
+      "file": "tcp-browser/browser-pg-attempt-3/server-result.json",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg-attempt-3\\server-result.json",
+      "bytes": 1692,
+      "sha256": "bfb7096fa8405298fd9fbd2931083ab9bb6aa9d5530c88eee7d5ea8dab28e9f9"
+    },
+    {
+      "file": "tcp-browser/browser-pg-attempt-3/journey/result.json",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg-attempt-3\\journey\\result.json",
+      "bytes": 79504,
+      "sha256": "cf1fa0b9daee1f5a8497f232ca1b54e68f1e4aa7eefbf2bdff6f2c1ed916fc1b"
+    },
+    {
+      "file": "tcp-browser/browser-pg-attempt-3/scripts/browser_flow.cjs",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg-attempt-3\\scripts\\browser_flow.cjs",
+      "bytes": 44402,
+      "sha256": "d6e12dab6a80a6a0d35622c763ab233bb15ab1714e52aece5961c3fce0fc5d2b"
+    },
+    {
+      "file": "tcp-browser/browser-pg-attempt-3/scripts/browser_server.py",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg-attempt-3\\scripts\\browser_server.py",
+      "bytes": 11799,
+      "sha256": "165db1e5b2c19f8690a4d10f9d7f88aeef96240560348266e3860ff3fbd52a52"
+    },
+    {
+      "file": "tcp-browser/browser-pg-attempt-3/scripts/run_browser.py",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg-attempt-3\\scripts\\run_browser.py",
+      "bytes": 12615,
+      "sha256": "59861ba237a66149b72f43a373c4bcc6629dab211895fdae1c26b8db68c7abf9"
+    },
+    {
+      "file": "tcp-browser/browser-pg-attempt-3/scripts/owned_process.py",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg-attempt-3\\scripts\\owned_process.py",
+      "bytes": 5598,
+      "sha256": "6433a13b1ab147244a9ed1d26683d0bcfa883416484777948be698cd1e502a5e"
+    },
+    {
+      "file": "tcp-browser/browser-pg-attempt-3/journey/screenshots/member-authorized-detail-1280x768.png",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg-attempt-3\\journey\\screenshots\\member-authorized-detail-1280x768.png",
+      "bytes": 58243,
+      "sha256": "e61341800131885c60caad4a051ebffec09b07b2b93c68f68940cb86cf918c9b"
+    },
+    {
+      "file": "tcp-browser/browser-pg-attempt-3/journey/screenshots/member-authorized-detail-800x728.png",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg-attempt-3\\journey\\screenshots\\member-authorized-detail-800x728.png",
+      "bytes": 32727,
+      "sha256": "b717a22a6083bd353f4fb823b51e00f1871294076bdb88aa44fd9c68633fb4d8"
+    },
+    {
+      "file": "tcp-browser/browser-pg-attempt-3/journey/screenshots/member-local-three-image-preview-1280x768.png",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg-attempt-3\\journey\\screenshots\\member-local-three-image-preview-1280x768.png",
+      "bytes": 57057,
+      "sha256": "70903d10ccae732e4ba0e210d2ea59a0bd03e0074133259956d0cf6ff3677fda"
+    },
+    {
+      "file": "tcp-browser/browser-pg-attempt-3/journey/screenshots/outsider-denied-deeplink-1280x768.png",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg-attempt-3\\journey\\screenshots\\outsider-denied-deeplink-1280x768.png",
+      "bytes": 28276,
+      "sha256": "bf77891b782c8659f003c926893ef53e355be999acecf28317b431ceada163cf"
+    },
+    {
+      "file": "tcp-browser/browser-pg-attempt-3/journey/screenshots/outsider-denied-deeplink-800x728.png",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg-attempt-3\\journey\\screenshots\\outsider-denied-deeplink-800x728.png",
+      "bytes": 26433,
+      "sha256": "e89513c947435dce44e0b1142a320514ff3a4a3bdb7957d3665790a74c46b64b"
+    },
+    {
+      "file": "tcp-browser/browser-pg-attempt-3/journey/screenshots/owner-authorized-detail-1280x768.png",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg-attempt-3\\journey\\screenshots\\owner-authorized-detail-1280x768.png",
+      "bytes": 62327,
+      "sha256": "368e1d00d6654c348bc0b877358a58eaafcfa5a49ad44e1568a8504a8359f242"
+    },
+    {
+      "file": "tcp-browser/browser-pg-attempt-3/journey/screenshots/owner-authorized-detail-800x728.png",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg-attempt-3\\journey\\screenshots\\owner-authorized-detail-800x728.png",
+      "bytes": 34545,
+      "sha256": "5b9d878740060bddf78f4c401f114f62e8dcff0bd3bfb052e82d4469f118dda3"
+    },
+    {
+      "file": "tcp-browser/browser-pg-attempt-3/journey/screenshots/owner-deleted-todo-deeplink-1280x768.png",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg-attempt-3\\journey\\screenshots\\owner-deleted-todo-deeplink-1280x768.png",
+      "bytes": 37149,
+      "sha256": "aa827fdd78e2a9a3df8accf83f1b57ac009a933c5b7cee1881e9cbf1f20d2c97"
+    },
+    {
+      "file": "tcp-browser/browser-pg-attempt-3/journey/screenshots/owner-plain-detail-1280x768.png",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg-attempt-3\\journey\\screenshots\\owner-plain-detail-1280x768.png",
+      "bytes": 54173,
+      "sha256": "b84e8d924e9c1db07a4d8630c66c6c797933fbadebf1b7ce976fcb910cfca2f9"
+    },
+    {
+      "file": "tcp-browser/browser-pg-attempt-3/journey/screenshots/owner-safe-markdown-1280x768.png",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg-attempt-3\\journey\\screenshots\\owner-safe-markdown-1280x768.png",
+      "bytes": 69234,
+      "sha256": "242207f32646fc223efe1ecfa499c5613764c0a7b0ae975c5bd793a71668022f"
+    },
+    {
+      "file": "tcp-browser/browser-pg-attempt-3/journey/screenshots/revoked-member-refreshed-deeplink-1280x768.png",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg-attempt-3\\journey\\screenshots\\revoked-member-refreshed-deeplink-1280x768.png",
+      "bytes": 28328,
+      "sha256": "14083302062b45afd47deb41b8b5761693b99703c419e3d7a88ba9c9b7d85610"
+    },
+    {
+      "file": "tcp-browser/browser-pg-attempt-3/journey/screenshots/revoked-member-refreshed-deeplink-800x728.png",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser-pg-attempt-3\\journey\\screenshots\\revoked-member-refreshed-deeplink-800x728.png",
+      "bytes": 26480,
+      "sha256": "0507c1b01617817913b1b9c1a5dc56667aee6b9f286476d1b84a601fe833ba8a"
+    },
+    {
+      "file": "archive/archive_ps04b_evidence.py",
+      "original": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\archive_ps04b_evidence.py",
+      "bytes": 4515,
+      "sha256": "a13c2e4beb8bb1aa4f2368b9f0cd0554be8909a05acc389425ae03716ff581ad"
+    }
+  ],
+  "excluded": [
+    "raw stdout/stderr",
+    "isolated homes",
+    "database files",
+    "private image storage",
+    "browser profiles",
+    "real user configuration"
+  ]
+}

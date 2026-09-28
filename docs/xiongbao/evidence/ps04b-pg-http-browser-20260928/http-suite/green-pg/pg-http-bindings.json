@@ -1,0 +1,2985 @@
+{
+  "tests": [
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_todos_require_auth",
+      "database": "ps04b_5641fe2802a2_3e33e3dcdf47",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_3e33e3dcdf47",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51366,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164434852160,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_3e33e3dcdf47",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51367,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51364,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_outsider_and_unknown_project_both_404",
+      "database": "ps04b_5641fe2802a2_e9f735c11452",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_e9f735c11452",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51374,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164437428304,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_e9f735c11452",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51374,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51373,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_cross_project_todo_id_is_404",
+      "database": "ps04b_5641fe2802a2_0f6f246a8878",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_0f6f246a8878",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51379,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164499172880,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_0f6f246a8878",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51379,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51378,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_markdown_description_round_trips_through_create_list_and_get",
+      "database": "ps04b_5641fe2802a2_01ce87c2c6bd",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_01ce87c2c6bd",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51388,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164498682704,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_01ce87c2c6bd",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51388,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51387,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_patch_can_opt_in_to_markdown_without_changing_other_fields",
+      "database": "ps04b_5641fe2802a2_871036d9cb78",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_871036d9cb78",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51393,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164549202784,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_871036d9cb78",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51393,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51392,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_legacy_description_patch_resets_format_but_other_patches_preserve_it",
+      "database": "ps04b_5641fe2802a2_ad927e43418e",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_ad927e43418e",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51398,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164520153264,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_ad927e43418e",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51398,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51397,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_description_format_rejects_invalid_and_format_only_patches",
+      "database": "ps04b_5641fe2802a2_9e569c714ae6",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_9e569c714ae6",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51403,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164516137680,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_9e569c714ae6",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51403,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51402,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_stale_markdown_patch_never_changes_stored_body_or_format",
+      "database": "ps04b_5641fe2802a2_9c27fdb66bf8",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_9c27fdb66bf8",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51407,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164573029248,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_9c27fdb66bf8",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51407,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51406,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_owner_creates_and_members_see_same_rows",
+      "database": "ps04b_5641fe2802a2_b06847af1958",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_b06847af1958",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51416,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164574287952,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_b06847af1958",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51416,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51415,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_list_status_filter_and_pagination",
+      "database": "ps04b_5641fe2802a2_4a55f5c7d1da",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_4a55f5c7d1da",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51420,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164574274640,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_4a55f5c7d1da",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51420,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51419,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_search_escapes_like_wildcards",
+      "database": "ps04b_5641fe2802a2_0d56d7bafa06",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_0d56d7bafa06",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51430,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164541574992,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_0d56d7bafa06",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51430,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51428,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_create_validation_bounds",
+      "database": "ps04b_5641fe2802a2_c148514e8c62",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_c148514e8c62",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51435,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164497543440,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_c148514e8c62",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51435,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51434,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_list_query_bounds",
+      "database": "ps04b_5641fe2802a2_94e65018651d",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_94e65018651d",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51444,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164516208944,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_94e65018651d",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51444,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51443,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_member_assign_privileges",
+      "database": "ps04b_5641fe2802a2_2e121fa3e994",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_2e121fa3e994",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51450,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164519815888,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_2e121fa3e994",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51450,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51449,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_member_edit_and_delete_privileges",
+      "database": "ps04b_5641fe2802a2_c0712b91e463",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_c0712b91e463",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51461,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164569332304,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_c0712b91e463",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51461,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51459,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_patch_expected_version_conflict_single_winner",
+      "database": "ps04b_5641fe2802a2_614fbaca1e83",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_614fbaca1e83",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51469,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164549160400,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_614fbaca1e83",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51469,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51468,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_patch_requires_actual_change",
+      "database": "ps04b_5641fe2802a2_1a8d1fab9332",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_1a8d1fab9332",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51479,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164497497552,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_1a8d1fab9332",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51479,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51478,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_assignee_null_clears_and_owner_reassigns",
+      "database": "ps04b_5641fe2802a2_7d48a02141aa",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_7d48a02141aa",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51488,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164497055456,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_7d48a02141aa",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51488,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51487,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_delete_soft_and_invisible_everywhere",
+      "database": "ps04b_5641fe2802a2_1478c4824d8e",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_1478c4824d8e",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51493,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164541546128,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_1478c4824d8e",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51493,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51492,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_bulk_requires_manager",
+      "database": "ps04b_5641fe2802a2_b43126f7deb9",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_b43126f7deb9",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51502,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2162523542064,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_b43126f7deb9",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51502,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51501,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_bulk_atomic_all_or_nothing",
+      "database": "ps04b_5641fe2802a2_e123f7521577",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_e123f7521577",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51511,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164541551232,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_e123f7521577",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51511,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51508,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_bulk_request_validation",
+      "database": "ps04b_5641fe2802a2_3a560fec7dd0",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_3a560fec7dd0",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51516,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164568029536,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_3a560fec7dd0",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51516,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51514,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_remove_member_unassigns_todos_atomically",
+      "database": "ps04b_5641fe2802a2_e8652cdba5b4",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_e8652cdba5b4",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51520,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164566081968,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_e8652cdba5b4",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51520,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51519,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_forbidden_member_removal_leaves_todos_untouched",
+      "database": "ps04b_5641fe2802a2_b978dc304315",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_b978dc304315",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51530,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164524094528,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_b978dc304315",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51530,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51528,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_events_only_carry_safe_fields",
+      "database": "ps04b_5641fe2802a2_271f9bd43665",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_271f9bd43665",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51535,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164568023728,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_271f9bd43665",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51535,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51534,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_image_only_comment_service_persists_private_bytes_and_rechecks_access",
+      "database": "ps04b_5641fe2802a2_16f38b7882ee",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_16f38b7882ee",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51542,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164566735024,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_16f38b7882ee",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51542,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51540,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_image_quota_rejection_does_not_leave_bytes_comment_or_charge",
+      "database": "ps04b_5641fe2802a2_4178e65f79b1",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_4178e65f79b1",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51548,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2162523547696,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_4178e65f79b1",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51548,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51545,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_image_event_failure_rolls_back_database_and_published_object",
+      "database": "ps04b_5641fe2802a2_0c721a9dc49c",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_0c721a9dc49c",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51557,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164436108928,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_0c721a9dc49c",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51557,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51556,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_multipart_image_comment_and_private_inline_get",
+      "database": "ps04b_5641fe2802a2_808e66de0399",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_808e66de0399",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51563,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2162524800112,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_808e66de0399",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51563,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51561,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_multipart_limits_and_fixed_fields_reject_before_comment_write",
+      "database": "ps04b_5641fe2802a2_e6dd15f38507",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_e6dd15f38507",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51570,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2162523553152,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_e6dd15f38507",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51570,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51568,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_image_get_checks_member_project_todo_comment_and_image_on_every_request",
+      "database": "ps04b_5641fe2802a2_0e9c306ab96d",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_0e9c306ab96d",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51581,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164546752368,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_0e9c306ab96d",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51581,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51579,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_image_read_authorization_serializes_with_member_revocation",
+      "database": "ps04b_5641fe2802a2_3d5ca640ce33",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_3d5ca640ce33",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51588,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        },
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_3d5ca640ce33",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51591,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164497050176,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_3d5ca640ce33",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51589,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51586,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_member_comment_retries_are_idempotent_and_do_not_change_todo_version",
+      "database": "ps04b_5641fe2802a2_2303317ecdbb",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_2303317ecdbb",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51597,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164566779776,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_2303317ecdbb",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51598,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51595,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_comment_body_request_id_and_actor_validation",
+      "database": "ps04b_5641fe2802a2_cf624e41db29",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_cf624e41db29",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51603,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164499093248,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_cf624e41db29",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51603,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51601,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_comment_access_revocation_cross_project_and_deleted_todo_are_404",
+      "database": "ps04b_5641fe2802a2_5b1f3e852ca6",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_5b1f3e852ca6",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51614,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164566096224,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_5b1f3e852ca6",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51615,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51612,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_comments_page_stably_when_timestamps_tie",
+      "database": "ps04b_5641fe2802a2_b2a462652564",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_b2a462652564",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51625,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164437648144,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_b2a462652564",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51625,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51623,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_comment_activity_is_safe_and_related_only_to_author",
+      "database": "ps04b_5641fe2802a2_97d419f894e1",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_97d419f894e1",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51631,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2164568020032,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_97d419f894e1",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51631,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51630,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_comment_event_failure_rolls_back_comment",
+      "database": "ps04b_5641fe2802a2_f5573f4889f8",
+      "pools": [
+        {
+          "closes": 1,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_f5573f4889f8",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51638,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "underlying_closed": true
+        }
+      ],
+      "servers": [
+        {
+          "object_id": 2162523549808,
+          "start_complete": true,
+          "stops": 1,
+          "stop_complete": true,
+          "identity": {
+            "database": "ps04b_5641fe2802a2_f5573f4889f8",
+            "user": "ps04b_qa_5641fe2802a2",
+            "port": 43317,
+            "backend_pid": 51638,
+            "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+            "server_address": "127.0.0.1"
+          },
+          "schema_version": 33
+        }
+      ],
+      "cleanup_error": null,
+      "admin_identity": {
+        "database": "postgres",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 51636,
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster",
+        "server_address": "127.0.0.1"
+      },
+      "remaining_backend_connections": 0,
+      "new_logger_handlers_closed": 1,
+      "logger_snapshots_restored": true,
+      "patches_and_database_env_restored": true
+    }
+  ],
+  "reports": [
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_todos_require_auth",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_todos_require_auth",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_todos_require_auth",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_outsider_and_unknown_project_both_404",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_outsider_and_unknown_project_both_404",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_outsider_and_unknown_project_both_404",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_cross_project_todo_id_is_404",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_cross_project_todo_id_is_404",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_cross_project_todo_id_is_404",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_markdown_description_round_trips_through_create_list_and_get",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_markdown_description_round_trips_through_create_list_and_get",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_markdown_description_round_trips_through_create_list_and_get",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_patch_can_opt_in_to_markdown_without_changing_other_fields",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_patch_can_opt_in_to_markdown_without_changing_other_fields",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_patch_can_opt_in_to_markdown_without_changing_other_fields",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_legacy_description_patch_resets_format_but_other_patches_preserve_it",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_legacy_description_patch_resets_format_but_other_patches_preserve_it",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_legacy_description_patch_resets_format_but_other_patches_preserve_it",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_description_format_rejects_invalid_and_format_only_patches",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_description_format_rejects_invalid_and_format_only_patches",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_description_format_rejects_invalid_and_format_only_patches",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_stale_markdown_patch_never_changes_stored_body_or_format",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_stale_markdown_patch_never_changes_stored_body_or_format",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_stale_markdown_patch_never_changes_stored_body_or_format",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_owner_creates_and_members_see_same_rows",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_owner_creates_and_members_see_same_rows",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_owner_creates_and_members_see_same_rows",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_list_status_filter_and_pagination",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_list_status_filter_and_pagination",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_list_status_filter_and_pagination",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_search_escapes_like_wildcards",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_search_escapes_like_wildcards",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_search_escapes_like_wildcards",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_create_validation_bounds",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_create_validation_bounds",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_create_validation_bounds",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_list_query_bounds",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_list_query_bounds",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_list_query_bounds",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_member_assign_privileges",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_member_assign_privileges",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_member_assign_privileges",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_member_edit_and_delete_privileges",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_member_edit_and_delete_privileges",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_member_edit_and_delete_privileges",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_patch_expected_version_conflict_single_winner",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_patch_expected_version_conflict_single_winner",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_patch_expected_version_conflict_single_winner",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_patch_requires_actual_change",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_patch_requires_actual_change",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_patch_requires_actual_change",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_assignee_null_clears_and_owner_reassigns",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_assignee_null_clears_and_owner_reassigns",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_assignee_null_clears_and_owner_reassigns",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_delete_soft_and_invisible_everywhere",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_delete_soft_and_invisible_everywhere",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_delete_soft_and_invisible_everywhere",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_bulk_requires_manager",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_bulk_requires_manager",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_bulk_requires_manager",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_bulk_atomic_all_or_nothing",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_bulk_atomic_all_or_nothing",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_bulk_atomic_all_or_nothing",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_bulk_request_validation",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_bulk_request_validation",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_bulk_request_validation",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_remove_member_unassigns_todos_atomically",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_remove_member_unassigns_todos_atomically",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_remove_member_unassigns_todos_atomically",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_forbidden_member_removal_leaves_todos_untouched",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_forbidden_member_removal_leaves_todos_untouched",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_forbidden_member_removal_leaves_todos_untouched",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_events_only_carry_safe_fields",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_events_only_carry_safe_fields",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todos_api.py::test_events_only_carry_safe_fields",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_image_only_comment_service_persists_private_bytes_and_rechecks_access",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_image_only_comment_service_persists_private_bytes_and_rechecks_access",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_image_only_comment_service_persists_private_bytes_and_rechecks_access",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_image_quota_rejection_does_not_leave_bytes_comment_or_charge",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_image_quota_rejection_does_not_leave_bytes_comment_or_charge",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_image_quota_rejection_does_not_leave_bytes_comment_or_charge",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_image_event_failure_rolls_back_database_and_published_object",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_image_event_failure_rolls_back_database_and_published_object",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_image_event_failure_rolls_back_database_and_published_object",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_multipart_image_comment_and_private_inline_get",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_multipart_image_comment_and_private_inline_get",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_multipart_image_comment_and_private_inline_get",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_multipart_limits_and_fixed_fields_reject_before_comment_write",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_multipart_limits_and_fixed_fields_reject_before_comment_write",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_multipart_limits_and_fixed_fields_reject_before_comment_write",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_image_get_checks_member_project_todo_comment_and_image_on_every_request",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_image_get_checks_member_project_todo_comment_and_image_on_every_request",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_image_get_checks_member_project_todo_comment_and_image_on_every_request",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_image_read_authorization_serializes_with_member_revocation",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_image_read_authorization_serializes_with_member_revocation",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_image_read_authorization_serializes_with_member_revocation",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_member_comment_retries_are_idempotent_and_do_not_change_todo_version",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_member_comment_retries_are_idempotent_and_do_not_change_todo_version",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_member_comment_retries_are_idempotent_and_do_not_change_todo_version",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_comment_body_request_id_and_actor_validation",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_comment_body_request_id_and_actor_validation",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_comment_body_request_id_and_actor_validation",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_comment_access_revocation_cross_project_and_deleted_todo_are_404",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_comment_access_revocation_cross_project_and_deleted_todo_are_404",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_comment_access_revocation_cross_project_and_deleted_todo_are_404",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_comments_page_stably_when_timestamps_tie",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_comments_page_stably_when_timestamps_tie",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_comments_page_stably_when_timestamps_tie",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_comment_activity_is_safe_and_related_only_to_author",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_comment_activity_is_safe_and_related_only_to_author",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_comment_activity_is_safe_and_related_only_to_author",
+      "when": "teardown",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_comment_event_failure_rolls_back_comment",
+      "when": "setup",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_comment_event_failure_rolls_back_comment",
+      "when": "call",
+      "outcome": "passed"
+    },
+    {
+      "nodeid": "tests/integration/test_project_todo_comments_api.py::test_comment_event_failure_rolls_back_comment",
+      "when": "teardown",
+      "outcome": "passed"
+    }
+  ],
+  "summary": {
+    "exitstatus": 0,
+    "collected": 38,
+    "passed": 38,
+    "failed": 0,
+    "skipped": 0,
+    "stage_errors": 0,
+    "fault_injection_nodeids": [
+      "tests/integration/test_project_todo_comments_api.py::test_comment_event_failure_rolls_back_comment",
+      "tests/integration/test_project_todo_comments_api.py::test_image_event_failure_rolls_back_database_and_published_object",
+      "tests/integration/test_project_todo_comments_api.py::test_image_quota_rejection_does_not_leave_bytes_comment_or_charge"
+    ],
+    "asgi_http": {
+      "nodeids": [
+        "tests/integration/test_project_todo_comments_api.py::test_comment_access_revocation_cross_project_and_deleted_todo_are_404",
+        "tests/integration/test_project_todo_comments_api.py::test_comment_activity_is_safe_and_related_only_to_author",
+        "tests/integration/test_project_todo_comments_api.py::test_comment_body_request_id_and_actor_validation",
+        "tests/integration/test_project_todo_comments_api.py::test_comment_event_failure_rolls_back_comment",
+        "tests/integration/test_project_todo_comments_api.py::test_comments_page_stably_when_timestamps_tie",
+        "tests/integration/test_project_todo_comments_api.py::test_image_get_checks_member_project_todo_comment_and_image_on_every_request",
+        "tests/integration/test_project_todo_comments_api.py::test_member_comment_retries_are_idempotent_and_do_not_change_todo_version",
+        "tests/integration/test_project_todo_comments_api.py::test_multipart_image_comment_and_private_inline_get",
+        "tests/integration/test_project_todo_comments_api.py::test_multipart_limits_and_fixed_fields_reject_before_comment_write",
+        "tests/integration/test_project_todos_api.py::test_assignee_null_clears_and_owner_reassigns",
+        "tests/integration/test_project_todos_api.py::test_bulk_atomic_all_or_nothing",
+        "tests/integration/test_project_todos_api.py::test_bulk_request_validation",
+        "tests/integration/test_project_todos_api.py::test_bulk_requires_manager",
+        "tests/integration/test_project_todos_api.py::test_create_validation_bounds",
+        "tests/integration/test_project_todos_api.py::test_cross_project_todo_id_is_404",
+        "tests/integration/test_project_todos_api.py::test_delete_soft_and_invisible_everywhere",
+        "tests/integration/test_project_todos_api.py::test_description_format_rejects_invalid_and_format_only_patches",
+        "tests/integration/test_project_todos_api.py::test_events_only_carry_safe_fields",
+        "tests/integration/test_project_todos_api.py::test_forbidden_member_removal_leaves_todos_untouched",
+        "tests/integration/test_project_todos_api.py::test_legacy_description_patch_resets_format_but_other_patches_preserve_it",
+        "tests/integration/test_project_todos_api.py::test_list_query_bounds",
+        "tests/integration/test_project_todos_api.py::test_list_status_filter_and_pagination",
+        "tests/integration/test_project_todos_api.py::test_markdown_description_round_trips_through_create_list_and_get",
+        "tests/integration/test_project_todos_api.py::test_member_assign_privileges",
+        "tests/integration/test_project_todos_api.py::test_member_edit_and_delete_privileges",
+        "tests/integration/test_project_todos_api.py::test_outsider_and_unknown_project_both_404",
+        "tests/integration/test_project_todos_api.py::test_owner_creates_and_members_see_same_rows",
+        "tests/integration/test_project_todos_api.py::test_patch_can_opt_in_to_markdown_without_changing_other_fields",
+        "tests/integration/test_project_todos_api.py::test_patch_expected_version_conflict_single_winner",
+        "tests/integration/test_project_todos_api.py::test_patch_requires_actual_change",
+        "tests/integration/test_project_todos_api.py::test_remove_member_unassigns_todos_atomically",
+        "tests/integration/test_project_todos_api.py::test_search_escapes_like_wildcards",
+        "tests/integration/test_project_todos_api.py::test_stale_markdown_patch_never_changes_stored_body_or_format",
+        "tests/integration/test_project_todos_api.py::test_todos_require_auth"
+      ],
+      "passed": 34,
+      "failed": 0
+    },
+    "direct_service": {
+      "nodeids": [
+        "tests/integration/test_project_todo_comments_api.py::test_image_event_failure_rolls_back_database_and_published_object",
+        "tests/integration/test_project_todo_comments_api.py::test_image_only_comment_service_persists_private_bytes_and_rechecks_access",
+        "tests/integration/test_project_todo_comments_api.py::test_image_quota_rejection_does_not_leave_bytes_comment_or_charge",
+        "tests/integration/test_project_todo_comments_api.py::test_image_read_authorization_serializes_with_member_revocation"
+      ],
+      "passed": 4,
+      "failed": 0
+    }
+  },
+  "fixture_error": null,
+  "collected_nodeids": [
+    "tests/integration/test_project_todo_comments_api.py::test_comment_access_revocation_cross_project_and_deleted_todo_are_404",
+    "tests/integration/test_project_todo_comments_api.py::test_comment_activity_is_safe_and_related_only_to_author",
+    "tests/integration/test_project_todo_comments_api.py::test_comment_body_request_id_and_actor_validation",
+    "tests/integration/test_project_todo_comments_api.py::test_comment_event_failure_rolls_back_comment",
+    "tests/integration/test_project_todo_comments_api.py::test_comments_page_stably_when_timestamps_tie",
+    "tests/integration/test_project_todo_comments_api.py::test_image_event_failure_rolls_back_database_and_published_object",
+    "tests/integration/test_project_todo_comments_api.py::test_image_get_checks_member_project_todo_comment_and_image_on_every_request",
+    "tests/integration/test_project_todo_comments_api.py::test_image_only_comment_service_persists_private_bytes_and_rechecks_access",
+    "tests/integration/test_project_todo_comments_api.py::test_image_quota_rejection_does_not_leave_bytes_comment_or_charge",
+    "tests/integration/test_project_todo_comments_api.py::test_image_read_authorization_serializes_with_member_revocation",
+    "tests/integration/test_project_todo_comments_api.py::test_member_comment_retries_are_idempotent_and_do_not_change_todo_version",
+    "tests/integration/test_project_todo_comments_api.py::test_multipart_image_comment_and_private_inline_get",
+    "tests/integration/test_project_todo_comments_api.py::test_multipart_limits_and_fixed_fields_reject_before_comment_write",
+    "tests/integration/test_project_todos_api.py::test_assignee_null_clears_and_owner_reassigns",
+    "tests/integration/test_project_todos_api.py::test_bulk_atomic_all_or_nothing",
+    "tests/integration/test_project_todos_api.py::test_bulk_request_validation",
+    "tests/integration/test_project_todos_api.py::test_bulk_requires_manager",
+    "tests/integration/test_project_todos_api.py::test_create_validation_bounds",
+    "tests/integration/test_project_todos_api.py::test_cross_project_todo_id_is_404",
+    "tests/integration/test_project_todos_api.py::test_delete_soft_and_invisible_everywhere",
+    "tests/integration/test_project_todos_api.py::test_description_format_rejects_invalid_and_format_only_patches",
+    "tests/integration/test_project_todos_api.py::test_events_only_carry_safe_fields",
+    "tests/integration/test_project_todos_api.py::test_forbidden_member_removal_leaves_todos_untouched",
+    "tests/integration/test_project_todos_api.py::test_legacy_description_patch_resets_format_but_other_patches_preserve_it",
+    "tests/integration/test_project_todos_api.py::test_list_query_bounds",
+    "tests/integration/test_project_todos_api.py::test_list_status_filter_and_pagination",
+    "tests/integration/test_project_todos_api.py::test_markdown_description_round_trips_through_create_list_and_get",
+    "tests/integration/test_project_todos_api.py::test_member_assign_privileges",
+    "tests/integration/test_project_todos_api.py::test_member_edit_and_delete_privileges",
+    "tests/integration/test_project_todos_api.py::test_outsider_and_unknown_project_both_404",
+    "tests/integration/test_project_todos_api.py::test_owner_creates_and_members_see_same_rows",
+    "tests/integration/test_project_todos_api.py::test_patch_can_opt_in_to_markdown_without_changing_other_fields",
+    "tests/integration/test_project_todos_api.py::test_patch_expected_version_conflict_single_winner",
+    "tests/integration/test_project_todos_api.py::test_patch_requires_actual_change",
+    "tests/integration/test_project_todos_api.py::test_remove_member_unassigns_todos_atomically",
+    "tests/integration/test_project_todos_api.py::test_search_escapes_like_wildcards",
+    "tests/integration/test_project_todos_api.py::test_stale_markdown_patch_never_changes_stored_body_or_format",
+    "tests/integration/test_project_todos_api.py::test_todos_require_auth"
+  ],
+  "expected_collection_matched": true,
+  "child_runtime": {
+    "python": "3.13.13",
+    "executable": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\.venv\\Scripts\\python.exe",
+    "imported_octop": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\__init__.py"
+  },
+  "imported_project_modules": {
+    "octop": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\__init__.py",
+    "octop.infra": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\__init__.py",
+    "octop.infra.db": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\__init__.py",
+    "octop.infra.db.pool": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\pool.py",
+    "octop.config": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\config.py",
+    "octop.infra.utils": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\utils\\__init__.py",
+    "octop.infra.utils.locale": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\utils\\locale.py",
+    "octop.i18n.loader": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\i18n\\loader.py",
+    "octop.i18n.domains.agents": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\i18n\\domains\\agents.py",
+    "octop.i18n.domains.attachment": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\i18n\\domains\\attachment.py",
+    "octop.i18n.domains.channel": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\i18n\\domains\\channel.py",
+    "octop.i18n.domains.errors": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\i18n\\domains\\errors.py",
+    "octop.i18n.domains.slash": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\i18n\\domains\\slash.py",
+    "octop.i18n.domains.stream": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\i18n\\domains\\stream.py",
+    "octop.i18n.domains.tools": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\i18n\\domains\\tools.py",
+    "octop.i18n.domains": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\i18n\\domains\\__init__.py",
+    "octop.i18n.domains.skills": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\i18n\\domains\\skills.py",
+    "octop.i18n": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\i18n\\__init__.py",
+    "octop.infra.db.repos": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\__init__.py",
+    "octop.infra.db.repos._base": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\_base.py",
+    "octop.infra.db.repos.agents": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\agents.py",
+    "octop.infra.db.repos.settings": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\settings.py",
+    "octop.infra.agents.acp_settings": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\acp_settings.py",
+    "octop.infra.db.repos.secrets": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\secrets.py",
+    "octop.infra.errors": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\errors.py",
+    "octop.infra.agents.langfuse": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\langfuse.py",
+    "octop.infra.connectors": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\__init__.py",
+    "octop.infra.connectors.crypto": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\crypto.py",
+    "octop.infra.agents.media_generation": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\media_generation.py",
+    "octop.infra.utils.safe_dirs": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\utils\\safe_dirs.py",
+    "octop.infra.utils.paths": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\utils\\paths.py",
+    "octop.infra.agents.workspace_dir": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\workspace_dir.py",
+    "octop.infra.agents.memory_backend": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\memory_backend.py",
+    "octop.infra.agents.memory_slim": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\memory_slim.py",
+    "octop.infra.agents.profile": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\profile.py",
+    "octop.infra.agents.tool_catalog": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\tool_catalog.py",
+    "octop.infra.db.repos.backends": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\backends.py",
+    "octop.infra.backend.adapter": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\backend\\adapter.py",
+    "octop.infra.backend.docker_spec": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\backend\\docker_spec.py",
+    "octop.infra.backend.probe": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\backend\\probe.py",
+    "octop.infra.backend.resolver": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\backend\\resolver.py",
+    "octop.infra.backend": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\backend\\__init__.py",
+    "octop.infra.backend.project_task_file_paths": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\backend\\project_task_file_paths.py",
+    "octop.infra.agents.project_task_file_boundary": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\project_task_file_boundary.py",
+    "octop.infra.agents.providers.harness_factory": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\providers\\harness_factory.py",
+    "octop.infra.agents.providers.model_flags": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\providers\\model_flags.py",
+    "octop.infra.agents.providers.opencode_session": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\providers\\opencode_session.py",
+    "octop.infra.agents.providers.reasoning": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\providers\\reasoning.py",
+    "octop.infra.agents.providers.store": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\providers\\store.py",
+    "octop.infra.agents.providers": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\providers\\__init__.py",
+    "octop.infra.agents.runtime_limits": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\runtime_limits.py",
+    "octop.infra.agents.security.hitl_session": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\security\\hitl_session.py",
+    "octop.infra.agents.security.policy_store": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\security\\policy_store.py",
+    "octop.infra.agents.security.tool_guard_rules": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\security\\tool_guard_rules.py",
+    "octop.infra.agents.security": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\security\\__init__.py",
+    "octop.infra.connectors.catalog": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\catalog.py",
+    "octop.infra.utils.ssrf_guard": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\utils\\ssrf_guard.py",
+    "octop.infra.connectors.custom_mcp": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\custom_mcp.py",
+    "octop.infra.connectors.mail_servers": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\mail_servers.py",
+    "octop.infra.utils.ulid": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\utils\\ulid.py",
+    "octop.infra.connectors.builder": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\builder.py",
+    "octop.infra.connectors.default_open": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\default_open.py",
+    "octop.infra.connectors.gateway.adapters": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\gateway\\adapters\\__init__.py",
+    "octop.infra.connectors.gateway.adapters.baidu_map": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\gateway\\adapters\\baidu_map.py",
+    "octop.infra.connectors.gateway.adapters.ctrip_wendao": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\gateway\\adapters\\ctrip_wendao.py",
+    "octop.infra.connectors.gateway.cli_dirs": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\gateway\\cli_dirs.py",
+    "octop.infra.connectors.gateway.cli_runner": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\gateway\\cli_runner.py",
+    "octop.infra.connectors.gateway.cli_fingerprint": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\gateway\\cli_fingerprint.py",
+    "octop.infra.connectors.gateway.feishu_creds": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\gateway\\feishu_creds.py",
+    "octop.infra.connectors.gateway.adapters.feishu_cli": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\gateway\\adapters\\feishu_cli.py",
+    "octop.infra.connectors.gateway.adapters.fliggy": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\gateway\\adapters\\fliggy.py",
+    "octop.infra.connectors.gateway.adapters.meituan_travel": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\gateway\\adapters\\meituan_travel.py",
+    "octop.infra.connectors.gateway.adapters.qq_mail": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\gateway\\adapters\\qq_mail.py",
+    "octop.infra.connectors.gateway.adapters.qq_music": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\gateway\\adapters\\qq_music.py",
+    "octop.infra.connectors.gateway.adapters.tencent_ima": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\gateway\\adapters\\tencent_ima.py",
+    "octop.infra.connectors.gateway.adapters.tencent_news": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\gateway\\adapters\\tencent_news.py",
+    "octop.infra.connectors.gateway.adapters.wechat_reading": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\gateway\\adapters\\wechat_reading.py",
+    "octop.infra.connectors.gateway.wecom_creds": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\gateway\\wecom_creds.py",
+    "octop.infra.connectors.gateway.adapters.wecom_cli": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\gateway\\adapters\\wecom_cli.py",
+    "octop.infra.connectors.gateway.adapters.weknora": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\gateway\\adapters\\weknora.py",
+    "octop.infra.connectors.gateway.adapters.yuandian": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\gateway\\adapters\\yuandian.py",
+    "octop.infra.connectors.gateway.registry": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\gateway\\registry.py",
+    "octop.infra.connectors.gateway.protocol": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\gateway\\protocol.py",
+    "octop.infra.connectors.gateway.langchain": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\gateway\\langchain.py",
+    "octop.infra.connectors.gateway": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\gateway\\__init__.py",
+    "octop.infra.connectors.gateway.feishu_user_auth": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\gateway\\feishu_user_auth.py",
+    "octop.infra.connectors.oauth.mcp": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\oauth\\mcp.py",
+    "octop.infra.connectors.oauth.discovery": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\oauth\\discovery.py",
+    "octop.infra.connectors.oauth.pkce": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\oauth\\pkce.py",
+    "octop.infra.connectors.oauth.registry": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\oauth\\registry.py",
+    "octop.infra.connectors.oauth": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\oauth\\__init__.py",
+    "octop.infra.db.repos.connectors": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\connectors.py",
+    "octop.infra.connectors.service": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\service.py",
+    "octop.infra.db.repos.audit": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\audit.py",
+    "octop.infra.skills.skill_packages": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\skills\\skill_packages.py",
+    "octop.infra.utils.frontmatter": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\utils\\frontmatter.py",
+    "octop.infra.skills.skills_hub": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\skills\\skills_hub.py",
+    "octop.infra.skills.install": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\skills\\install.py",
+    "octop.infra.db.repos.skill_packages": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\skill_packages.py",
+    "octop.infra.skills.presentation": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\skills\\presentation.py",
+    "octop.infra.users": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\users\\__init__.py",
+    "octop.infra.users.identity": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\users\\identity.py",
+    "octop.infra.skills.skill_package_store": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\skills\\skill_package_store.py",
+    "octop.infra.skills": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\skills\\__init__.py",
+    "octop.infra.utils.utf8_text": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\utils\\utf8_text.py",
+    "octop.infra.skills.workspace_catalog": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\skills\\workspace_catalog.py",
+    "octop.infra.agents.manager": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\manager.py",
+    "octop.infra.agents.experts.catalog": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\experts\\catalog.py",
+    "octop.infra.utils.json_file": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\utils\\json_file.py",
+    "octop.infra.agents.plugins.manager": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\plugins\\manager.py",
+    "octop.infra.agents.plugins": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\plugins\\__init__.py",
+    "octop.infra.agents.subagents.catalog": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\subagents\\catalog.py",
+    "octop.infra.cron": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\cron\\__init__.py",
+    "octop.infra.cron.task_type": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\cron\\task_type.py",
+    "octop.infra.gateway": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\__init__.py",
+    "octop.infra.gateway.media": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\media\\__init__.py",
+    "octop.infra.gateway.media.constants": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\media\\constants.py",
+    "octop.infra.gateway.media.inbound_store": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\media\\inbound_store.py",
+    "octop.infra.gateway.media.ingress": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\media\\ingress.py",
+    "octop.infra.gateway.process.agent_resolve": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\process\\agent_resolve.py",
+    "octop.infra.gateway.media.attachment_hints": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\media\\attachment_hints.py",
+    "octop.infra.db.repos.sessions": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\sessions.py",
+    "octop.infra.db.repos.threads": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\threads.py",
+    "octop.infra.gateway.threads": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\threads.py",
+    "octop.infra.gateway.process.message_keys": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\process\\message_keys.py",
+    "octop.infra.gateway.process.harness_request": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\process\\harness_request.py",
+    "octop.infra.gateway.process": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\process\\__init__.py",
+    "octop.infra.db.repos.thread_messages": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\thread_messages.py",
+    "octop.infra.gateway.process.history_projection": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\process\\history_projection.py",
+    "octop.infra.gateway.process.usage_record": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\process\\usage_record.py",
+    "octop.infra.knowledge": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\knowledge\\__init__.py",
+    "octop.infra.knowledge.relpath": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\knowledge\\relpath.py",
+    "octop.infra.db.repos.knowledge": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\knowledge.py",
+    "octop.infra.knowledge.default_open": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\knowledge\\default_open.py",
+    "octop.infra.utils.llm_text": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\utils\\llm_text.py",
+    "octop.infra.cron.delivery": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\cron\\delivery.py",
+    "octop.infra.cron.job": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\cron\\job.py",
+    "octop.infra.cron.trigger": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\cron\\trigger.py",
+    "octop.infra.cron.manager": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\cron\\manager.py",
+    "octop.infra.db.factory": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\factory.py",
+    "octop.infra.db.migrate": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\migrate.py",
+    "octop.infra.db.repos.care_push": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\care_push.py",
+    "octop.infra.db.repos.channels": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\channels.py",
+    "octop.infra.db.repos.cron": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\cron.py",
+    "octop.infra.db.repos.invites": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\invites.py",
+    "octop.infra.db.repos.proactive_care_config": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\proactive_care_config.py",
+    "octop.infra.db.repos.project_todo_comments": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\project_todo_comments.py",
+    "octop.infra.db.repos.project_todos": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\project_todos.py",
+    "octop.infra.db.repos.projects": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\projects.py",
+    "octop.infra.db.repos.project_activity": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\project_activity.py",
+    "octop.infra.db.repos.project_assets": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\project_assets.py",
+    "octop.infra.db.repos.project_task_content": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\project_task_content.py",
+    "octop.infra.db.repos.project_tasks": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\project_tasks.py",
+    "octop.infra.db.repos.project_task_shares": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\project_task_shares.py",
+    "octop.infra.db.repos.providers": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\providers.py",
+    "octop.infra.db.repos.published_experts": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\published_experts.py",
+    "octop.infra.db.repos.sso": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\sso.py",
+    "octop.infra.history": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\history\\__init__.py",
+    "octop.infra.history.trajectory.types": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\history\\trajectory\\types.py",
+    "octop.infra.history.trajectory.projector": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\history\\trajectory\\projector.py",
+    "octop.infra.history.trajectory": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\history\\trajectory\\__init__.py",
+    "octop.infra.db.repos.trajectory_events": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\trajectory_events.py",
+    "octop.infra.db.repos.usage": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\usage.py",
+    "octop.infra.db.repos.user_policies": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\user_policies.py",
+    "octop.infra.db.repos.users": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\users.py",
+    "octop.infra.db.repos.voice_providers": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\voice_providers.py",
+    "octop.infra.db.services": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\services.py",
+    "octop.infra.gateway.ws.ws_hub": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\ws\\ws_hub.py",
+    "octop.infra.gateway.ws.ws_channel": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\ws\\ws_channel.py",
+    "octop.infra.gateway.ws": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\ws\\__init__.py",
+    "octop.infra.gateway.cli.cli_channel": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\cli\\cli_channel.py",
+    "octop.infra.gateway.cli": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\cli\\__init__.py",
+    "octop.infra.gateway.history_backfill": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\history_backfill.py",
+    "octop.infra.agents.middleware.project_instructions": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\middleware\\project_instructions.py",
+    "octop.infra.agents.teams.jobs": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\teams\\jobs.py",
+    "octop.infra.agents.teams.service": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\teams\\service.py",
+    "octop.infra.agents.teams.team_manager": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\teams\\team_manager.py",
+    "octop.infra.agents.teams": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\teams\\__init__.py",
+    "octop.infra.gateway.hitl.format": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\hitl\\format.py",
+    "octop.infra.gateway.hitl.store": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\hitl\\store.py",
+    "octop.infra.gateway.slash.ctx": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\slash\\ctx.py",
+    "octop.infra.gateway.slash.catalog": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\slash\\catalog.py",
+    "octop.infra.gateway.slash.runtime_bridge": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\slash\\runtime_bridge.py",
+    "octop.infra.gateway.slash.types": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\slash\\types.py",
+    "octop.infra.gateway.slash.dispatcher": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\slash\\dispatcher.py",
+    "octop.infra.gateway.slash.parser": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\slash\\parser.py",
+    "octop.infra.gateway.slash": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\slash\\__init__.py",
+    "octop.infra.gateway.slash.formatting": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\slash\\formatting.py",
+    "octop.infra.gateway.hitl.coordinator": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\hitl\\coordinator.py",
+    "octop.infra.gateway.hitl": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\hitl\\__init__.py",
+    "octop.infra.utils.browser_media": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\utils\\browser_media.py",
+    "octop.infra.gateway.media.backend_files": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\media\\backend_files.py",
+    "octop.infra.gateway.media.tool_media": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\media\\tool_media.py",
+    "octop.infra.gateway.process.stream_project": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\process\\stream_project.py",
+    "octop.infra.gateway.slash.runner": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\slash\\runner.py",
+    "octop.infra.history.trajectory.settings": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\history\\trajectory\\settings.py",
+    "octop.infra.utils.url": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\utils\\url.py",
+    "octop.infra.users.preferences": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\users\\preferences.py",
+    "octop.infra.gateway.process.processor": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\process\\processor.py",
+    "octop.infra.gateway.process.response_mode": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\process\\response_mode.py",
+    "octop.infra.gateway.gateway": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\gateway.py",
+    "octop.infra.mobile": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\mobile\\__init__.py",
+    "octop.infra.mobile.probe": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\mobile\\probe.py",
+    "octop.infra.mobile.config_probe": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\mobile\\config_probe.py",
+    "octop.infra.proactive.picker": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\proactive\\picker.py",
+    "octop.infra.proactive.scheduler": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\proactive\\scheduler.py",
+    "octop.infra.proactive.service": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\proactive\\service.py",
+    "octop.infra.proactive": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\proactive\\__init__.py",
+    "octop.infra.setup": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\setup\\__init__.py",
+    "octop.infra.setup.password_file": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\setup\\password_file.py",
+    "octop.infra.setup.wizard_tokens": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\setup\\wizard_tokens.py",
+    "octop.infra.users.email": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\users\\email.py",
+    "octop.infra.users.password": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\users\\password.py",
+    "octop.infra.users.permissions": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\users\\permissions.py",
+    "octop.infra.users.manager": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\users\\manager.py",
+    "octop.infra.server": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\server.py",
+    "octop.api": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\__init__.py",
+    "octop.api.middleware": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\middleware\\__init__.py",
+    "octop.api.deps": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\deps.py",
+    "octop.api.middleware.jwt_auth": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\middleware\\jwt_auth.py",
+    "octop.api.middleware.project_task_file_gate": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\middleware\\project_task_file_gate.py",
+    "octop.api.middleware.setup_lockdown": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\middleware\\setup_lockdown.py",
+    "octop.api.openapi_meta": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\openapi_meta.py",
+    "octop.api.app": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\app.py",
+    "octop.infra.db.rebind": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\rebind.py",
+    "octop.infra.projects": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\projects\\__init__.py",
+    "octop.infra.projects.asset_storage": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\projects\\asset_storage.py",
+    "octop.infra.projects.service": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\projects\\service.py",
+    "octop.infra.projects.todo_comment_image_storage": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\projects\\todo_comment_image_storage.py",
+    "octop.infra.projects.todo_comments": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\projects\\todo_comments.py",
+    "octop.infra.connectors.gateway.cli_install": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\gateway\\cli_install.py",
+    "octop.infra.utils.env_file": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\utils\\env_file.py",
+    "octop.infra.agents.plugins.bundled": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\plugins\\bundled\\__init__.py",
+    "octop.infra.agents.plugins.seed": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\plugins\\seed.py",
+    "octop.infra.auth": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\auth\\__init__.py",
+    "octop.infra.utils.tencent_sign": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\utils\\tencent_sign.py",
+    "octop.infra.auth.captcha.providers": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\auth\\captcha\\providers.py",
+    "octop.infra.auth.captcha.config": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\auth\\captcha\\config.py",
+    "octop.infra.auth.sso.crypto": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\auth\\sso\\crypto.py",
+    "octop.infra.auth.sso.discovery": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\auth\\sso\\discovery.py",
+    "octop.infra.auth.sso.id_token": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\auth\\sso\\id_token.py",
+    "octop.infra.auth.sso.pkce": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\auth\\sso\\pkce.py",
+    "octop.infra.auth.sso.providers.base": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\auth\\sso\\providers\\base.py",
+    "octop.infra.auth.sso.providers": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\auth\\sso\\providers\\__init__.py",
+    "octop.infra.auth.sso.public_base": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\auth\\sso\\public_base.py",
+    "octop.infra.auth.sso.redirect_after": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\auth\\sso\\redirect_after.py",
+    "octop.infra.auth.sso.service": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\auth\\sso\\service.py",
+    "octop.infra.auth.sso": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\auth\\sso\\__init__.py",
+    "octop.infra.auth.captcha.store": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\auth\\captcha\\store.py",
+    "octop.infra.auth.captcha.verify": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\auth\\captcha\\verify.py",
+    "octop.infra.auth.captcha": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\auth\\captcha\\__init__.py",
+    "octop.infra.history.trajectory.live": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\history\\trajectory\\live.py",
+    "octop.infra.history.trajectory.metrics": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\history\\trajectory\\metrics.py",
+    "octop.infra.history.trajectory.store": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\history\\trajectory\\store.py",
+    "octop.infra.history.trajectory.service": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\history\\trajectory\\service.py",
+    "octop.infra.gateway.slash.handlers.composite": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\slash\\handlers\\composite.py",
+    "octop.infra.gateway.slash.handlers.hitl": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\slash\\handlers\\hitl.py",
+    "octop.infra.gateway.slash.handlers.memory": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\slash\\handlers\\memory.py",
+    "octop.infra.gateway.slash.help": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\slash\\help.py",
+    "octop.infra.gateway.slash.handlers.platform": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\slash\\handlers\\platform.py",
+    "octop.infra.gateway.slash.handlers.session": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\slash\\handlers\\session.py",
+    "octop.infra.gateway.slash.handlers": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\slash\\handlers\\__init__.py",
+    "octop.infra.setup.tls.challenge": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\setup\\tls\\challenge.py",
+    "octop.infra.setup.tls.listeners": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\setup\\tls\\listeners.py",
+    "octop.infra.setup.tls.store": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\setup\\tls\\store.py",
+    "octop.infra.setup.tls.acme_issue": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\setup\\tls\\acme_issue.py",
+    "octop.infra.setup.tls.modes": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\setup\\tls\\modes.py",
+    "octop.i18n.domains.tls": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\i18n\\domains\\tls.py",
+    "octop.infra.setup.tls.preflight": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\setup\\tls\\preflight.py",
+    "octop.infra.setup.tls.manager": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\setup\\tls\\manager.py",
+    "octop.infra.setup.tls": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\setup\\tls\\__init__.py",
+    "octop.infra.setup.tls.renewal": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\setup\\tls\\renewal.py",
+    "octop.infra.backup.manifest": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\backup\\manifest.py",
+    "octop.infra.backup.store": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\backup\\store.py",
+    "octop.infra.backup.snapshot": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\backup\\snapshot.py",
+    "octop.infra.backup.chats": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\backup\\chats.py",
+    "octop.infra.backup.pg_dump": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\backup\\pg_dump.py",
+    "octop.infra.backup.system_archive": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\backup\\system_archive.py",
+    "octop.infra.backup.workspace_archive": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\backup\\workspace_archive.py",
+    "octop.infra.backup": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\backup\\__init__.py",
+    "octop.infra.backup.auto": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\backup\\auto.py",
+    "octop.infra.knowledge.chunk": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\knowledge\\chunk.py",
+    "octop.infra.agents.providers.onnx_catalog": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\providers\\onnx_catalog.py",
+    "octop.infra.agents.providers.onnx_download": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\providers\\onnx_download.py",
+    "octop.infra.utils.runtime_packages": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\utils\\runtime_packages.py",
+    "octop.infra.agents.providers.onnx_service": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\providers\\onnx_service.py",
+    "octop.infra.agents.providers.probe": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\providers\\probe.py",
+    "octop.infra.knowledge.embed": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\knowledge\\embed.py",
+    "octop.infra.knowledge.files": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\knowledge\\files.py",
+    "octop.infra.knowledge.params": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\knowledge\\params.py",
+    "octop.infra.knowledge.gate": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\knowledge\\gate.py",
+    "octop.infra.knowledge.index": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\knowledge\\index.py",
+    "octop.infra.knowledge.ocr": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\knowledge\\ocr.py",
+    "octop.infra.knowledge.parse": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\knowledge\\parse.py",
+    "octop.infra.knowledge.jobs": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\knowledge\\jobs.py",
+    "octop.api.routers": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\__init__.py",
+    "octop.api.common": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\common\\__init__.py",
+    "octop.api.common.agent": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\common\\agent.py",
+    "octop.api.routers.acp": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\acp.py",
+    "octop.api.routers.admin": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\admin.py",
+    "octop.api.common.agent_workspace": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\common\\agent_workspace.py",
+    "octop.api.common.workspace": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\common\\workspace.py",
+    "octop.api.routers.agent_files": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\agent_files.py",
+    "octop.infra.agents.plugin_tool_defaults": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\plugin_tool_defaults.py",
+    "octop.api.routers.agent_tools": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\agent_tools.py",
+    "octop.api.common.agent_runtime": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\common\\agent_runtime.py",
+    "octop.infra.utils.host_dirs": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\utils\\host_dirs.py",
+    "octop.infra.users.resource_policy": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\users\\resource_policy.py",
+    "octop.api.common.validators": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\common\\validators.py",
+    "octop.infra.agents.avatar": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\avatar.py",
+    "octop.api.routers.agents": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\agents.py",
+    "octop.api.routers.auth": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\auth.py",
+    "octop.api.common.public_base": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\common\\public_base.py",
+    "octop.api.common.sso_cookie": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\common\\sso_cookie.py",
+    "octop.api.routers.auth_oidc": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\auth_oidc.py",
+    "octop.api.routers.auth_oauth": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\auth_oauth.py",
+    "octop.api.common.content_disposition": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\common\\content_disposition.py",
+    "octop.api.routers.backup": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\backup.py",
+    "octop.api.routers.browser.env": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\browser\\env.py",
+    "octop.api.routers.browser.harness": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\browser\\harness.py",
+    "octop.api.routers.browser.record_replay": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\browser\\record_replay.py",
+    "octop.api.routers.browser.stream": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\browser\\stream.py",
+    "octop.infra.browser.setup": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\browser\\setup.py",
+    "octop.infra.browser": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\browser\\__init__.py",
+    "octop.api.routers.browser.uninstall": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\browser\\uninstall.py",
+    "octop.api.routers.browser": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\browser\\__init__.py",
+    "octop.infra.gateway.bot_creators": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\bot_creators\\__init__.py",
+    "octop.infra.utils.subprocess_io": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\utils\\subprocess_io.py",
+    "octop.infra.gateway.bot_creators.feishu_runner": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\bot_creators\\feishu_runner.py",
+    "octop.infra.gateway.channels": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\channels\\__init__.py",
+    "octop.infra.gateway.channels.dingtalk_registration": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\channels\\dingtalk_registration.py",
+    "octop.infra.gateway.channels.qr_bind": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\gateway\\channels\\qr_bind.py",
+    "octop.api.routers.channels": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\channels.py",
+    "octop.api.routers.chat.models": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\chat\\models.py",
+    "octop.infra.agents.context_breakdown": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\context_breakdown.py",
+    "octop.api.routers.chat.serialize": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\chat\\serialize.py",
+    "octop.infra.agents.middleware.thread_artifacts": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\middleware\\thread_artifacts.py",
+    "octop.infra.agents.thread_fork": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\thread_fork.py",
+    "octop.infra.history.store": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\history\\store.py",
+    "octop.infra.history.service": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\history\\service.py",
+    "octop.api.routers.chat.history": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\chat\\history.py",
+    "octop.api.routers.chat.sse": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\chat\\sse.py",
+    "octop.api.routers.chat.notify_ws": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\chat\\notify_ws.py",
+    "octop.infra.agents.teams.welcome": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\teams\\welcome.py",
+    "octop.api.routers.chat.routes": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\chat\\routes.py",
+    "octop.api.routers.chat.trajectory": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\chat\\trajectory.py",
+    "octop.api.routers.chat.turn": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\chat\\turn.py",
+    "octop.api.routers.chat.ws": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\chat\\ws.py",
+    "octop.api.routers.chat": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\chat\\__init__.py",
+    "octop.infra.connectors.probe": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\connectors\\probe.py",
+    "octop.api.routers.connectors": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\connectors.py",
+    "octop.api.routers.cron": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\cron.py",
+    "octop.infra.utils.posix_compat": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\utils\\posix_compat.py",
+    "octop.infra.desktop.setup": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\desktop\\setup.py",
+    "octop.infra.desktop": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\desktop\\__init__.py",
+    "octop.api.routers.desktop.install": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\desktop\\install.py",
+    "octop.api.routers.desktop.settings": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\desktop\\settings.py",
+    "octop.infra.desktop.capture": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\desktop\\capture.py",
+    "octop.infra.desktop.input": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\desktop\\input.py",
+    "octop.infra.desktop.session": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\desktop\\session.py",
+    "octop.api.routers.desktop.status": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\desktop\\status.py",
+    "octop.api.routers.desktop.stream": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\desktop\\stream.py",
+    "octop.api.routers.desktop.uninstall": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\desktop\\uninstall.py",
+    "octop.api.routers.desktop": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\desktop\\__init__.py",
+    "octop.api.routers.envs": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\envs.py",
+    "octop.infra.agents.experts.composer_files": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\experts\\composer_files.py",
+    "octop.infra.agents.experts.manifest_generator": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\experts\\manifest_generator.py",
+    "octop.infra.utils.ssl_errors": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\utils\\ssl_errors.py",
+    "octop.infra.agents.experts.skillhub_market": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\experts\\skillhub_market.py",
+    "octop.infra.agents.experts.market_creation": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\experts\\market_creation.py",
+    "octop.infra.agents.builtin_skills": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\builtin_skills\\__init__.py",
+    "octop.infra.agents.experts.publish": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\experts\\publish.py",
+    "octop.infra.agents.experts.published_creation": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\experts\\published_creation.py",
+    "octop.api.routers.experts": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\experts.py",
+    "octop.api.routers.health": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\health.py",
+    "octop.api.routers.i18n": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\i18n.py",
+    "octop.api.routers.internal_mcp": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\internal_mcp.py",
+    "octop.infra.users.invites": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\users\\invites.py",
+    "octop.api.routers.invites": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\invites.py",
+    "octop.api.common.upload_limit": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\common\\upload_limit.py",
+    "octop.infra.knowledge.service": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\knowledge\\service.py",
+    "octop.api.routers.knowledge_bases": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\knowledge_bases.py",
+    "octop.infra.agents.mbti_profiles": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\mbti_profiles.py",
+    "octop.api.routers.mbti": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\mbti.py",
+    "octop.api.routers.media_generation": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\media_generation.py",
+    "octop.api.common.memory_client": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\common\\memory_client.py",
+    "octop.api.routers.memory": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\memory.py",
+    "octop.api.routers.memory_portable": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\memory_portable.py",
+    "octop.infra.mobile.adb": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\mobile\\adb.py",
+    "octop.infra.mobile.docker_install": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\mobile\\docker_install.py",
+    "octop.infra.mobile.setup": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\mobile\\setup.py",
+    "octop.api.routers.mobile.install": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\mobile\\install.py",
+    "octop.api.routers.mobile.shell_ws": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\mobile\\shell_ws.py",
+    "octop.infra.mobile.agent_control": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\mobile\\agent_control.py",
+    "octop.api.routers.mobile.status": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\mobile\\status.py",
+    "octop.infra.mobile.h264": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\mobile\\h264.py",
+    "octop.api.routers.mobile.stream": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\mobile\\stream.py",
+    "octop.api.routers.mobile": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\mobile\\__init__.py",
+    "octop.api.routers.ollama_download_store": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\ollama_download_store.py",
+    "octop.api.routers.ollama_models": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\ollama_models.py",
+    "octop.api.routers.onnx_models": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\onnx_models.py",
+    "octop.api.routers.plugins": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\plugins.py",
+    "octop.api.routers.preferences": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\preferences.py",
+    "octop.api.routers.proactive_care": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\proactive_care.py",
+    "octop.infra.projects.activity": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\projects\\activity.py",
+    "octop.api.routers.project_activity": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\project_activity.py",
+    "octop.infra.projects.assets": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\projects\\assets.py",
+    "octop.api.routers.project_assets": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\project_assets.py",
+    "octop.api.routers.project_task_files": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\project_task_files.py",
+    "octop.infra.projects.tasks": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\projects\\tasks.py",
+    "octop.infra.projects.file_tasks": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\projects\\file_tasks.py",
+    "octop.api.routers.project_tasks": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\project_tasks.py",
+    "octop.api.common.todo_comment_upload": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\common\\todo_comment_upload.py",
+    "octop.infra.projects.todos": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\projects\\todos.py",
+    "octop.api.routers.project_todos": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\project_todos.py",
+    "octop.api.routers.projects": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\projects.py",
+    "octop.infra.agents.providers.presets": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\providers\\presets.py",
+    "octop.infra.agents.providers.resolved": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\providers\\resolved.py",
+    "octop.infra.providers.codex_oauth": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\providers\\codex_oauth.py",
+    "octop.infra.providers.codex_apply": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\providers\\codex_apply.py",
+    "octop.api.routers.providers": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\providers.py",
+    "octop.infra.utils.search_probe": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\utils\\search_probe.py",
+    "octop.api.routers.search": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\search.py",
+    "octop.api.routers.settings": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\settings.py",
+    "octop.api.routers.setup": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\setup.py",
+    "octop.infra.skills.skillhub_market": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\skills\\skillhub_market.py",
+    "octop.infra.skills.skill_package_from_skillhub": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\skills\\skill_package_from_skillhub.py",
+    "octop.api.routers.skill_packages": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\skill_packages.py",
+    "octop.infra.skills.skill_transfer": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\skills\\skill_transfer.py",
+    "octop.api.routers.skills": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\skills.py",
+    "octop.api.routers.slash": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\slash.py",
+    "octop.api.routers.subagents": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\subagents.py",
+    "octop.api.routers.teams": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\teams.py",
+    "octop.api.routers.terminal": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\terminal.py",
+    "octop.api.routers.update_store": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\update_store.py",
+    "octop.infra.setup.self_update": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\setup\\self_update.py",
+    "octop.infra.setup.service": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\setup\\service.py",
+    "octop.api.routers.update": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\update.py",
+    "octop.api.common.attachments": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\common\\attachments.py",
+    "octop.api.routers.uploads": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\uploads.py",
+    "octop.api.common.usage_xlsx": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\common\\usage_xlsx.py",
+    "octop.api.routers.usage": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\usage.py",
+    "octop.api.routers.users": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\users.py",
+    "octop.infra.voice": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\voice\\__init__.py",
+    "octop.i18n.domains.voice": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\i18n\\domains\\voice.py",
+    "octop.infra.voice.adapters": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\voice\\adapters.py",
+    "octop.infra.voice.presets": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\voice\\presets.py",
+    "octop.infra.voice.manager": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\voice\\manager.py",
+    "octop.api.routers.voice": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\voice.py",
+    "octop.infra.utils.doc_edit": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\utils\\doc_edit.py",
+    "octop.api.routers.workspace": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\workspace.py",
+    "octop.infra.utils.bwrap": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\utils\\bwrap.py",
+    "octop.infra.utils.docker_env": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\utils\\docker_env.py",
+    "octop.api.routers.filesystem": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\filesystem.py",
+    "octop.api.routers.observability": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\observability.py",
+    "octop.api.routers.security": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\security.py",
+    "octop.api.routers.storage_backends": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\storage_backends.py",
+    "octop.api.routers.tls": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\api\\routers\\tls.py",
+    "octop.infra.agents.default_agent": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\agents\\default_agent.py",
+    "octop.infra.backend.opensandbox_deps": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\backend\\opensandbox_deps.py"
+  },
+  "imports_from_requested_source": true
+}

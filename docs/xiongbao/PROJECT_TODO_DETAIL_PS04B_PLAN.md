@@ -12,6 +12,8 @@
 
 执行状态：B1 代码提交 `6280fe49` 已推送并按[单独验收记录](PROJECT_TODO_DETAIL_PS04B_B1_EVIDENCE.md)核对；B2 代码提交 `f1e6ccaf` 已通过独立固定 SHA 审查、聚焦回归、真实 PostgreSQL 仓储探针、本地浏览器旅程和全仓非 live 测试，已推送并核对远端，见[B2 验收记录](PROJECT_TODO_DETAIL_PS04B_B2_EVIDENCE.md)。下方复选框保留原始逐步 TDD 任务模板，实际结果以验收记录和编排清单为准。B1 的全量 `make all` 与 GLM 补审仍未完成，不将定向通过写成全量通过。
 
+2026-09-28 补验：e72f7275 基线仅修第二 DB 连接的正式 factory 选择；指定两份测试真实 PG 38/38（34 ASGI + 4 直接 service）、SQLite 38/38，另完成真实 PG 支撑的 13 阶段 TCP 浏览器旅程与正常收尾，两个独立只读审查无可操作 P0/P1/P2。见[补验记录](PROJECT_TODO_DETAIL_PS04B_PG_HTTP_BROWSER_ACCEPTANCE_20260928.md)。完整 PG 并发/故障/浏览器矩阵及 WorkBuddy 视觉仍按记录另验。
+
 ---
 
 ## 文件与责任边界
@@ -24,7 +26,7 @@
 | B2 格式 | 配对下一号迁移；修改现有 todo repo/service/router、Dashboard ProjectTodo 类型；新建 ProjectTodoMarkdown.tsx 与 .test.tsx |
 | B2 图片 | 新建独立评论图片存储模块、配对迁移、仓储/服务/HTTP 测试；扩展 projectTodos.ts 与 ProjectTodoDetail.tsx 的登录态 Blob 读取和粘贴提交 |
 
-根目录 AGENTS.md 的层级边界与默认 make all ship bar适用于每项。src/octop/dashboard 是构建产物，不直接编辑。测试数据只使用隔离环境；真 PostgreSQL 测试只能指向一次性专用数据库，因为测试辅助工具会清空 public schema。原始三路由派工各在独立工作树；经单独授权后的 Codex B1 实现改用同一干净 Windows 工作树的前后端不重叠文件所有权。实现者不提交或推送；Codex 负责整合、审查、提交和推送。
+根目录 AGENTS.md 的层级边界与默认 make all ship bar 适用于每项。src/octop/dashboard 是构建产物，不直接编辑。测试数据只使用隔离环境；真 PostgreSQL 测试只能指向一次性专用数据库，因为测试辅助工具会清空 public schema。2026-09-28 的专用补验 fixture 改为每用例创建全新随机 DB，连接前及迁移前围栏核对独有 DB 前缀、用户、端口和 data_directory，未对既有 schema 做销毁；这不改变原辅助工具的限制。原始三路由派工各在独立工作树；经单独授权后的 Codex B1 实现改用同一干净 Windows 工作树的前后端不重叠文件所有权。实现者不提交或推送；Codex 负责整合、审查、提交和推送。
 
 ## B1：文字评论与双栏详情
 

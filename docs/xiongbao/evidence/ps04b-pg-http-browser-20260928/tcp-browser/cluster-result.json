@@ -1,0 +1,26 @@
+{
+  "state": "STOPPED",
+  "base": "/tmp/xiongbao-ps04b-http-8m_lhf18",
+  "cluster": "/tmp/xiongbao-ps04b-http-8m_lhf18/cluster",
+  "port": 47687,
+  "user": "ps04b_qa_699a0023a4b4",
+  "database_prefix": "ps04b_699a0023a4b4_",
+  "repo": "/mnt/c/Users/canqu/Documents/Codex/2026-09-23/qctop-work-buddy-agent-logo-ui-3/work/030-windows-path-qa",
+  "pid": 52827,
+  "lease_seconds": 1800,
+  "cleanup": {
+    "status_before": 0,
+    "stop_code": 0,
+    "status_after": 3,
+    "port_closed": true
+  },
+  "error": null,
+  "identity": {
+    "database": "postgres",
+    "user": "ps04b_qa_699a0023a4b4",
+    "port": 47687,
+    "backend_pid": 52855,
+    "data_directory": "/tmp/xiongbao-ps04b-http-8m_lhf18/cluster"
+  },
+  "postgresql": "18.6 (Ubuntu 18.6-0ubuntu0.26.04.1)"
+}

@@ -1,0 +1,309 @@
+{
+  "result": "FAIL",
+  "state": "FAIL_BROWSER_TCP_JOURNEY",
+  "started_at": "2026-09-28T02:58:47.248Z",
+  "api_origin": "http://127.0.0.1:63168",
+  "web_origin": "http://127.0.0.1:63169",
+  "source_repo": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa",
+  "script_sha256": "711ffb4ac0366d94e8fc97868beaf7cda5be468b3bdf3b59edc85cd5478a1d66",
+  "phases": [
+    {
+      "name": "source_and_dependencies",
+      "state": "PASS",
+      "started_at": "2026-09-28T02:58:47.254Z",
+      "details": {
+        "browser_launched": true,
+        "fixture_formats": [
+          "PNG",
+          "JPEG",
+          "WebP"
+        ]
+      },
+      "finished_at": "2026-09-28T02:58:49.741Z"
+    },
+    {
+      "name": "owner_real_page_login",
+      "state": "PASS",
+      "started_at": "2026-09-28T02:58:49.744Z",
+      "finished_at": "2026-09-28T02:58:51.693Z"
+    },
+    {
+      "name": "synthetic_project_todos_and_membership",
+      "state": "FAIL",
+      "started_at": "2026-09-28T02:58:51.696Z",
+      "error": {
+        "name": "AssertionError",
+        "message": "POST /projects status\n\n422 !== 201\n",
+        "stack": "AssertionError [ERR_ASSERTION]: POST /projects status\n\n422 !== 201\n\n    at jsonRequest (C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser_flow.cjs:216:12)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser_flow.cjs:419:23\n    at async phase (C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser_flow.cjs:56:20)\n    at async main (C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser_flow.cjs:416:5)"
+      },
+      "finished_at": "2026-09-28T02:58:53.682Z"
+    }
+  ],
+  "coverage": {
+    "owner_ui_login": true
+  },
+  "authentication": {
+    "local_slider_gesture": true,
+    "owner": {
+      "method": "real_login_page",
+      "status": 200,
+      "returned_to_chat": true,
+      "token_present": true
+    },
+    "member": {
+      "method": "real_api_login_then_localStorage_token",
+      "status": 200
+    },
+    "outsider": {
+      "method": "real_api_login_then_localStorage_token",
+      "status": 200
+    }
+  },
+  "node_http": [
+    {
+      "method": "POST",
+      "pathname": "/api/auth/login",
+      "state": "RESPONSE_RECEIVED",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "pathname": "/api/auth/login",
+      "state": "RESPONSE_RECEIVED",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "pathname": "/api/projects",
+      "state": "RESPONSE_RECEIVED",
+      "status": 422
+    }
+  ],
+  "browser_http": [
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:63169",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:63169",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:63169",
+      "pathname": "/api/i18n/tools",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:63169",
+      "pathname": "/api/i18n/skills",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:63169",
+      "pathname": "/api/auth/captcha",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:63169",
+      "pathname": "/api/auth/oauth/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "POST",
+      "origin": "http://127.0.0.1:63169",
+      "pathname": "/api/auth/login",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:63169",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:63169",
+      "pathname": "/api/i18n/tools",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:63169",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:63169",
+      "pathname": "/api/i18n/skills",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:63169",
+      "pathname": "/api/auth/me",
+      "status": 200
+    }
+  ],
+  "page_errors": [],
+  "request_failures": [],
+  "external_image_requests": [],
+  "screenshots": [],
+  "cleanup": {
+    "contexts": [
+      {
+        "role": "owner",
+        "width": 1280,
+        "closed": true
+      }
+    ],
+    "browser_closed": true,
+    "started_at": "2026-09-28T02:58:53.742Z",
+    "finished_at": "2026-09-28T02:58:54.244Z"
+  },
+  "database_boundary": "Pair this TCP browser result with the coordinator's independently verified PG server binding; no DB driver is inferred from a URL.",
+  "clipboard_boundary": "Synthetic File/DataTransfer/ClipboardEvent dispatched to the real textarea; not an OS clipboard test.",
+  "unverified": [
+    "Real failed image upload retaining a draft and an explicit manual retry",
+    "Blob URL memory reclamation; no claim of retracting bytes already in client memory",
+    "Late concurrent GET/POST/PATCH/image responses during direct project prop changes",
+    "Concurrent quota/revocation/deletion race matrix and backup/restore",
+    "Existing database migration records (the browser legacy-format todo is newly created)",
+    "Full keyboard and scrolling geometry matrix; screenshot checks are not pixel parity",
+    "WorkBuddy per-state visual parity, dates, priority, tags, configurable views",
+    "Paid provider/model calls, GLM review, TLS, non-loopback deployment acceptance"
+  ],
+  "source_head_before": "e72f72758a4f91c00738127e1a46850c9fd54174",
+  "source_bindings": {
+    "dashboard/src/pages/Login/index.tsx": {
+      "bytes": 12993,
+      "sha256": "813366680500c5187da5673fac52d1df16b04da96adbd5f31b40685050c891b8"
+    },
+    "dashboard/src/pages/Projects/ProjectDetail.tsx": {
+      "bytes": 22860,
+      "sha256": "f09ad0255a830490fd7abd8abc5d1bf6e4d92cb0511df8d331e701cf0074f30f"
+    },
+    "dashboard/src/pages/Projects/ProjectPlan.tsx": {
+      "bytes": 36852,
+      "sha256": "8a7f1cff1b0213216ed727fed345da96b779c585801dd10f851bf8f153d2965b"
+    },
+    "dashboard/src/pages/Projects/ProjectTodoDetail.tsx": {
+      "bytes": 39067,
+      "sha256": "2ea35e811e94feee5c1c84dcae14fd6fd6aace579f5a34f482bd5c3dbcdad40d"
+    },
+    "dashboard/src/pages/Projects/ProjectTodoDetail.module.less": {
+      "bytes": 5765,
+      "sha256": "1513d4d731fb279cf644fd2de347b423335f2fec15ffd14a96038b68fcacedfd"
+    },
+    "dashboard/src/pages/Projects/ProjectTodoMarkdown.tsx": {
+      "bytes": 1355,
+      "sha256": "fc27d90e67435144098650f0048523bcfb063962db90d22a4d464bee2967759f"
+    },
+    "dashboard/src/api/modules/projectTodos.ts": {
+      "bytes": 7370,
+      "sha256": "d667a2d4d02e061781860fa11052846d6e3579502806a7997b1ab80b719d54af"
+    },
+    "dashboard/src/api/modules/projects.ts": {
+      "bytes": 3312,
+      "sha256": "6b402cd77c778b334cbd2551dd8969b62a227646cd89036e2b6db2c607462c72"
+    },
+    "dashboard/src/api/request.ts": {
+      "bytes": 17299,
+      "sha256": "8a1cc26ac4c6cf95d76a3743ae78de8a1d646814d66535d2746eb54a91e502fb"
+    },
+    "dashboard/vite.config.ts": {
+      "bytes": 13516,
+      "sha256": "ddda85131bacc71e98e924c8bc7f996a0260e3228423938e682a886fb4ab4907"
+    }
+  },
+  "playwright_core_version": "1.64.0-alpha-1789764292000",
+  "image_fixtures": [
+    {
+      "name": "synthetic-red-3x2.png",
+      "media_type": "image/png",
+      "bytes": 77,
+      "sha256": "25366ffd927902f14c776b24e0cc9a2be835b0f627888d9d33d443692b47bf20"
+    },
+    {
+      "name": "synthetic-red-3x2.jpg",
+      "media_type": "image/jpeg",
+      "bytes": 633,
+      "sha256": "1e0f23e37f8b41cb5f13b912e8c3508d3584ce8c068bb6d07981f8b259ebb7fb"
+    },
+    {
+      "name": "synthetic-red-3x2.webp",
+      "media_type": "image/webp",
+      "bytes": 68,
+      "sha256": "a0006c22e45130a2160eb78cec76e30671664762b5c8b63c5d01a4a67279c600"
+    }
+  ],
+  "chrome_version": "153.0.8010.53",
+  "chrome_process_binding": {
+    "pid": 53672,
+    "parent_pid": 56012,
+    "private_data_directory": "C:\\Users\\canqu\\AppData\\Local\\Temp\\playwright_chromiumdev_profile-za6slu",
+    "explicit_private_profile_verified": true
+  },
+  "error": {
+    "name": "AssertionError",
+    "message": "POST /projects status\n\n422 !== 201\n",
+    "stack": "AssertionError [ERR_ASSERTION]: POST /projects status\n\n422 !== 201\n\n    at jsonRequest (C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser_flow.cjs:216:12)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser_flow.cjs:419:23\n    at async phase (C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser_flow.cjs:56:20)\n    at async main (C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser_flow.cjs:416:5)"
+  },
+  "failure_diagnostics": [
+    {
+      "role": "owner",
+      "width": 1280,
+      "url": "http://127.0.0.1:63169/chat",
+      "buttons": [
+        "熊宝-Agent",
+        "对话",
+        "项目",
+        "专家",
+        "自动化",
+        "Token 统计",
+        "设置",
+        "个性化",
+        "通道",
+        "连接器",
+        "技能包",
+        "知识库",
+        "Pps04b_owner",
+        ""
+      ],
+      "screenshot": "screenshots/failure-owner-1280x768.png"
+    }
+  ],
+  "finished_at": "2026-09-28T02:58:53.739Z"
+}

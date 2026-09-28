@@ -1,0 +1,2905 @@
+{
+  "result": "PASS",
+  "state": "PASS_BROWSER_TCP_JOURNEY",
+  "started_at": "2026-09-28T03:05:18.803Z",
+  "api_origin": "http://127.0.0.1:51680",
+  "web_origin": "http://127.0.0.1:51681",
+  "source_repo": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa",
+  "script_sha256": "d6e12dab6a80a6a0d35622c763ab233bb15ab1714e52aece5961c3fce0fc5d2b",
+  "phases": [
+    {
+      "name": "source_and_dependencies",
+      "state": "PASS",
+      "started_at": "2026-09-28T03:05:18.809Z",
+      "details": {
+        "browser_launched": true,
+        "fixture_formats": [
+          "PNG",
+          "JPEG",
+          "WebP"
+        ]
+      },
+      "finished_at": "2026-09-28T03:05:21.677Z"
+    },
+    {
+      "name": "owner_real_page_login",
+      "state": "PASS",
+      "started_at": "2026-09-28T03:05:21.682Z",
+      "finished_at": "2026-09-28T03:05:23.694Z"
+    },
+    {
+      "name": "synthetic_project_todos_and_membership",
+      "state": "PASS",
+      "started_at": "2026-09-28T03:05:23.698Z",
+      "details": {
+        "project_id": "01M3JZJX4R926B19PRS0BV0HP4",
+        "plain_todo_id": "01M3JZJX70WPBG5A4RX6JMD1M8",
+        "markdown_todo_id": "01M3JZJX8HZWQJJ2HRZ6KY97H6"
+      },
+      "finished_at": "2026-09-28T03:05:26.106Z"
+    },
+    {
+      "name": "plain_table_board_deeplink_navigation_focus",
+      "state": "PASS",
+      "started_at": "2026-09-28T03:05:26.110Z",
+      "finished_at": "2026-09-28T03:05:32.383Z"
+    },
+    {
+      "name": "safe_markdown_view_and_preview",
+      "state": "PASS",
+      "started_at": "2026-09-28T03:05:32.386Z",
+      "finished_at": "2026-09-28T03:05:34.040Z"
+    },
+    {
+      "name": "description_save_refresh_and_real_version_conflict",
+      "state": "PASS",
+      "started_at": "2026-09-28T03:05:34.043Z",
+      "details": {
+        "first_version": 1,
+        "saved_version": 2,
+        "concurrent_version": 3,
+        "final_version": 4,
+        "conflict_status": 409
+      },
+      "finished_at": "2026-09-28T03:05:36.315Z"
+    },
+    {
+      "name": "member_text_comment",
+      "state": "PASS",
+      "started_at": "2026-09-28T03:05:36.319Z",
+      "finished_at": "2026-09-28T03:05:39.639Z"
+    },
+    {
+      "name": "member_ordered_png_jpeg_webp_comment_and_private_bytes",
+      "state": "PASS",
+      "started_at": "2026-09-28T03:05:39.643Z",
+      "details": {
+        "comment_id": "e474311b-19a9-4a81-b4b5-e9cbbd60b6ea",
+        "image_ids": [
+          "01M3JZKAXQAW6VH80PE1S6EK5X",
+          "01M3JZKAYC2REW34VMMNZ6G0RY",
+          "01M3JZKAYX3WHQ3HF9FMWEFTDE"
+        ],
+        "images": 3
+      },
+      "finished_at": "2026-09-28T03:05:40.667Z"
+    },
+    {
+      "name": "owner_member_outsider_two_viewports",
+      "state": "PASS",
+      "started_at": "2026-09-28T03:05:40.670Z",
+      "finished_at": "2026-09-28T03:05:51.875Z"
+    },
+    {
+      "name": "spa_project_switch_does_not_carry_private_comments",
+      "state": "PASS",
+      "started_at": "2026-09-28T03:05:51.879Z",
+      "details": {
+        "new_project_id": "01M3JZKPH17N3ENJYYW0G0SWT3",
+        "new_todo_id": "01M3JZKPJ2M7GBX3BYDA87RNG6",
+        "boundary": "Close old detail then normal SPA navigation via project list; not a late-response/direct-prop-switch race test"
+      },
+      "finished_at": "2026-09-28T03:05:53.041Z"
+    },
+    {
+      "name": "revoked_old_member_token_and_refreshed_pages",
+      "state": "PASS",
+      "started_at": "2026-09-28T03:05:53.044Z",
+      "finished_at": "2026-09-28T03:05:56.046Z"
+    },
+    {
+      "name": "soft_deleted_todo_old_scoped_urls",
+      "state": "PASS",
+      "started_at": "2026-09-28T03:05:56.050Z",
+      "finished_at": "2026-09-28T03:05:58.044Z"
+    },
+    {
+      "name": "final_evidence_checks",
+      "state": "PASS",
+      "started_at": "2026-09-28T03:05:58.049Z",
+      "details": {
+        "page_errors": 0,
+        "payload_external_image_requests": 0,
+        "source_head_unchanged": true,
+        "bound_frontend_files_unchanged": true
+      },
+      "finished_at": "2026-09-28T03:05:58.128Z"
+    }
+  ],
+  "coverage": {
+    "owner_ui_login": true,
+    "plain_literal_table_board_same_id": true,
+    "deep_link_reload_back_forward_escape_trigger_focus": true,
+    "safe_markdown_view_and_editor_preview": true,
+    "no_payload_external_image_requests": true,
+    "markdown_save_refresh_exact_body_version": true,
+    "real_409_draft_preserved_refresh_compare_manual_save": true,
+    "member_text_comment_owner_refresh": true,
+    "synthetic_paste_three_formats_ordered_mixed_comment": true,
+    "owner_member_private_image_headers_exact_bytes": true,
+    "owner_member_outsider_1280x768_and_800x728": true,
+    "outsider_scoped_todo_comments_three_images_404": true,
+    "spa_switch_via_projects_list_clears_private_comment_and_draft": true,
+    "revoked_old_token_todo_comments_three_images_404": true,
+    "revoked_refresh_clears_private_title_body_comments_images": true,
+    "deleted_todo_owner_old_todo_comments_three_images_404": true
+  },
+  "authentication": {
+    "local_slider_gesture": true,
+    "owner": {
+      "method": "real_login_page",
+      "status": 200,
+      "returned_to_chat": true,
+      "token_present": true
+    },
+    "member": {
+      "method": "real_api_login_then_localStorage_token",
+      "status": 200
+    },
+    "outsider": {
+      "method": "real_api_login_then_localStorage_token",
+      "status": 200
+    }
+  },
+  "node_http": [
+    {
+      "method": "POST",
+      "pathname": "/api/auth/login",
+      "state": "RESPONSE_RECEIVED",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "pathname": "/api/auth/login",
+      "state": "RESPONSE_RECEIVED",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "pathname": "/api/projects",
+      "state": "RESPONSE_RECEIVED",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos",
+      "state": "RESPONSE_RECEIVED",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos",
+      "state": "RESPONSE_RECEIVED",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/invites",
+      "state": "RESPONSE_RECEIVED",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "pathname": "/api/projects/invites/accept",
+      "state": "RESPONSE_RECEIVED",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6",
+      "state": "RESPONSE_RECEIVED",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6",
+      "state": "RESPONSE_RECEIVED",
+      "status": 200
+    },
+    {
+      "method": "PATCH",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6",
+      "state": "RESPONSE_RECEIVED",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6",
+      "state": "RESPONSE_RECEIVED",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments",
+      "state": "RESPONSE_RECEIVED",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAXQAW6VH80PE1S6EK5X",
+      "state": "RESPONSE_RECEIVED",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAXQAW6VH80PE1S6EK5X",
+      "state": "RESPONSE_RECEIVED",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAYC2REW34VMMNZ6G0RY",
+      "state": "RESPONSE_RECEIVED",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAYC2REW34VMMNZ6G0RY",
+      "state": "RESPONSE_RECEIVED",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAYX3WHQ3HF9FMWEFTDE",
+      "state": "RESPONSE_RECEIVED",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAYX3WHQ3HF9FMWEFTDE",
+      "state": "RESPONSE_RECEIVED",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6",
+      "state": "RESPONSE_RECEIVED",
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments",
+      "state": "RESPONSE_RECEIVED",
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAXQAW6VH80PE1S6EK5X",
+      "state": "RESPONSE_RECEIVED",
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAYC2REW34VMMNZ6G0RY",
+      "state": "RESPONSE_RECEIVED",
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAYX3WHQ3HF9FMWEFTDE",
+      "state": "RESPONSE_RECEIVED",
+      "status": 404
+    },
+    {
+      "method": "POST",
+      "pathname": "/api/projects",
+      "state": "RESPONSE_RECEIVED",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "pathname": "/api/projects/01M3JZKPH17N3ENJYYW0G0SWT3/todos",
+      "state": "RESPONSE_RECEIVED",
+      "status": 201
+    },
+    {
+      "method": "GET",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/members",
+      "state": "RESPONSE_RECEIVED",
+      "status": 200
+    },
+    {
+      "method": "DELETE",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/members/3",
+      "state": "RESPONSE_RECEIVED",
+      "status": 204
+    },
+    {
+      "method": "GET",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6",
+      "state": "RESPONSE_RECEIVED",
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments",
+      "state": "RESPONSE_RECEIVED",
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAXQAW6VH80PE1S6EK5X",
+      "state": "RESPONSE_RECEIVED",
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAYC2REW34VMMNZ6G0RY",
+      "state": "RESPONSE_RECEIVED",
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAYX3WHQ3HF9FMWEFTDE",
+      "state": "RESPONSE_RECEIVED",
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6",
+      "state": "RESPONSE_RECEIVED",
+      "status": 200
+    },
+    {
+      "method": "DELETE",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6?expected_version=4",
+      "state": "RESPONSE_RECEIVED",
+      "status": 204
+    },
+    {
+      "method": "GET",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6",
+      "state": "RESPONSE_RECEIVED",
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments",
+      "state": "RESPONSE_RECEIVED",
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAXQAW6VH80PE1S6EK5X",
+      "state": "RESPONSE_RECEIVED",
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAYC2REW34VMMNZ6G0RY",
+      "state": "RESPONSE_RECEIVED",
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAYX3WHQ3HF9FMWEFTDE",
+      "state": "RESPONSE_RECEIVED",
+      "status": 404
+    }
+  ],
+  "browser_http": [
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/tools",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/skills",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/auth/oauth/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/auth/captcha",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "POST",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/auth/login",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/tools",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/skills",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/capabilities",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/agents",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/tools",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/skills",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/capabilities",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/agents",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/timezone",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/members",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/experts",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX70WPBG5A4RX6JMD1M8",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX70WPBG5A4RX6JMD1M8/comments",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX70WPBG5A4RX6JMD1M8",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX70WPBG5A4RX6JMD1M8/comments",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX70WPBG5A4RX6JMD1M8",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX70WPBG5A4RX6JMD1M8/comments",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX70WPBG5A4RX6JMD1M8",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX70WPBG5A4RX6JMD1M8/comments",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/tools",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/skills",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/capabilities",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/agents",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/timezone",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/members",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX70WPBG5A4RX6JMD1M8",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX70WPBG5A4RX6JMD1M8/comments",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/experts",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/tools",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/skills",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/capabilities",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/agents",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/members",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/timezone",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/experts",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "PATCH",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/tools",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/skills",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/capabilities",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/agents",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/members",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/timezone",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/experts",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "PATCH",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6",
+      "status": 409
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "PATCH",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/tools",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/skills",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/capabilities",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/agents",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/members",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/timezone",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/experts",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "POST",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments",
+      "status": 201
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/tools",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/skills",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/capabilities",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/agents",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/members",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/timezone",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/experts",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "POST",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments",
+      "status": 201
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAXQAW6VH80PE1S6EK5X",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAYX3WHQ3HF9FMWEFTDE",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAYC2REW34VMMNZ6G0RY",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/tools",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/skills",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/capabilities",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/agents",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/timezone",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/members",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/experts",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAYC2REW34VMMNZ6G0RY",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAYX3WHQ3HF9FMWEFTDE",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAXQAW6VH80PE1S6EK5X",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/tools",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/skills",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/capabilities",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/agents",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/members",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/timezone",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/experts",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAXQAW6VH80PE1S6EK5X",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAYX3WHQ3HF9FMWEFTDE",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAYC2REW34VMMNZ6G0RY",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/tools",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/skills",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/capabilities",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/agents",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/timezone",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/members",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/experts",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAXQAW6VH80PE1S6EK5X",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAYC2REW34VMMNZ6G0RY",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAYX3WHQ3HF9FMWEFTDE",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/tools",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/skills",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/capabilities",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/agents",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/timezone",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/members",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/experts",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAYX3WHQ3HF9FMWEFTDE",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAYC2REW34VMMNZ6G0RY",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAXQAW6VH80PE1S6EK5X",
+      "status": 200
+    },
+    {
+      "role": "outsider",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "outsider",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "outsider",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/tools",
+      "status": 200
+    },
+    {
+      "role": "outsider",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/skills",
+      "status": 200
+    },
+    {
+      "role": "outsider",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "role": "outsider",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "outsider",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/capabilities",
+      "status": 200
+    },
+    {
+      "role": "outsider",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "outsider",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/agents",
+      "status": 200
+    },
+    {
+      "role": "outsider",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/members",
+      "status": 404
+    },
+    {
+      "role": "outsider",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4",
+      "status": 404
+    },
+    {
+      "role": "outsider",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/timezone",
+      "status": 200
+    },
+    {
+      "role": "outsider",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "outsider",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "outsider",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/tools",
+      "status": 200
+    },
+    {
+      "role": "outsider",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/skills",
+      "status": 200
+    },
+    {
+      "role": "outsider",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "role": "outsider",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "outsider",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/capabilities",
+      "status": 200
+    },
+    {
+      "role": "outsider",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "outsider",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/agents",
+      "status": 200
+    },
+    {
+      "role": "outsider",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/members",
+      "status": 404
+    },
+    {
+      "role": "outsider",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/timezone",
+      "status": 200
+    },
+    {
+      "role": "outsider",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4",
+      "status": 404
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZKPH17N3ENJYYW0G0SWT3",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZKPH17N3ENJYYW0G0SWT3/members",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZKPH17N3ENJYYW0G0SWT3/activity",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZKPH17N3ENJYYW0G0SWT3/experts",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZKPH17N3ENJYYW0G0SWT3/todos",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZKPH17N3ENJYYW0G0SWT3/todos/01M3JZKPJ2M7GBX3BYDA87RNG6",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZKPH17N3ENJYYW0G0SWT3/todos/01M3JZKPJ2M7GBX3BYDA87RNG6/comments",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/tools",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/skills",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/capabilities",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/agents",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/members",
+      "status": 404
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/timezone",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4",
+      "status": 404
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/tools",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/skills",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/capabilities",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/agents",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/timezone",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4",
+      "status": 404
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/members",
+      "status": 404
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/tools",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/i18n/skills",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/capabilities",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/agents",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/update/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/members",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/settings/timezone",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6",
+      "status": 404
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments",
+      "status": 404
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/experts",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos",
+      "status": 200
+    }
+  ],
+  "page_errors": [],
+  "request_failures": [
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAXQAW6VH80PE1S6EK5X",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAYC2REW34VMMNZ6G0RY",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:51681",
+      "pathname": "/api/projects/01M3JZJX4R926B19PRS0BV0HP4/todos/01M3JZJX8HZWQJJ2HRZ6KY97H6/comments/e474311b-19a9-4a81-b4b5-e9cbbd60b6ea/images/01M3JZKAYX3WHQ3HF9FMWEFTDE",
+      "failure": "net::ERR_ABORTED"
+    }
+  ],
+  "external_image_requests": [],
+  "screenshots": [
+    {
+      "role": "owner",
+      "width": 1280,
+      "height": 768,
+      "file": "screenshots/owner-plain-detail-1280x768.png"
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "height": 768,
+      "file": "screenshots/owner-safe-markdown-1280x768.png"
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "height": 768,
+      "file": "screenshots/member-local-three-image-preview-1280x768.png"
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "height": 768,
+      "file": "screenshots/owner-authorized-detail-1280x768.png"
+    },
+    {
+      "role": "owner",
+      "width": 800,
+      "height": 728,
+      "file": "screenshots/owner-authorized-detail-800x728.png"
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "height": 768,
+      "file": "screenshots/member-authorized-detail-1280x768.png"
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "height": 728,
+      "file": "screenshots/member-authorized-detail-800x728.png"
+    },
+    {
+      "role": "outsider",
+      "width": 1280,
+      "height": 768,
+      "file": "screenshots/outsider-denied-deeplink-1280x768.png"
+    },
+    {
+      "role": "outsider",
+      "width": 800,
+      "height": 728,
+      "file": "screenshots/outsider-denied-deeplink-800x728.png"
+    },
+    {
+      "role": "member",
+      "width": 1280,
+      "height": 768,
+      "file": "screenshots/revoked-member-refreshed-deeplink-1280x768.png"
+    },
+    {
+      "role": "member",
+      "width": 800,
+      "height": 728,
+      "file": "screenshots/revoked-member-refreshed-deeplink-800x728.png"
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "height": 768,
+      "file": "screenshots/owner-deleted-todo-deeplink-1280x768.png"
+    }
+  ],
+  "cleanup": {
+    "contexts": [
+      {
+        "role": "owner",
+        "width": 1280,
+        "closed": true
+      },
+      {
+        "role": "member",
+        "width": 1280,
+        "closed": true
+      },
+      {
+        "role": "owner",
+        "width": 800,
+        "closed": true
+      },
+      {
+        "role": "member",
+        "width": 800,
+        "closed": true
+      },
+      {
+        "role": "outsider",
+        "width": 1280,
+        "closed": true
+      },
+      {
+        "role": "outsider",
+        "width": 800,
+        "closed": true
+      }
+    ],
+    "browser_closed": true,
+    "started_at": "2026-09-28T03:05:58.135Z",
+    "finished_at": "2026-09-28T03:05:59.016Z"
+  },
+  "database_boundary": "Pair this TCP browser result with the coordinator's independently verified PG server binding; no DB driver is inferred from a URL.",
+  "clipboard_boundary": "Synthetic File/DataTransfer/ClipboardEvent dispatched to the real textarea; not an OS clipboard test.",
+  "unverified": [
+    "Real failed image upload retaining a draft and an explicit manual retry",
+    "Blob URL memory reclamation; no claim of retracting bytes already in client memory",
+    "Late concurrent GET/POST/PATCH/image responses during direct project prop changes",
+    "Concurrent quota/revocation/deletion race matrix and backup/restore",
+    "Existing database migration records (the browser legacy-format todo is newly created)",
+    "Full keyboard and scrolling geometry matrix; screenshot checks are not pixel parity",
+    "WorkBuddy per-state visual parity, dates, priority, tags, configurable views",
+    "Paid provider/model calls, GLM review, TLS, non-loopback deployment acceptance"
+  ],
+  "source_head_before": "e72f72758a4f91c00738127e1a46850c9fd54174",
+  "source_bindings": {
+    "dashboard/src/pages/Login/index.tsx": {
+      "bytes": 12993,
+      "sha256": "813366680500c5187da5673fac52d1df16b04da96adbd5f31b40685050c891b8"
+    },
+    "dashboard/src/pages/Projects/ProjectDetail.tsx": {
+      "bytes": 22860,
+      "sha256": "f09ad0255a830490fd7abd8abc5d1bf6e4d92cb0511df8d331e701cf0074f30f"
+    },
+    "dashboard/src/pages/Projects/ProjectPlan.tsx": {
+      "bytes": 36852,
+      "sha256": "8a7f1cff1b0213216ed727fed345da96b779c585801dd10f851bf8f153d2965b"
+    },
+    "dashboard/src/pages/Projects/ProjectTodoDetail.tsx": {
+      "bytes": 39067,
+      "sha256": "2ea35e811e94feee5c1c84dcae14fd6fd6aace579f5a34f482bd5c3dbcdad40d"
+    },
+    "dashboard/src/pages/Projects/ProjectTodoDetail.module.less": {
+      "bytes": 5765,
+      "sha256": "1513d4d731fb279cf644fd2de347b423335f2fec15ffd14a96038b68fcacedfd"
+    },
+    "dashboard/src/pages/Projects/ProjectTodoMarkdown.tsx": {
+      "bytes": 1355,
+      "sha256": "fc27d90e67435144098650f0048523bcfb063962db90d22a4d464bee2967759f"
+    },
+    "dashboard/src/api/modules/projectTodos.ts": {
+      "bytes": 7370,
+      "sha256": "d667a2d4d02e061781860fa11052846d6e3579502806a7997b1ab80b719d54af"
+    },
+    "dashboard/src/api/modules/projects.ts": {
+      "bytes": 3312,
+      "sha256": "6b402cd77c778b334cbd2551dd8969b62a227646cd89036e2b6db2c607462c72"
+    },
+    "dashboard/src/api/request.ts": {
+      "bytes": 17299,
+      "sha256": "8a1cc26ac4c6cf95d76a3743ae78de8a1d646814d66535d2746eb54a91e502fb"
+    },
+    "dashboard/vite.config.ts": {
+      "bytes": 13516,
+      "sha256": "ddda85131bacc71e98e924c8bc7f996a0260e3228423938e682a886fb4ab4907"
+    }
+  },
+  "playwright_core_version": "1.64.0-alpha-1789764292000",
+  "image_fixtures": [
+    {
+      "name": "synthetic-red-3x2.png",
+      "media_type": "image/png",
+      "bytes": 77,
+      "sha256": "25366ffd927902f14c776b24e0cc9a2be835b0f627888d9d33d443692b47bf20"
+    },
+    {
+      "name": "synthetic-red-3x2.jpg",
+      "media_type": "image/jpeg",
+      "bytes": 633,
+      "sha256": "1e0f23e37f8b41cb5f13b912e8c3508d3584ce8c068bb6d07981f8b259ebb7fb"
+    },
+    {
+      "name": "synthetic-red-3x2.webp",
+      "media_type": "image/webp",
+      "bytes": 68,
+      "sha256": "a0006c22e45130a2160eb78cec76e30671664762b5c8b63c5d01a4a67279c600"
+    }
+  ],
+  "chrome_version": "153.0.8010.53",
+  "chrome_process_binding": {
+    "pid": 48432,
+    "parent_pid": 54792,
+    "private_data_directory": "C:\\Users\\canqu\\AppData\\Local\\Temp\\playwright_chromiumdev_profile-tvLYiz",
+    "explicit_private_profile_verified": true
+  },
+  "project_id": "01M3JZJX4R926B19PRS0BV0HP4",
+  "todo_ids": {
+    "plain": "01M3JZJX70WPBG5A4RX6JMD1M8",
+    "markdown": "01M3JZJX8HZWQJJ2HRZ6KY97H6"
+  },
+  "source_head_after": "e72f72758a4f91c00738127e1a46850c9fd54174",
+  "source_bindings_after": {
+    "dashboard/src/pages/Login/index.tsx": {
+      "bytes": 12993,
+      "sha256": "813366680500c5187da5673fac52d1df16b04da96adbd5f31b40685050c891b8"
+    },
+    "dashboard/src/pages/Projects/ProjectDetail.tsx": {
+      "bytes": 22860,
+      "sha256": "f09ad0255a830490fd7abd8abc5d1bf6e4d92cb0511df8d331e701cf0074f30f"
+    },
+    "dashboard/src/pages/Projects/ProjectPlan.tsx": {
+      "bytes": 36852,
+      "sha256": "8a7f1cff1b0213216ed727fed345da96b779c585801dd10f851bf8f153d2965b"
+    },
+    "dashboard/src/pages/Projects/ProjectTodoDetail.tsx": {
+      "bytes": 39067,
+      "sha256": "2ea35e811e94feee5c1c84dcae14fd6fd6aace579f5a34f482bd5c3dbcdad40d"
+    },
+    "dashboard/src/pages/Projects/ProjectTodoDetail.module.less": {
+      "bytes": 5765,
+      "sha256": "1513d4d731fb279cf644fd2de347b423335f2fec15ffd14a96038b68fcacedfd"
+    },
+    "dashboard/src/pages/Projects/ProjectTodoMarkdown.tsx": {
+      "bytes": 1355,
+      "sha256": "fc27d90e67435144098650f0048523bcfb063962db90d22a4d464bee2967759f"
+    },
+    "dashboard/src/api/modules/projectTodos.ts": {
+      "bytes": 7370,
+      "sha256": "d667a2d4d02e061781860fa11052846d6e3579502806a7997b1ab80b719d54af"
+    },
+    "dashboard/src/api/modules/projects.ts": {
+      "bytes": 3312,
+      "sha256": "6b402cd77c778b334cbd2551dd8969b62a227646cd89036e2b6db2c607462c72"
+    },
+    "dashboard/src/api/request.ts": {
+      "bytes": 17299,
+      "sha256": "8a1cc26ac4c6cf95d76a3743ae78de8a1d646814d66535d2746eb54a91e502fb"
+    },
+    "dashboard/vite.config.ts": {
+      "bytes": 13516,
+      "sha256": "ddda85131bacc71e98e924c8bc7f996a0260e3228423938e682a886fb4ab4907"
+    }
+  },
+  "finished_at": "2026-09-28T03:05:58.132Z"
+}

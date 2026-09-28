@@ -1,0 +1,50 @@
+{
+  "state": "STOPPED",
+  "pid": 48640,
+  "host": "127.0.0.1",
+  "port": 58154,
+  "database": "ps04b_5641fe2802a2_browser_c97d1599",
+  "imported": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\__init__.py",
+  "interpreter": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\.venv\\Scripts\\python.exe",
+  "fake_harness_manager": true,
+  "proactive_disabled_before_start": true,
+  "start_complete": true,
+  "stop_complete": true,
+  "pools": [
+    {
+      "closes": 1,
+      "identity": {
+        "database": "ps04b_5641fe2802a2_browser_c97d1599",
+        "user": "ps04b_qa_5641fe2802a2",
+        "port": 43317,
+        "backend_pid": 52658,
+        "server_address": "127.0.0.1",
+        "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster"
+      },
+      "underlying_closed": true
+    }
+  ],
+  "error": null,
+  "cleanup_error": null,
+  "admin_identity": {
+    "database": "postgres",
+    "user": "ps04b_qa_5641fe2802a2",
+    "port": 43317,
+    "backend_pid": 52654,
+    "server_address": "127.0.0.1",
+    "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster"
+  },
+  "identity": {
+    "database": "ps04b_5641fe2802a2_browser_c97d1599",
+    "user": "ps04b_qa_5641fe2802a2",
+    "port": 43317,
+    "backend_pid": 52658,
+    "server_address": "127.0.0.1",
+    "data_directory": "/tmp/xiongbao-ps04b-http-dg5dzxpu/cluster"
+  },
+  "schema_version": 33,
+  "synthetic_accounts_bootstrapped": true,
+  "stop_requested": true,
+  "remaining_backend_connections": 0,
+  "canonical_imports_only": true
+}

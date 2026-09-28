@@ -1,0 +1,196 @@
+{
+  "result": "FAIL",
+  "state": "FAIL_BROWSER_TCP_JOURNEY",
+  "started_at": "2026-09-28T02:55:48.959Z",
+  "api_origin": "http://127.0.0.1:59313",
+  "web_origin": "http://127.0.0.1:59314",
+  "source_repo": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa",
+  "script_sha256": "58c0da335dc78af32c582a6051b6bcf6d561c43887c2d4e1225c47c6494d5272",
+  "phases": [
+    {
+      "name": "source_and_dependencies",
+      "state": "PASS",
+      "started_at": "2026-09-28T02:55:48.964Z",
+      "details": {
+        "browser_launched": true,
+        "fixture_formats": [
+          "PNG",
+          "JPEG",
+          "WebP"
+        ]
+      },
+      "finished_at": "2026-09-28T02:55:52.205Z"
+    },
+    {
+      "name": "owner_real_page_login",
+      "state": "FAIL",
+      "started_at": "2026-09-28T02:55:52.208Z",
+      "error": {
+        "name": "TimeoutError",
+        "message": "locator.click: Timeout 15000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: '登录', exact: true })\u001b[22m\n",
+        "stack": "locator.click: Timeout 15000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: '登录', exact: true })\u001b[22m\n\n    at C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser_flow.cjs:405:69\n    at waitResponse (C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser_flow.cjs:269:34)\n    at C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser_flow.cjs:404:30\n    at async phase (C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser_flow.cjs:56:20)\n    at async main (C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser_flow.cjs:386:5)"
+      },
+      "finished_at": "2026-09-28T02:56:08.667Z"
+    }
+  ],
+  "coverage": {},
+  "authentication": {
+    "local_slider_gesture": true
+  },
+  "node_http": [],
+  "browser_http": [
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:59314",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:59314",
+      "pathname": "/api/setup/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:59314",
+      "pathname": "/api/i18n/tools",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:59314",
+      "pathname": "/api/i18n/skills",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:59314",
+      "pathname": "/api/auth/oauth/status",
+      "status": 200
+    },
+    {
+      "role": "owner",
+      "width": 1280,
+      "method": "GET",
+      "origin": "http://127.0.0.1:59314",
+      "pathname": "/api/auth/captcha",
+      "status": 200
+    }
+  ],
+  "page_errors": [],
+  "request_failures": [],
+  "external_image_requests": [],
+  "screenshots": [],
+  "cleanup": {
+    "contexts": [
+      {
+        "role": "owner",
+        "width": 1280,
+        "closed": true
+      }
+    ],
+    "browser_closed": true,
+    "started_at": "2026-09-28T02:56:08.674Z",
+    "finished_at": "2026-09-28T02:56:09.321Z"
+  },
+  "database_boundary": "Pair this TCP browser result with the coordinator's independently verified PG server binding; no DB driver is inferred from a URL.",
+  "clipboard_boundary": "Synthetic File/DataTransfer/ClipboardEvent dispatched to the real textarea; not an OS clipboard test.",
+  "unverified": [
+    "Real failed image upload retaining a draft and an explicit manual retry",
+    "Blob URL memory reclamation; no claim of retracting bytes already in client memory",
+    "Late concurrent GET/POST/PATCH/image responses during direct project prop changes",
+    "Concurrent quota/revocation/deletion race matrix and backup/restore",
+    "Existing database migration records (the browser legacy-format todo is newly created)",
+    "Full keyboard and scrolling geometry matrix; screenshot checks are not pixel parity",
+    "WorkBuddy per-state visual parity, dates, priority, tags, configurable views",
+    "Paid provider/model calls, GLM review, TLS, non-loopback deployment acceptance"
+  ],
+  "source_head_before": "e72f72758a4f91c00738127e1a46850c9fd54174",
+  "source_bindings": {
+    "dashboard/src/pages/Login/index.tsx": {
+      "bytes": 12993,
+      "sha256": "813366680500c5187da5673fac52d1df16b04da96adbd5f31b40685050c891b8"
+    },
+    "dashboard/src/pages/Projects/ProjectDetail.tsx": {
+      "bytes": 22860,
+      "sha256": "f09ad0255a830490fd7abd8abc5d1bf6e4d92cb0511df8d331e701cf0074f30f"
+    },
+    "dashboard/src/pages/Projects/ProjectPlan.tsx": {
+      "bytes": 36852,
+      "sha256": "8a7f1cff1b0213216ed727fed345da96b779c585801dd10f851bf8f153d2965b"
+    },
+    "dashboard/src/pages/Projects/ProjectTodoDetail.tsx": {
+      "bytes": 39067,
+      "sha256": "2ea35e811e94feee5c1c84dcae14fd6fd6aace579f5a34f482bd5c3dbcdad40d"
+    },
+    "dashboard/src/pages/Projects/ProjectTodoDetail.module.less": {
+      "bytes": 5765,
+      "sha256": "1513d4d731fb279cf644fd2de347b423335f2fec15ffd14a96038b68fcacedfd"
+    },
+    "dashboard/src/pages/Projects/ProjectTodoMarkdown.tsx": {
+      "bytes": 1355,
+      "sha256": "fc27d90e67435144098650f0048523bcfb063962db90d22a4d464bee2967759f"
+    },
+    "dashboard/src/api/modules/projectTodos.ts": {
+      "bytes": 7370,
+      "sha256": "d667a2d4d02e061781860fa11052846d6e3579502806a7997b1ab80b719d54af"
+    },
+    "dashboard/src/api/modules/projects.ts": {
+      "bytes": 3312,
+      "sha256": "6b402cd77c778b334cbd2551dd8969b62a227646cd89036e2b6db2c607462c72"
+    },
+    "dashboard/src/api/request.ts": {
+      "bytes": 17299,
+      "sha256": "8a1cc26ac4c6cf95d76a3743ae78de8a1d646814d66535d2746eb54a91e502fb"
+    },
+    "dashboard/vite.config.ts": {
+      "bytes": 13516,
+      "sha256": "ddda85131bacc71e98e924c8bc7f996a0260e3228423938e682a886fb4ab4907"
+    }
+  },
+  "playwright_core_version": "1.64.0-alpha-1789764292000",
+  "image_fixtures": [
+    {
+      "name": "synthetic-red-3x2.png",
+      "media_type": "image/png",
+      "bytes": 77,
+      "sha256": "25366ffd927902f14c776b24e0cc9a2be835b0f627888d9d33d443692b47bf20"
+    },
+    {
+      "name": "synthetic-red-3x2.jpg",
+      "media_type": "image/jpeg",
+      "bytes": 633,
+      "sha256": "1e0f23e37f8b41cb5f13b912e8c3508d3584ce8c068bb6d07981f8b259ebb7fb"
+    },
+    {
+      "name": "synthetic-red-3x2.webp",
+      "media_type": "image/webp",
+      "bytes": 68,
+      "sha256": "a0006c22e45130a2160eb78cec76e30671664762b5c8b63c5d01a4a67279c600"
+    }
+  ],
+  "chrome_version": "153.0.8010.53",
+  "chrome_process_binding": {
+    "pid": 52104,
+    "parent_pid": 56580,
+    "private_data_directory": "C:\\Users\\canqu\\AppData\\Local\\Temp\\playwright_chromiumdev_profile-cDlb03",
+    "explicit_private_profile_verified": true
+  },
+  "error": {
+    "name": "TimeoutError",
+    "message": "locator.click: Timeout 15000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: '登录', exact: true })\u001b[22m\n",
+    "stack": "locator.click: Timeout 15000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: '登录', exact: true })\u001b[22m\n\n    at C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser_flow.cjs:405:69\n    at waitResponse (C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser_flow.cjs:269:34)\n    at C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser_flow.cjs:404:30\n    at async phase (C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser_flow.cjs:56:20)\n    at async main (C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-browser-retry-20260928\\browser_flow.cjs:386:5)"
+  },
+  "finished_at": "2026-09-28T02:56:08.671Z"
+}

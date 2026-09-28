@@ -1,0 +1,8 @@
+*.json -text whitespace=cr-at-eol
+*.xml -text whitespace=cr-at-eol
+*.py -text whitespace=cr-at-eol
+*.cjs -text whitespace=cr-at-eol
+*.png -text
+http-suite/tcp/verify_sqlite_v2.py whitespace=cr-at-eol,-blank-at-eof
+archive/archive_ps04b_evidence.py whitespace=cr-at-eol,-blank-at-eof
+http-suite/red-pg/junit.xml whitespace=cr-at-eol,-blank-at-eol

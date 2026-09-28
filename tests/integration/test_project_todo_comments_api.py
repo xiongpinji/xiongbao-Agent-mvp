@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 from PIL import Image
 
-from octop.infra.db.pool import SqlitePool
+from octop.infra.db.factory import open_database
 from octop.infra.db.repos.projects import ProjectRepo
 from octop.infra.projects.todo_comments import ProjectTodoCommentService
 from tests.integration.test_project_todos_api import _base, _create_todo, _events
@@ -298,7 +298,7 @@ async def test_image_read_authorization_serializes_with_member_revocation(
     original = repo._has_access
     checked = threading.Event()
     release = threading.Event()
-    second_pool = SqlitePool(ctx["srv"].services.db.path)
+    second_pool = open_database(ctx["srv"].config, ctx["srv"].services.paths)
 
     def pause_after_access(
         conn: Any, project_id: str, todo_id: str, user_id: int, *, write: bool

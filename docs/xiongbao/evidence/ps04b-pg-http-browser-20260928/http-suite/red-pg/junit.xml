@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="9.709" timestamp="2026-09-28T10:19:31.772613+08:00" hostname="峰哥工作站"><testcase classname="tests.integration.test_project_todo_comments_api" name="test_image_read_authorization_serializes_with_member_revocation" time="6.563"><failure message="AttributeError: 'PostgresPool' object has no attribute 'path'">env = (&lt;httpx.AsyncClient object at 0x000001B05187FE00&gt;, &lt;octop.infra.server.OctopServer object at 0x000001B04DFA9940&gt;, {'Au...1pbiIsInJvbGUiOiJhZG1pbiIsImlhdCI6MTc5MDU2MTk3NiwiZXhwIjoxNzkwNjQ4Mzc2fQ.2vK-NKXaYLxdJ6oReNOtD8A8FY8E05g1raA2RQO6u3s'})
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x000001B04E004510&gt;
+
+    async def test_image_read_authorization_serializes_with_member_revocation(
+        env: Any,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -&gt; None:
+        """An already-authorized read may finish; every read after revoke is 404."""
+        ctx = await _base(env)
+        todo = await _create_todo(ctx)
+        service = ProjectTodoCommentService(ctx["srv"].services)
+        from octop.infra.projects.todo_comments import CommentImageUpload
+    
+        comment, _ = service.post_comment(
+            ctx["pid"],
+            todo["todo_id"],
+            user_id=ctx["member_uid"],
+            body="",
+            client_request_id=REQUEST_ID,
+            images=[CommentImageUpload(_png_bytes(), "image/png")],
+        )
+        repo = ctx["srv"].services.project_todo_comment_repo
+        original = repo._has_access
+        checked = threading.Event()
+        release = threading.Event()
+&gt;       second_pool = SqlitePool(ctx["srv"].services.db.path)
+                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'PostgresPool' object has no attribute 'path'
+
+tests\integration\test_project_todo_comments_api.py:301: AttributeError</failure></testcase></testsuite></testsuites>

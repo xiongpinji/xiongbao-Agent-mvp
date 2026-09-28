@@ -1,0 +1,21 @@
+{
+  "state": "PASS_TIMEOUT_TREE_STOPPED",
+  "helper_sha256": "6433a13b1ab147244a9ed1d26683d0bcfa883416484777948be698cd1e502a5e",
+  "error": null,
+  "parent_pid": 25024,
+  "timeout_observed": true,
+  "before": {
+    "total": 2,
+    "active": 2,
+    "terminated": 0
+  },
+  "nested_pid": 13768,
+  "child_returncode": 2,
+  "stderr": "",
+  "after": {
+    "total": 2,
+    "active": 0,
+    "terminated": 0
+  },
+  "job_closed": true
+}

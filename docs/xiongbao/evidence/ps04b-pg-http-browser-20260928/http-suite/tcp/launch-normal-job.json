@@ -1,0 +1,14 @@
+{
+  "state": "PASS",
+  "error": null,
+  "pid": 14544,
+  "returncode": 0,
+  "job_after": {
+    "total": 9,
+    "active": 0,
+    "terminated": 0
+  },
+  "stdout": "{\"state\":\"PASS\",\"chrome_version\":\"153.0.8010.53\"}\n",
+  "stderr": "",
+  "job_closed": true
+}
