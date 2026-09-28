@@ -1,0 +1,55 @@
+{
+  "source": "04481724ba519ea16bde5d5f9228cab536a0c24a",
+  "capturedAtUtc": "2026-09-28T00:38:17.2920925Z",
+  "pythonExecutable": "/home/canqu/work/xiongbao-030-pg-codex/.venv/bin/python",
+  "postgresTools": "/usr/lib/postgresql/18/bin",
+  "files": [
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\output\\qa\\ps04b-pg-backup-20260928\\probe_pg_backup.py",
+      "bytes": 23923,
+      "sha256": "a8ffa895f4be4f8b623f9040497ff6d236d65b3e3d0e2254b87391d7f16dd27f"
+    },
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\backup\\system_archive.py",
+      "bytes": 43571,
+      "sha256": "a58f20b83b0588ca3e33cd73797da742f0101e3b8548b646196dda7d7f66173f"
+    },
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\backup\\pg_dump.py",
+      "bytes": 1887,
+      "sha256": "6b92a2439ddae2f8ab34a70fdc0e423de89beddfeacbef47f21b704ea5a0ba45"
+    },
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\backup\\snapshot.py",
+      "bytes": 13418,
+      "sha256": "c3c4d4c6507a4ec0cca657fc77d31c85a91d387e4fde9929774be8de6cc70e45"
+    },
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\backup\\chats.py",
+      "bytes": 14044,
+      "sha256": "cfbaf9bd4029b63021a8af52f69148c8c5abc8500b328fb3697b2c38dfe67b5e"
+    },
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\backup\\manifest.py",
+      "bytes": 4399,
+      "sha256": "6ccc6ccca5821a957f6b853b046c47842dc833a395df3a472ba3b6b714730051"
+    },
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\pool.py",
+      "bytes": 5647,
+      "sha256": "312c1363bdd1a5973621df6f23a05424eac8fe9dac49fc925863027f58709576"
+    },
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\db\\repos\\project_todo_comments.py",
+      "bytes": 12888,
+      "sha256": "e9dcbc1c79bd5e2f9c43e6607be892431a2bf6be3959750b2d1866f5ec0e86f2"
+    },
+    {
+      "path": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\030-windows-path-qa\\src\\octop\\infra\\projects\\todo_comment_image_storage.py",
+      "bytes": 4018,
+      "sha256": "e9f2813a55729100fa95b1c09974f5c61504c8f0352bdf9c536d633e59da208c"
+    }
+  ],
+  "productTrackedDiff": [],
+  "scope": "Real PG tar archive of database and private todo comment images; other directories excluded; no provider/runtime/HTTP/browser"
+}

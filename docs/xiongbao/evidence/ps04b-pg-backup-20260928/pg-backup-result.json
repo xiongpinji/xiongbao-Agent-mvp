@@ -1,0 +1,192 @@
+{
+  "source": "04481724ba519ea16bde5d5f9228cab536a0c24a",
+  "repo": "/mnt/c/Users/canqu/Documents/Codex/2026-09-23/qctop-work-buddy-agent-logo-ui-3/work/030-windows-path-qa",
+  "octop_module": "/mnt/c/Users/canqu/Documents/Codex/2026-09-23/qctop-work-buddy-agent-logo-ui-3/work/030-windows-path-qa/src/octop/__init__.py",
+  "platform": "Linux-6.6.114.1-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+  "python": "3.12.13",
+  "psycopg": "3.3.4",
+  "Pillow": "12.3.0",
+  "temp_base": "/tmp/xiongbao-ps04b-backup-_ltrcqnm",
+  "cluster": "/tmp/xiongbao-ps04b-backup-_ltrcqnm/cluster",
+  "port": 46693,
+  "databases": {
+    "source": "ps04b_source_3caefbcdb110",
+    "target": "ps04b_target_91ab8a3af3a9"
+  },
+  "provider_used": false,
+  "outcome": "PASS_REAL_PG_ARCHIVE_ROUNDTRIP_AND_THREE_NEGATIVES",
+  "pg_commands": [
+    {
+      "tool": "pg_dump",
+      "restores_database": false,
+      "returncode": 0,
+      "stderr": ""
+    },
+    {
+      "tool": "pg_restore",
+      "restores_database": false,
+      "returncode": 0,
+      "stderr": ""
+    },
+    {
+      "tool": "pg_restore",
+      "restores_database": false,
+      "returncode": 0,
+      "stderr": ""
+    },
+    {
+      "tool": "pg_restore",
+      "restores_database": true,
+      "returncode": 0,
+      "stderr": ""
+    },
+    {
+      "tool": "pg_restore",
+      "restores_database": false,
+      "returncode": 0,
+      "stderr": ""
+    },
+    {
+      "tool": "pg_restore",
+      "restores_database": false,
+      "returncode": 0,
+      "stderr": ""
+    },
+    {
+      "tool": "pg_restore",
+      "restores_database": false,
+      "returncode": 0,
+      "stderr": ""
+    }
+  ],
+  "negative_cases": [
+    {
+      "label": "tampered-bytes",
+      "error": "comment image archive bytes differ from index",
+      "database_unchanged": true,
+      "image_tree_unchanged": true,
+      "database_restore_calls": 0
+    },
+    {
+      "label": "missing-image",
+      "error": "comment image archive objects are incomplete",
+      "database_unchanged": true,
+      "image_tree_unchanged": true,
+      "database_restore_calls": 0
+    },
+    {
+      "label": "index-mismatch",
+      "error": "comment image archive index differs from database",
+      "database_unchanged": true,
+      "image_tree_unchanged": true,
+      "database_restore_calls": 0
+    }
+  ],
+  "cleanup": {
+    "pool_close_errors": [],
+    "pg_ctl_stop_code": 0,
+    "pg_ctl_status_code": 3,
+    "port_closed": true,
+    "temp_retained": true,
+    "recursive_delete_performed": false
+  },
+  "stage": "checking-restored-image-repository-authorization",
+  "postgresql": "pg_ctl (PostgreSQL) 18.6 (Ubuntu 18.6-0ubuntu0.26.04.1)",
+  "verified_identities": {
+    "source": {
+      "database": "ps04b_source_3caefbcdb110",
+      "port": 46693,
+      "user": "ps04b_qa",
+      "data_directory": "/tmp/xiongbao-ps04b-backup-_ltrcqnm/cluster"
+    },
+    "target": {
+      "database": "ps04b_target_91ab8a3af3a9",
+      "port": 46693,
+      "user": "ps04b_qa",
+      "data_directory": "/tmp/xiongbao-ps04b-backup-_ltrcqnm/cluster"
+    }
+  },
+  "archive": {
+    "path": "/tmp/xiongbao-ps04b-backup-_ltrcqnm/valid-backup.tar.gz",
+    "bytes": 20637,
+    "sha256": "3bf2d59add22e90222f3797fc2c9562010488eb682b589d78f9208f26764151d",
+    "manifest": {
+      "manifest_version": 1,
+      "octop_version": "1.0.1",
+      "schema_version": 33,
+      "created_at": "2026-09-28T00:41:05.414596+00:00",
+      "home": "/tmp/xiongbao-ps04b-backup-_ltrcqnm/source-home",
+      "db_file": "db/octop.dump",
+      "database_driver": "postgresql",
+      "database_dump_format": "pg_custom",
+      "includes_config": false,
+      "includes_env": false,
+      "includes_skill_packages": false,
+      "includes_plugins": false,
+      "includes_knowledge": false,
+      "includes_chats": false,
+      "includes_project_todo_comment_images": true,
+      "agents": []
+    },
+    "image_index": {
+      "objects": {
+        "01M3JQAKEYKX7F982DZRJNQ906/01M3JQAKFAVE1995FY18QFZ3DR": {
+          "sha256": "e3912111240cc23d3907176b114871cb7c9c47e3f55202afa61554de07f4baa9",
+          "size_bytes": 73
+        },
+        "01M3JQAKEYKX7F982DZRJNQ906/01M3JQAKJ5G1T79ZH6KEWZRVHD": {
+          "sha256": "923385b3536728a946a1c0fc9200fccd8a634ee953adf3ee9dc3e6d032fb43e8",
+          "size_bytes": 633
+        }
+      },
+      "version": 1
+    }
+  },
+  "roundtrip": {
+    "restore_result": {
+      "schema_version": 33,
+      "octop_version": "1.0.1",
+      "agents": 0,
+      "workspace_files": 0,
+      "skill_package_files": 0,
+      "plugin_files": 0,
+      "knowledge_files": 0,
+      "project_todo_comment_image_files": 2,
+      "restore_config": false,
+      "chats_restored": false,
+      "preserved_chat_rows": 0,
+      "skipped_chat_rows": 0,
+      "users_preserved": false,
+      "jwt_preserved": false,
+      "database_driver": "postgresql"
+    },
+    "tables_equal": true,
+    "table_counts": {
+      "_schema_version": 1,
+      "users": 3,
+      "project_spaces": 1,
+      "project_members": 2,
+      "project_todos": 2,
+      "project_todo_comments": 2,
+      "project_todo_comment_images": 2,
+      "project_todo_comment_image_usage": 1,
+      "project_events": 2
+    },
+    "source_state_sha256": "b60061f8a1d6bb71c572068efe46aa6bafaffde950f4db64db3897d960109584",
+    "target_state_sha256": "b60061f8a1d6bb71c572068efe46aa6bafaffde950f4db64db3897d960109584",
+    "image_files": {
+      "01M3JQAKEYKX7F982DZRJNQ906/01M3JQAKFAVE1995FY18QFZ3DR": "e3912111240cc23d3907176b114871cb7c9c47e3f55202afa61554de07f4baa9",
+      "01M3JQAKEYKX7F982DZRJNQ906/01M3JQAKJ5G1T79ZH6KEWZRVHD": "923385b3536728a946a1c0fc9200fccd8a634ee953adf3ee9dc3e6d032fb43e8"
+    },
+    "image_bytes_equal": true,
+    "old_target_objects_removed": true,
+    "usage_matches_bytes": true
+  },
+  "repository_acl": {
+    "allowed": 4,
+    "refused": 6,
+    "revoked_member_refused": 2,
+    "HTTP_not_exercised": true
+  },
+  "source_unchanged": true
+}
