@@ -240,6 +240,49 @@ describe("ProjectActivity timeline", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("shows localized copy for a load-more network failure and retries the same cursor", async () => {
+    const user = userEvent.setup();
+    const onProjectNotFound = vi.fn();
+    list.mockResolvedValueOnce(page([messageByAlice], "tok-1"));
+    render(
+      <ProjectActivity projectId="p1" onProjectNotFound={onProjectNotFound} />,
+    );
+    await screen.findByText("第一条留言");
+
+    list.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await user.click(screen.getByRole("button", { name: "加载更多" }));
+    expect(await screen.findByText("加载动态失败")).toBeInTheDocument();
+    expect(screen.queryByText("Failed to fetch")).toBeNull();
+    expect(screen.getByText("第一条留言")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /重\s*试/ })).toBeInTheDocument();
+
+    list.mockResolvedValueOnce(page([messageByAlice, messageByBob]));
+    await user.click(screen.getByRole("button", { name: /重\s*试/ }));
+    expect(await screen.findByText("第二条留言")).toBeInTheDocument();
+    expect(screen.queryByText("加载动态失败")).toBeNull();
+    expect(screen.getAllByText("第一条留言")).toHaveLength(1);
+    expect(onProjectNotFound).not.toHaveBeenCalled();
+    expect(list).toHaveBeenLastCalledWith("p1", {
+      scope: "related",
+      limit: 20,
+      cursor: "tok-1",
+    });
+  });
+
+  it("keeps a structured API error detail on load-more failure", async () => {
+    const user = userEvent.setup();
+    list.mockResolvedValueOnce(page([messageByAlice], "tok-1"));
+    renderActivity("p1");
+    await screen.findByText("第一条留言");
+
+    list.mockRejectedValueOnce(
+      new Error('503 - {"error":{"message":"upstream failed to fetch"}}'),
+    );
+    await user.click(screen.getByRole("button", { name: "加载更多" }));
+    expect(await screen.findByText("upstream failed to fetch")).toBeVisible();
+    expect(screen.getByText("第一条留言")).toBeInTheDocument();
+  });
+
   it("posts trimmed text, clears the composer and reloads the feed", async () => {
     const user = userEvent.setup();
     renderActivity("p1");

@@ -46,6 +46,7 @@ import {
   parseApiError,
 } from "../../utils/apiError";
 import { message } from "../../utils/antdMessage";
+import { isNetworkFetchError } from "../../utils/networkError";
 
 const { Text } = Typography;
 
@@ -681,11 +682,15 @@ export default function ProjectActivity({
           type="error"
           showIcon
           style={{ marginBottom: 12 }}
-          message={apiErrorMessage(
-            appendError,
-            t("projects.activity.loadFailed", "加载动态失败"),
-            t,
-          )}
+          message={
+            isNetworkFetchError(appendError) && !parseApiError(appendError)
+              ? t("projects.activity.loadFailed", "加载动态失败")
+              : apiErrorMessage(
+                  appendError,
+                  t("projects.activity.loadFailed", "加载动态失败"),
+                  t,
+                )
+          }
           action={
             <Button size="small" onClick={() => void loadMore()}>
               {t("common.retry", "重试")}
