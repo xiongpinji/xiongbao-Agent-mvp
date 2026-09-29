@@ -1,5 +1,26 @@
 # PS-04C 原生执行台账（2026-09-28）
 
+## 当前状态（2026-09-29）
+
+已推送源码 `1e42ba4cd7afe9a099e873b7ee88aac01cd99586`（tree `449b5d059a0a12ed0f950482ce5a6608a44e46d4`）；本次 PS-04C C1/C2 的本地功能验收已通过。Task V 新 PG16 与评论图片浏览器17阶段均实际通过并正常清理。最终六文档的独立规格/质量审查与原生 hook 提交、非强制推送，以仓库外 ROOT 发布闭合记录为准；本地功能通过不代表 WorkBuddy 1:1 或全25项目标完成。
+
+验收工作区当前后端 1310 个输入与 Q4 已通过门禁逐字节一致，采用全 not-live **5456 通过、184 显式跳过**；当前前端 1302 个输入的新门禁为 **249 文件、1906/1906 测试**，格式/lint/TypeScript/build 均实际 exit0。新后端 i18n **71/71**，Q5 登录态五视图旅程 **27/27 阶段**，两个视口共 **10 组严格布局测量**通过。Task V 新 PostgreSQL 备份/归档 **16/16** 已 actual `181b05 exit0`，两池、库连接归零、DROP、PG 正常 STOP 和 Windows Job 闭合另有 ROOT 核验。普通回归的跳过不等于实库通过，单独实库矩阵不与普通测试合计。
+
+| 项 | 当前功能与门禁 |
+| --- | --- |
+| M1/M2/M3/R1 | C1 日期、自定义优先级/标签、034 升级、目录与身份隔离已验并发布 b613b90c；原 C1 冻结记录保留 |
+| Q1/Q2 | 严格定义、035、完整 NFKC 排序键与受控恢复基础已发布；历史 PG62 属于当时输入，不作当前 C2 新实库结果 |
+| Q3 | 共享视图 CRUD、排序/default/archive/restore、集合 revision/视图 version 与角色权限已实施并发布 180e4b91；独立规格→不同人质量门禁通过 |
+| Q4 | 全项目 SQL filters/groups/counts/keyset query 已发布 c4b8409e；当前专用 PG16 查询/并发结果按 source1310 输入采用，完整后端门禁 source绑定有效 |
+| Q5 | 列表/表格/看板/甘特/日历、共享管理与临时覆盖、真实编辑和日期操作已发布 1e42ba4c；27 阶段登录态浏览器与 10 组严格几何通过，固定 v5 SPEC→不同人 QUALITY 均 open0 |
+| V | 16 项新 PG 归档/失败恢复与17阶段新 B2 评论图片实际通过并闭合；六文档 SPEC/不同人 QUALITY 与 exact6 native-hook 正常推送由外部 ROOT 发布闭合记录核验；GLM/WorkBuddy 视觉独立待补 |
+
+GLM 本次未执行，恢复后补审；WorkBuddy 同夹具逐状态像素、键盘及交互 1:1 仍未验；真实用户账号、付费模型、生产部署和 Windows 安装包均不在本次验收。PS-04 的附件/子待办/来源导入、030 UI/文件模式和 045-F 不因本批完成而被核销。全 25 项目标保持 active，项目空间 11 条旅程的“真实旅程 + WorkBuddy 视觉”双验收仍为 0/11。
+
+最新结论以 [C2 验收](PROJECT_TODO_PS04C2_ACCEPTANCE_20260929.md) 与 [机器证据](PROJECT_TODO_PS04C2_EVIDENCE_20260929.json) 为准。外部 durable plan 的 pending 仍是外部 CLI 台账，不能冒充原生代理实时状态。用户已明确授权本片由 Codex/按文件分工子代理承接和独立只读门禁；原三路由、GLM 补审和其他片边界保持原记录。
+
+## Q1/Q2 发布前历史记录（原文保留；以下不是当前待交付状态）
+
 状态：C1发布于 b613b90c；C2的Q1与Q2源码基础均已分别完成SPEC→不同人QUALITY审查并由root接受。Q2最终第四版真实PG62项全部通过并严格清理，完整后端attempt3为5197通过/87跳过，Ruff check/format与mypy通过，1283输入起止一致。前端当前1266输入与既存PASS完全一致，可采用236文件/1686测试及静态/build结果。Q3在独立工作区实施，首个视图API已实际404 RED，活动接线新旧73项development测试通过；Q4/Q5仍等待Q3接受，五视图UI和整体C2未交付。本文件封存Q1/Q2源码检查点的发布前状态，实际提交与非强制推送以Git记录和远程SHA核验为准。
 
 C1 原实施基线为 `3b657f24fc5e5c1441f3cc5127201ad2def976d0`，发布树为 `59701d365f5fcf7690dbefda0e550f0b148ccbb6`。仓库外 QA 的 `ship/c1-integrated-review-final/review-result.json` 已为 `C1_INTEGRATION_PASS`（SHA256 `68964df2750ae9899a5ec4ddd6f41c6512ce0f68465dd867510944bb1b0449d4`）；`ship/c1-publish-result.json` 为 `C1_ACCEPTED_COMMITTED_AND_PUSHED`（SHA256 `ec8a0ca80be6067296ec07943691956757d16355bad0cba52c6fe8a84d1d0e40`），实际 HEAD 与 `xiongbao/main` 已核对为 b613b90c。原 [C1冻结记录](PROJECT_TODO_PS04C1_ACCEPTANCE_20260928.md) 和 [机器证据](PROJECT_TODO_PS04C1_EVIDENCE_20260928.json) 保留发布前的历史快照，不能据其“待发生”文字否认随后实际发布，也不能把旧 C1 全套结果当作新 C2 质量证据。

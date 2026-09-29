@@ -8,6 +8,16 @@
 
 **技术栈：** Python/FastAPI/Pydantic，SQLite/PostgreSQL，React/TypeScript/Ant Design，pytest/Vitest/Playwright；使用现有依赖。
 
+## 当前交付状态（2026-09-29）
+
+已推送源码 `1e42ba4cd7afe9a099e873b7ee88aac01cd99586`（tree `449b5d059a0a12ed0f950482ce5a6608a44e46d4`）；本次 PS-04C C1/C2 的本地功能验收已通过。Task V 新 PG16 与评论图片浏览器17阶段均实际通过并正常清理。最终六文档的独立规格/质量审查与原生 hook 提交、非强制推送，以仓库外 ROOT 发布闭合记录为准；本地功能通过不代表 WorkBuddy 1:1 或全25项目标完成。
+
+验收工作区当前后端 1310 个输入与 Q4 已通过门禁逐字节一致，采用全 not-live **5456 通过、184 显式跳过**；当前前端 1302 个输入的新门禁为 **249 文件、1906/1906 测试**，格式/lint/TypeScript/build 均实际 exit0。新后端 i18n **71/71**，Q5 登录态五视图旅程 **27/27 阶段**，两个视口共 **10 组严格布局测量**通过。Task V 新 PostgreSQL 备份/归档 **16/16** 已 actual `181b05 exit0`，两池、库连接归零、DROP、PG 正常 STOP 和 Windows Job 闭合另有 ROOT 核验。普通回归的跳过不等于实库通过，单独实库矩阵不与普通测试合计。
+
+GLM 本次未执行，恢复后补审；WorkBuddy 同夹具逐状态像素、键盘及交互 1:1 仍未验；真实用户账号、付费模型、生产部署和 Windows 安装包均不在本次验收。PS-04 的附件/子待办/来源导入、030 UI/文件模式和 045-F 不因本批完成而被核销。全 25 项目标保持 active，项目空间 11 条旅程的“真实旅程 + WorkBuddy 视觉”双验收仍为 0/11。
+
+详见 [C2 验收记录](PROJECT_TODO_PS04C2_ACCEPTANCE_20260929.md) 和 [机器证据](PROJECT_TODO_PS04C2_EVIDENCE_20260929.json)。
+
 ## Goal
 
 交付已批准 [C1](PROJECT_TODO_FIELDS_PS04C1_CONTRACT.md) 和 [C2](PROJECT_TODO_VIEWS_PS04C2_CONTRACT.md) 的全部可检查行为。授权和封存字节见 [批准记录](PROJECT_TODO_PS04C_APPROVAL_20260928.md)。
@@ -51,7 +61,7 @@ M1/M2/M3 可并行：M2 使用 M1 的 seed_todo_catalog(conn, project_id, ts) �
 | Q4 SQL查询 | Q3 |
 | Q5 实际联调和验收 | Q4、M3、R1；共用页面文件释放 |
 
-## C1 冻结门禁（2026-09-28）
+## C1 与 Q1/Q2 发布前历史冻结门禁（2026-09-28，保留原记录）
 
 M1/M2/M3/R1与补偿恢复、C1全量/真实PG/TCP浏览器和最终73文件整合审查已完成，发布 b613b90c；详见原C1冻结记录与仓库外实际发布结果。C2的Q1两源及Q2最终38件各自SPEC→不同人QUALITY已PASS/open0并由root组件接受。第四版PG6为62项零失败错误跳过，62库严格zero/drop及STOPPED；原并发P2四例真实RED、6项回归与9旧模块313项、2010原断言保留。当前完整BE3为5197通过/87跳过，Ruff/format/mypy均0，1283输入raw起止一致，owned进程闭合；FE236文件1686测试与静态/build PASS的1266当前输入也已只读核验。所有旧FAIL/格式失败保留。Q3已在独立worktree按新8/共享10路径并行实施，首个新GET404 RED与73项活动dev GREEN有证据；完整Q3、Q4、Q5及整体C2/V未完成，GLM/WorkBuddy视觉仍待验。此处是Q1/Q2源码检查点的发布前封存状态，实际Git/远程结果单独核验。
 
@@ -183,37 +193,39 @@ _base 来自 tests/integration/test_project_todos_api.py，后续helpers在新�
 
 ## 任务 Q3：共享视图 CRUD 与生命周期
 
-- [ ] 新 tests/integration/test_project_todo_views_api.py：默认两项、fivecreate、strictdefinition、不同view独立version、集合order/default、archive最后一项409/default原子切换、restore冲突、member只读403/outsider404/归档409。
-- [ ] uv run --no-sync pytest tests/integration/test_project_todo_views_api.py -q，记录新route404RED。
-- [ ] 新 SQL repo/service/thin router 使用Q1 parser；目录引用同事务复核，view集合→item锁；所有成功写增collectionrevision，真实单view变化增version，静态order/default在dynamic前；活动白名单不含名称/filter文本。
-- [ ] 全新测试GREEN，复跑C1 catalog/fields API；真实PG两个连接证明同view单赢家、不同view双成功、order/default交错与目录revision冲突。
-- [ ] 规格→质量审查，fixedtree接受后Q4可依赖真实服务读取view，而非前端虚拟菜单。
+- [x] 新 tests/integration/test_project_todo_views_api.py：默认两项、fivecreate、strictdefinition、不同view独立version、集合order/default、archive最后一项409/default原子切换、restore冲突、member只读403/outsider404/归档409。
+- [x] uv run --no-sync pytest tests/integration/test_project_todo_views_api.py -q，记录新route404RED。
+- [x] 新 SQL repo/service/thin router 使用Q1 parser；目录引用同事务复核，view集合→item锁；所有成功写增collectionrevision，真实单view变化增version，静态order/default在dynamic前；活动白名单不含名称/filter文本。
+- [x] 全新测试GREEN，复跑C1 catalog/fields API；真实PG两个连接证明同view单赢家、不同view双成功、order/default交错与目录revision冲突。
+- [x] 规格→质量审查，fixedtree接受后Q4可依赖真实服务读取view，而非前端虚拟菜单。
 
 ## 任务 Q4：SQL全项目查询和有界分页
 
-- [ ] tests/unit/db/test_project_plan_query.py 和 tests/integration/test_project_plan_query_api.py：>200合成Todo、tags多组unique总数、12 AND filters、A/B/null真值、%/_/backslash字面、完整长标题/长用户名三排序、锚点版本/删除/指纹变化409。
-- [ ] uv run --no-sync pytest tests/unit/db/test_project_plan_query.py tests/integration/test_project_plan_query_api.py -q 缺少queryRED。
-- [ ] 用固定列/运算符白名单编译SQL，EXISTS标签，显式NULL类别与完整排序键；计数/metadata/items在成员复核一致读取事务，PG证明repeatable-read或同statement快照；limit+1和同ORDERBY primitive seek。只从当前query内找锚点再重建fulltuple，cursor返回compact字段。
-- [ ] 复跑SQLite并真实PG相同fixture，逐项对齐IDs/count/ordered pages；savedassignee离组query409索引，合法override先选可恢复；calendar/gantt窗口含无日期bucket/跨窗区间366day。
-- [ ] 真实双PG读/revoke与title/name/catalog/view更改游标失效验收，审查SQL注入/其他连接reads/分组total；接受Q4才算真实查询能力。
+- [x] tests/unit/db/test_project_plan_query.py 和 tests/integration/test_project_plan_query_api.py：>200合成Todo、tags多组unique总数、12 AND filters、A/B/null真值、%/_/backslash字面、完整长标题/长用户名三排序、锚点版本/删除/指纹变化409。
+- [x] uv run --no-sync pytest tests/unit/db/test_project_plan_query.py tests/integration/test_project_plan_query_api.py -q 缺少queryRED。
+- [x] 用固定列/运算符白名单编译SQL，EXISTS标签，显式NULL类别与完整排序键；计数/metadata/items在成员复核一致读取事务，PG证明repeatable-read或同statement快照；limit+1和同ORDERBY primitive seek。只从当前query内找锚点再重建fulltuple，cursor返回compact字段。
+- [x] 复跑SQLite并真实PG相同fixture，逐项对齐IDs/count/ordered pages；savedassignee离组query409索引，合法override先选可恢复；calendar/gantt窗口含无日期bucket/跨窗区间366day。
+- [x] 真实双PG读/revoke与title/name/catalog/view更改游标失效验收，审查SQL注入/其他连接reads/分组total；接受Q4才算真实查询能力。
 
 ## 任务 Q5a：共享视图管理与真实列表表格看板
 
-- [ ] 新 PlanViewSettings/ProjectPlanViews/PlanTable/PlanBoard tests先红：types管理、tempoverride只query、manager显式PATCH、switch未保存三选择、badassigneeconditionmember移除、fields真实顺序/groups独立分页。
-- [ ] npm test -- src/pages/Projects/plan/ProjectPlanViews.test.tsx src/pages/Projects/plan/PlanViewSettings.test.tsx src/pages/Projects/plan/PlanTable.test.tsx src/pages/Projects/plan/PlanBoard.test.tsx RED。
-- [ ] typed projectPlanViewsApi只request；ProjectPlan主入口交给新shell，旧详情B2复用；每组独立query/cursor/count，不全量下载或客户端排序。board拖status/assignee/priority调用真实PATCH并按ACL/drop规则，tags组只字段edit；每种drag有键盘动作。
-- [ ] 相同命令GREEN+ProjectPlan/Detail旧回归+npx tsc -b。localStorage仅账号项目viewId，不存私密目录正文/filters。
-- [ ] 两阶段审查，所有temp/save/409/late response行为都标示候选直至真实API浏览器通过。
+- [x] 新 PlanViewSettings/ProjectPlanViews/PlanTable/PlanBoard tests先红：types管理、tempoverride只query、manager显式PATCH、switch未保存三选择、badassigneeconditionmember移除、fields真实顺序/groups独立分页。
+- [x] npm test -- src/pages/Projects/plan/ProjectPlanViews.test.tsx src/pages/Projects/plan/PlanViewSettings.test.tsx src/pages/Projects/plan/PlanTable.test.tsx src/pages/Projects/plan/PlanBoard.test.tsx RED。
+- [x] typed projectPlanViewsApi只request；ProjectPlan主入口交给新shell，旧详情B2复用；每组独立query/cursor/count，不全量下载或客户端排序。board拖status/assignee/priority调用真实PATCH并按ACL/drop规则，tags组只字段edit；每种drag有键盘动作。
+- [x] 相同命令GREEN+ProjectPlan/Detail旧回归+npx tsc -b。localStorage仅账号项目viewId，不存私密目录正文/filters。
+- [x] 两阶段审查，所有temp/save/409/late response行为都标示候选直至真实API浏览器通过。
 
 ## 任务 Q5b：真实甘特与日历
 
-- [ ] PlanGantt.test.tsx/PlanCalendar.test.tsx 先红：两日期bar、one日期point、无日期栏、window/zoom/resize/shift保留null；Monday6x7月格/7日周、basis拖动只改一日期、1900/9999边界格禁用。
-- [ ] npm test -- src/pages/Projects/plan/PlanGantt.test.tsx src/pages/Projects/plan/PlanCalendar.test.tsx，记录缺失渲染/操作RED。
-- [ ] 仅渲染Q4真实scheduleditems，独立加载unscheduled；date arithmetic复用C1工具；保留失败拖动提议并比较，不把动画当保存；单日期补另一日期必须明确浮层确认。服务器今天加载失败不提供浏览器today。
-- [ ] 两文件GREEN及C1/C2全部frontend tests+npx tsc -b；keyboardedit/date跨midnight422与409不丢草稿。
-- [ ] 两阶段审查后进入真实登录浏览器五视图旅程；同todoId跨视图刷新、真实counts、数据移动和窄屏scroll/Escape/focus分别留证。
+- [x] PlanGantt.test.tsx/PlanCalendar.test.tsx 先红：两日期bar、one日期point、无日期栏、window/zoom/resize/shift保留null；Monday6x7月格/7日周、basis拖动只改一日期、1900/9999边界格禁用。
+- [x] npm test -- src/pages/Projects/plan/PlanGantt.test.tsx src/pages/Projects/plan/PlanCalendar.test.tsx，记录缺失渲染/操作RED。
+- [x] 仅渲染Q4真实scheduleditems，独立加载unscheduled；date arithmetic复用C1工具；保留失败拖动提议并比较，不把动画当保存；单日期补另一日期必须明确浮层确认。服务器今天加载失败不提供浏览器today。
+- [x] 两文件GREEN及C1/C2全部frontend tests+npx tsc -b；keyboardedit/date跨midnight422与409不丢草稿。
+- [x] 两阶段审查后进入真实登录浏览器五视图旅程；同todoId跨视图刷新、真实counts、数据移动和窄屏scroll/Escape/focus分别留证。
 
 ## 任务 V：整体质量、独立审查、浏览器与Git
+
+2026-09-29：当前功能门禁已通过。以下保留原计划条目；后端常规套件按1310个当前输入 raw一致采用 Q4，其余新 FE/PG/浏览器实际执行。最后的六文档 SPEC→不同人 QUALITY/native-hook 正常推送由仓库外 ROOT 闭合记录确定，不将旧计划命令当作另一次执行。
 
 - [ ] 独立复跑全部C1/C2 focused suites与旧projects/todos/comments/assets/activity/auth/backup/i18n；保留每次fail和修复RED，fresh质量输出不得复用旧B2。
 - [ ] 完成make all的等价/可用平台实际命令：ruffcheck+formatcheck全src/tests、mypystrict、uv run --no-sync pytest -m "not live"；前端npm test完整、tsc -b、npm run build、ESLint/Prettier范围检查。make缺失必须明确记录；禁止为了commit抹掉全套红灯。
@@ -228,10 +240,10 @@ _base 来自 tests/integration/test_project_todos_api.py，后续helpers在新�
 - [x] M3: C1字段/目录真实UI、账号隔离及冲突草稿通过。
 - [x] Q1: 严格五类型定义与compactcursor验证通过（组件接受，不等于五视图UI或整体C2交付）。
 - [x] Q2: 035与所有用户/标题写路径及受控备份通过（组件验收，非整体C2交付）。
-- [ ] Q3: 真实共享视图配置与生命周期通过。
-- [ ] Q4: SQL全项目query/filters/groups/counts/seek跨双库通过。
-- [ ] Q5: 五类型真实UI与日期/键盘操作通过。
-- [ ] V: 全套质量、真实DB/browser、独立审查、审计push与资源清理完成。
+- [x] Q3: 真实共享视图配置与生命周期通过。
+- [x] Q4: SQL全项目query/filters/groups/counts/seek跨双库通过。
+- [x] Q5: 五类型真实UI与日期/键盘操作通过。
+- [x] V: 当前输入质量（后端逐字节采用、前端新执行）、实库/两轮浏览器与源码独立审查/推送/资源清理通过；最终六文档审查及推送另受外部 ROOT 发布闭合门禁。
 
 ## Validation strategy
 

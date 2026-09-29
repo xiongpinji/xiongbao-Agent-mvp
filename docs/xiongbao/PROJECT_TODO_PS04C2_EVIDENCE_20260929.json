@@ -1,0 +1,195 @@
+{
+  "schema": "ps04c-c1-c2-local-acceptance-v1",
+  "state": "PS04C_C1_C2_LOCAL_FUNCTIONAL_ACCEPTED_DOCS_PUBLICATION_EXTERNALLY_GATED",
+  "author": "/root",
+  "source_commit": "1e42ba4cd7afe9a099e873b7ee88aac01cd99586",
+  "source_tree": "449b5d059a0a12ed0f950482ce5a6608a44e46d4",
+  "q5_exact41_source_pushed": true,
+  "whole_C2_local_accepted": true,
+  "global_25_goal_status": "active",
+  "project_journeys_dual_visual_accepted": {
+    "accepted": 0,
+    "total": 11
+  },
+  "source_inventory": {
+    "backend": 1310,
+    "frontend": 1302,
+    "combined": 2609,
+    "q5_owned": 41
+  },
+  "quality": {
+    "backend": {
+      "passed": 5456,
+      "explicit_skipped": 184,
+      "collected": 5640,
+      "mode": "ADOPTED_Q4_RAW_IDENTICAL_1310_CURRENT_INPUTS",
+      "failed": 0
+    },
+    "frontend": {
+      "files": 249,
+      "collected": 1906,
+      "passed": 1906,
+      "failed": 0,
+      "skipped": 0,
+      "unhandled": 0,
+      "mode": "FRESH_Q5_CURRENT_1302_INPUTS"
+    },
+    "fresh_backend_i18n_passed": 71,
+    "q4_current_query_pg_passed": 16,
+    "q5_browser_phases_passed": 27,
+    "q5_layout_measurements_passed": 10,
+    "task_v_fresh_backup_pg_passed": 16,
+    "task_v_fresh_b2_browser": {
+      "phases": 17,
+      "passed": 17,
+      "page_errors": 0,
+      "foreign_network": 0,
+      "mode": "FRESH_NATIVE_WINDOWS_TCP_PG_BROWSER_ATTEMPT7",
+      "paste_event": "SYNTHETIC_BROWSER_CLIPBOARD_EVENT_REAL_FILES_REAL_TCP_API",
+      "native_os_clipboard_verified": false
+    }
+  },
+  "evidence": {
+    "source_manifest": {
+      "path": "c2/q5-joint-v5/candidate-manifest.json",
+      "sha256": "b93836328de26882b3e5dbfe497b94082b074ac57e8f08356015ecdca97d8238"
+    },
+    "primary_manifest": {
+      "path": "c2/q5-ship/checkpoint-final-v5/primary-manifest.json",
+      "sha256": "84717fe9168efcb8b3fbd6ba626a54b1ea58d4126d8491ac173cf380234e3732"
+    },
+    "source_publish_result": {
+      "path": "c2/q5-ship/checkpoint-continuation-v7/publish-result.json",
+      "sha256": "ecc9858ca67a149a47415ceeb2b1895e7616f4bed48f509e5a2b2abdeb267d3f"
+    },
+    "source_root_closure": {
+      "path": "c2/q5-publication-root-close-v1/ROOT_PUBLICATION_CLOSURE.json",
+      "sha256": "7093499844320a968a9db0faf0ed7a17c129481c362eee306713a8afc8211956"
+    },
+    "backend_adoption": {
+      "path": "c2/q5-ship/backend-adoption-v1.json",
+      "sha256": "29515a3e8723a20cd70efcde6bb2f36a4c5bf4d7a604e8b5ad62d03e88d6131e"
+    },
+    "frontend": {
+      "path": "c2/q5-ship/frontend-attempt-3/frontend-result.json",
+      "sha256": "7f909ccfec14ed04963f3df997211d9a283e897ef735508d24459fa7220c5743"
+    },
+    "frontend_root_closure": {
+      "path": "c2/q5-ship/frontend-root-close-v3/root-close-result.json",
+      "sha256": "3b57a2c1f9006225b27ad8d89204089884a6cd97a231bb59c00c195c896926dc"
+    },
+    "i18n": {
+      "path": "c2/q5-ship/i18n-attempt-1/root-i18n-result.json",
+      "sha256": "914ccdb5edf5d9b8aa809a88b618ea902ba4d5e67703df194eee619adde9b179"
+    },
+    "q5_browser_root_closure": {
+      "path": "c2/q5-ship/browser-root-close-v5/root-close-result.json",
+      "sha256": "a3e4b9f86649f1cf2553ef7006a8af1e3d7bfc3b051cb8cb764a36e776f35aa2"
+    },
+    "task_v_pg_root_closure": {
+      "path": "c2/task-v-pg-root-close-v5/ROOT_PG4_CLOSURE.json",
+      "sha256": "aaa516f4cef5684642b1cb40e90ccedde489fa4bcfd9b027698c8206efb17ba1"
+    },
+    "task_v_b2_original_failed_runtime_closure": {
+      "path": "c2/task-v-b2-failed-root-close-v1/ROOT_FAILED_RUNTIME_CLOSURE.json",
+      "sha256": "38002a89a506d5226ba6d2804b1a114d48ac5640708fccd5b7a14a4afb5895e1"
+    },
+    "source_spec": {
+      "path": "c2/q5-spec-review-v5/review-result.json",
+      "sha256": "51c354764b13236069afdc9d7608529140ec6bd85e9c785cca518fd9bcc8fe76"
+    },
+    "source_quality": {
+      "path": "c2/q5-quality-review-v5/review-result.json",
+      "sha256": "9766957b178c688e33fa34da02d1a6d327c5d1b2e5812e396d3f06b190286ec2"
+    },
+    "q4_query_pg_root_closure": {
+      "path": "c2/q4-root-close-v3/root-close-result.json",
+      "sha256": "edfdd094160031c38fc9d7a168d9959f7364c53a45bd4fc7701af1aa0c758a6e"
+    },
+    "task_v_coverage_map": {
+      "path": "c2/task-v-coverage-map-v1/COVERAGE_MAP.json",
+      "sha256": "7e1a9cc79eae4c9fb56c10b93ba30edf915c1ae2770bc38535b7384ef9a0ca85"
+    },
+    "source_spec_errata": {
+      "path": "c2/q5-checkpoint-method-review-v5/errata-v1.json",
+      "sha256": "d232a21a5c007cdaa5f3e790a8ef93f585d36634628188d157c3012f3a2e5b00"
+    },
+    "task_v_b2_root_closure": {
+      "path": "c2/task-v-b2-root-close-v7/ROOT_B2_CLOSURE.json",
+      "sha256": "4397843292581c63e647cb7c6ac0b71346d2a69f6f10915ecf1c11f2c33f2765"
+    },
+    "task_v_b2_original_second_failed_runtime_closure": {
+      "path": "c2/task-v-b2-failed-root-close-v2/ROOT_FAILED_RUNTIME_CLOSURE.json",
+      "sha256": "db421818f1b4f17bcd2f4952219e9508f6972d025219b6fe509a66c97a887420"
+    },
+    "task_v_b2_original_third_failed_runtime_closure": {
+      "path": "c2/task-v-b2-failed-root-close-v3/ROOT_FAILED_RUNTIME_CLOSURE.json",
+      "sha256": "fdd1f2b42cdd2579445205517341655948ff33c50e03bffee4f9b9901d637453"
+    },
+    "task_v_b2_original_fourth_failed_runtime_closure": {
+      "path": "c2/task-v-b2-failed-root-close-v4/ROOT_FAILED_RUNTIME_CLOSURE.json",
+      "sha256": "41facbc726161c030070c671567bf16e381620eae417ca09ddf94e29a4e8c8d8"
+    },
+    "task_v_b2_original_fifth_incomplete_runtime_closure": {
+      "path": "c2/task-v-b2-failed-root-close-v5/ROOT_FAILED_RUNTIME_CLOSURE.json",
+      "sha256": "77c588bbd285a74eb22443150b475c0cf25eb7670efeba0920fbafdc09decb42"
+    },
+    "task_v_runtime_evidence_independent_review": {
+      "path": "c2/task-v-runtime-evidence-review-v1/review-result.json",
+      "sha256": "6624ae1a537a6b8bc38b0c45a44408cf2560a239685192933a4b2419982984de"
+    },
+    "task_v_b2_v7_method_request_changes": {
+      "path": "c2/task-v-browser-method-review-v7/review-result.json",
+      "sha256": "cb1eed678a86eb52c379292bb76fced5bb5f6d21366127937f7c683ffaa1ff24"
+    },
+    "task_v_b2_v7_false_revocation_counterexample": {
+      "path": "c2/task-v-browser-method-review-v7/BLOB_CONTROL_RESULT.json",
+      "sha256": "74b08d1f71cc97cd076630e6d5508410077478f4929ad17a8c91a70783288866"
+    },
+    "task_v_b2_original_sixth_incomplete_runtime_closure": {
+      "path": "c2/task-v-b2-failed-root-close-v6/ROOT_FAILED_RUNTIME_CLOSURE.json",
+      "sha256": "a6d525830eb6955435e84e65ab223e79e3f9347cb757f8c79e5f12dd7997079e"
+    },
+    "task_v_b2_sixth_observer_diagnosis": {
+      "path": "c2/task-v-b2-attempt6-observer-diagnosis-v1/diagnosis-result.json",
+      "sha256": "a4217e7d2ddd218fa3b605c7dc8343a396f371f72a8b98e3cf48459ad1748a8f"
+    },
+    "task_v_functional_root_acceptance": {
+      "path": "c2/task-v-functional-root-close-v1/ROOT_FUNCTIONAL_ACCEPTANCE.json",
+      "sha256": "f0245cb1d225a8c9f0e01fb02275df065aecd90e13fe62ccb919b9fb62f18f8e"
+    }
+  },
+  "boundaries": {
+    "glm_review": "UNVERIFIED_PENDING_FOLLOWUP",
+    "workbuddy_visual_and_interaction_1_to_1": "UNVERIFIED",
+    "real_user_or_platform": "NOT_RUN",
+    "paid_provider": "NOT_RUN",
+    "production": "NOT_RUN",
+    "windows_installer": "NOT_RUN",
+    "030_UI": "OUT_OF_SCOPE",
+    "045_F": "OUT_OF_SCOPE",
+    "full_PS04_attachments_subtodos_imports": "OUT_OF_SCOPE"
+  },
+  "original_failures_reclassified": false,
+  "business_tests_rerun_for_docs": false,
+  "docs_publication": {
+    "mode": "EXACT6_INDEPENDENT_SPEC_THEN_DIFFERENT_QUALITY_AND_NATIVE_HOOK_NORMAL_PUSH",
+    "status_authority": "c2/task-v-docs-publication-root-close-v1/ROOT_DOCS_PUBLICATION_CLOSURE.json",
+    "stored_outside_repository_to_avoid_self_reference": true,
+    "business_tests_rerun": false
+  },
+  "draft_refs_requiring_actual_path_resolution": [],
+  "validated_input_workspace": "ps04c-view-service",
+  "published_input_workspace": "ps04c-fields-views",
+  "publication_source_correspondence": {
+    "q5_owned_41_raw_identical": true,
+    "existing_backend_EOL_only_files": 11,
+    "existing_frontend_EOL_only_files": 21,
+    "evidence": {
+      "path": "c2/q5-ship/checkpoint-final-v5/primary-manifest.json",
+      "sha256": "84717fe9168efcb8b3fbd6ba626a54b1ea58d4126d8491ac173cf380234e3732"
+    },
+    "description": "QA/source candidate and published workspace have preserved existing CRLF/LF-only differences for these non-owned paths; native Q5 guard checked their lossless equivalence. All 41 owned frontend blobs are raw identical."
+  },
+  "acceptance_scope": "PS04C_C1_C2_LOCAL_FUNCTIONAL; full WorkBuddy parity and 25-goal remain unaccepted"
+}
