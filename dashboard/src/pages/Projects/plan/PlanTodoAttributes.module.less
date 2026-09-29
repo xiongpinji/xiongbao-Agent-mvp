@@ -1,0 +1,210 @@
+.attributes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  min-width: 0;
+  margin: 0;
+  font-size: 12px;
+}
+.attribute {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+.attributes dt {
+  color: var(--fn-text-secondary);
+}
+.attributes dd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.titleAttribute {
+  flex-basis: 100%;
+  min-width: 0;
+}
+.titleAttribute dt {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.title,
+.titleText {
+  padding: 0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fn-text-primary);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.title {
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+}
+.title:focus-visible {
+  outline: 2px solid var(--fn-color-brand);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+.chip,
+.status {
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: var(--fn-bg-tertiary);
+}
+.status[data-status="in_progress"] {
+  color: var(--fn-color-brand);
+  background: var(--fn-bg-selected);
+}
+.status[data-status="done"] {
+  color: var(--fn-text-secondary);
+}
+.chip {
+  border-inline-start: 3px solid var(--fn-text-tertiary);
+}
+.chip[data-color="red"] {
+  border-color: #d94841;
+}
+.chip[data-color="orange"] {
+  border-color: #d97620;
+}
+.chip[data-color="yellow"] {
+  border-color: #a58c00;
+}
+.chip[data-color="green"] {
+  border-color: #329b58;
+}
+.chip[data-color="blue"] {
+  border-color: #3279c0;
+}
+.chip[data-color="purple"] {
+  border-color: #9450bf;
+}
+.chip[data-color="gray"] {
+  border-color: #858585;
+}
+.toolbar,
+.actions,
+.laneFooter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.dialogBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  font-size: 13px;
+}
+.dialogBody p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.todoName {
+  font-weight: 600;
+}
+.formField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.formField input,
+.formField select {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 10px;
+  color: var(--fn-text-primary);
+  font: inherit;
+  background: var(--fn-bg-elevated);
+  border: 1px solid var(--fn-border-primary);
+  border-radius: 6px;
+}
+.formField input:focus-visible,
+.formField select:focus-visible {
+  outline: 2px solid var(--fn-color-brand);
+  outline-offset: 2px;
+}
+.confirmation {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.comparison {
+  padding: 12px;
+  border: 1px solid var(--fn-border-primary);
+  border-radius: 8px;
+  background: var(--fn-bg-secondary);
+}
+.comparisonValues {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+}
+.comparisonValues > div {
+  display: flex;
+  gap: 10px;
+}
+.comparisonValues dt {
+  color: var(--fn-text-secondary);
+}
+.comparisonValues dd {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  overflow-wrap: anywhere;
+}
+.toolbar {
+  padding: 10px 14px;
+  background: var(--fn-bg-selected);
+  border-block: 1px solid var(--fn-border-primary);
+  font-size: 12px;
+}
+.toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.toolbar select,
+.control {
+  padding: 5px 8px;
+  font: inherit;
+  color: var(--fn-text-primary);
+  background: var(--fn-bg-elevated);
+  border: 1px solid var(--fn-border-primary);
+  border-radius: 6px;
+}
+.control {
+  cursor: pointer;
+  font-size: 12px;
+}
+.control:focus-visible,
+.toolbar select:focus-visible {
+  outline: 2px solid var(--fn-color-brand);
+  outline-offset: 2px;
+}
+.control:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.actions {
+  flex-shrink: 0;
+}
+.laneFooter {
+  padding: 10px 14px;
+  color: var(--fn-text-secondary);
+  font-size: 12px;
+}

@@ -1,0 +1,243 @@
+.gantt {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  color: var(--fn-text-primary);
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px;
+  color: var(--fn-text-secondary);
+  font-size: 12px;
+}
+.toolbar button,
+.toolbar select,
+.rowLabel > button,
+.unscheduledCard > button {
+  padding: 5px 8px;
+  color: var(--fn-text-primary);
+  font: inherit;
+  font-size: 12px;
+  background: var(--fn-bg-elevated);
+  border: 1px solid var(--fn-border-primary);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.toolbar button:disabled,
+.rowLabel > button:disabled,
+.unscheduledCard > button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.window {
+  font-variant-numeric: tabular-nums;
+}
+.hint {
+  margin: 0;
+  padding: 0 16px 10px;
+  color: var(--fn-text-secondary);
+  font-size: 12px;
+}
+.body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 228px;
+  flex: 1;
+  gap: 12px;
+  min-height: 0;
+  padding: 0 16px 16px;
+}
+.timelineScroll {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--fn-border-primary);
+  border-radius: 8px;
+  background: var(--fn-bg-elevated);
+}
+.timeline {
+  min-width: 100%;
+}
+.headerRow,
+.ganttRow {
+  display: grid;
+  grid-template-columns: 270px minmax(0, 1fr);
+}
+.headerRow {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  min-height: 40px;
+  background: var(--fn-bg-secondary);
+}
+.rowLabel {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  padding: 10px 12px;
+  overflow: hidden;
+  border-right: 1px solid var(--fn-border-primary);
+  background: var(--fn-bg-elevated);
+  font-size: 12px;
+}
+.headerRow .rowLabel {
+  background: var(--fn-bg-secondary);
+}
+.rowLabel > button {
+  margin-top: 8px;
+}
+.scale {
+  display: grid;
+  border-bottom: 1px solid var(--fn-border-primary);
+}
+.tick,
+.todayTick {
+  display: flex;
+  align-items: center;
+  padding: 4px;
+  color: var(--fn-text-secondary);
+  border-right: 1px solid var(--fn-border-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.todayTick {
+  color: var(--fn-color-brand);
+  background: var(--fn-bg-selected);
+}
+.ganttRow {
+  min-height: 110px;
+  border-bottom: 1px solid var(--fn-border-secondary);
+}
+.track {
+  position: relative;
+  min-height: 110px;
+  background-image: linear-gradient(
+    to right,
+    var(--fn-border-secondary) 1px,
+    transparent 1px
+  );
+  background-size: calc(100% / var(--plan-day-count)) 100%;
+}
+.bar,
+.singleDay {
+  position: absolute;
+  top: 38px;
+  display: flex;
+  align-items: center;
+  min-width: 9px;
+  height: 32px;
+  color: var(--fn-text-primary);
+  background: var(--fn-bg-selected);
+  border: 1px solid var(--fn-color-brand-border);
+  border-radius: 6px;
+}
+.singleDay {
+  border-radius: 12px;
+  background: var(--fn-color-brand-bg);
+}
+.bar[draggable="true"],
+.singleDay[draggable="true"] {
+  cursor: grab;
+}
+.barTitle {
+  flex: 1;
+  min-width: 0;
+  padding: 0 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.edge {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 9px;
+  width: 9px;
+  height: 100%;
+  padding: 0;
+  color: var(--fn-color-brand);
+  background: transparent;
+  border: 0;
+  font: inherit;
+  cursor: ew-resize;
+}
+.edge:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+.unscheduled {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  border: 1px solid var(--fn-border-primary);
+  border-radius: 8px;
+  background: var(--fn-bg-secondary);
+}
+.unscheduled h3 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  margin: 0;
+  border-bottom: 1px solid var(--fn-border-primary);
+  font-size: 13px;
+}
+.unscheduled h3 span {
+  color: var(--fn-text-secondary);
+  font-size: 12px;
+}
+.sideScroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px;
+  overscroll-behavior: contain;
+}
+.unscheduledCard {
+  padding: 10px;
+  margin-bottom: 10px;
+  border: 1px solid var(--fn-border-primary);
+  border-radius: 7px;
+  background: var(--fn-bg-elevated);
+}
+.unscheduledCard > button {
+  margin: 8px 0;
+}
+.gantt button:focus-visible,
+.gantt select:focus-visible {
+  outline: 2px solid var(--fn-color-brand);
+  outline-offset: 2px;
+}
+@media (max-width: 1000px) {
+  .toolbar {
+    flex-wrap: nowrap;
+    flex-shrink: 0;
+    min-width: 0;
+    overflow-x: auto;
+    overscroll-behavior: contain;
+  }
+
+  .toolbar > * {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  .body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    padding-inline: 10px;
+  }
+}
