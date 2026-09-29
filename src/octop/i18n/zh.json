@@ -855,6 +855,12 @@
       "invalid_view_request": "视图请求无效，请检查必填字段、版本和配置。",
       "invalid_catalog_reference": "视图条件必须引用本项目的优先级或标签。",
       "invalid_assignee": "视图条件必须引用当前项目成员。"
+    },
+    "query_errors": {
+      "invalid_query_request": "计划查询无效，请检查视图、筛选、日期窗口和分页字段。",
+      "query_changed": "计划查询已变化，请刷新视图并比较条件后再继续。",
+      "filter_reference_unavailable": "已保存的筛选引用了不可用的项目成员或目录选项，请调整对应条件后再继续。",
+      "transaction_conflict": "项目计划正在被更新，请刷新并比较条件后重试。"
     }
   },
   "conversation_mode": {

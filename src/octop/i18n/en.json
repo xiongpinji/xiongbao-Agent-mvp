@@ -855,6 +855,12 @@
       "invalid_view_request": "The view request is invalid. Check required fields, versions and definition.",
       "invalid_catalog_reference": "View conditions must reference priorities or tags from this project.",
       "invalid_assignee": "View conditions must reference current project members."
+    },
+    "query_errors": {
+      "invalid_query_request": "The plan query is invalid. Check its view, filters, window and paging fields.",
+      "query_changed": "The plan query changed. Refresh the view and compare your conditions before continuing.",
+      "filter_reference_unavailable": "A saved filter refers to an unavailable project member or catalog option. Adjust the affected conditions before continuing.",
+      "transaction_conflict": "The project plan is being updated. Refresh and compare your conditions before retrying."
     }
   },
   "conversation_mode": {

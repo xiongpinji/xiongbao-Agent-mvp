@@ -13,6 +13,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.responses import Response
 
 from octop.api.deps import current_user, get_server
+from octop.api.routers.project_todos import TodoResponse
 from octop.infra.db.repos._base import UNSET
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.projects.plan_definition import (
@@ -21,6 +22,12 @@ from octop.infra.projects.plan_definition import (
     GanttDefinition,
     PlanDefinition,
     ViewType,
+)
+from octop.infra.projects.plan_query import (
+    PlanQueryGroupKey,
+    PlanQueryRequest,
+    ProjectPlanQueryService,
+    query_error,
 )
 from octop.infra.projects.todo_views import ProjectTodoViewService, validate_view_name, view_error
 from octop.infra.server import OctopServer
@@ -36,6 +43,8 @@ class SafePlanViewRoute(APIRoute):
                 return await handler(request)
             except RequestValidationError:
                 # The default errors include untrusted nested loc and input.
+                if self.path.endswith("/query"):
+                    raise query_error("invalid_query_request", status=422) from None
                 raise view_error("invalid_view_request", status=422) from None
 
         return safe_handler
@@ -135,6 +144,51 @@ def _service(server: OctopServer) -> ProjectTodoViewService:
     if server.services is None:
         raise OctopError(ErrorCode.INTERNAL_ERROR, "server services unavailable")
     return ProjectTodoViewService(server.services)
+
+
+def _query_service(server: OctopServer) -> ProjectPlanQueryService:
+    if server.services is None:
+        raise OctopError(ErrorCode.INTERNAL_ERROR, "server services unavailable")
+    return ProjectPlanQueryService(server.services)
+
+
+class PlanQueryGroupResponse(BaseModel):
+    key: PlanQueryGroupKey
+    count: int
+
+
+class PlanQueryResponse(BaseModel):
+    items: list[TodoResponse]
+    next_cursor: str | None
+    total: int
+    matched_total: int
+    unscheduled_total: int | None
+    groups: list[PlanQueryGroupResponse]
+    view_id: str
+    view_version: int
+    catalog_revision: int
+    server_today: str
+    server_timezone: str
+    query_fingerprint: str
+
+
+@router.post(
+    "/query",
+    response_model=PlanQueryResponse,
+    summary="Query project todos using one consistent shared view snapshot",
+)
+async def query_plan(
+    project_id: str,
+    body: PlanQueryRequest,
+    server: OctopServer = Depends(get_server),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    return await run_in_threadpool(
+        _query_service(server).query,
+        project_id,
+        user_id=user.id,
+        data=body.model_dump(mode="json", exclude_unset=True),
+    )
 
 
 class _ViewResponse(BaseModel):
