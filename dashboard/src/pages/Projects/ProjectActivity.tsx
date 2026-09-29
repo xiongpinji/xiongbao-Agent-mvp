@@ -52,6 +52,7 @@ const { Text } = Typography;
 interface Props {
   projectId: string;
   onOpenTodo?: (todoId: string) => void;
+  onProjectNotFound?: (projectId: string, error: unknown) => void;
 }
 
 interface TimelineState {
@@ -164,7 +165,11 @@ function activityAction(item: ProjectActivityItem): ActivityAction {
   }
 }
 
-export default function ProjectActivity({ projectId, onOpenTodo }: Props) {
+export default function ProjectActivity({
+  projectId,
+  onOpenTodo,
+  onProjectNotFound,
+}: Props) {
   const { t } = useTranslation();
   const timezone = useServerTimezone();
   const [scope, setScope] = useState<ProjectActivityScope>("related");
@@ -192,6 +197,8 @@ export default function ProjectActivity({ projectId, onOpenTodo }: Props) {
   }));
 
   const stateKey = `${projectId}\u0000${scope}`;
+  const currentStateKey = useRef(stateKey);
+  currentStateKey.current = stateKey;
   const reload = useCallback(() => setReloadKey((key) => key + 1), []);
 
   useEffect(() => {
@@ -206,6 +213,7 @@ export default function ProjectActivity({ projectId, onOpenTodo }: Props) {
 
   useEffect(
     () => () => {
+      fetchSeq.current += 1;
       postSeq.current += 1;
     },
     [],
@@ -244,7 +252,7 @@ export default function ProjectActivity({ projectId, onOpenTodo }: Props) {
         });
       })
       .catch((error: unknown) => {
-        if (seq !== fetchSeq.current) return;
+        if (seq !== fetchSeq.current || key !== currentStateKey.current) return;
         setTimeline({
           key,
           items: [],
@@ -255,8 +263,9 @@ export default function ProjectActivity({ projectId, onOpenTodo }: Props) {
           loading: false,
           loadingMore: false,
         });
+        if (isNotFoundApiError(error)) onProjectNotFound?.(projectId, error);
       });
-  }, [projectId, scope, reloadKey, stateKey]);
+  }, [projectId, scope, reloadKey, stateKey, onProjectNotFound]);
 
   const current = timeline.key === stateKey ? timeline : null;
   const items = current?.items ?? [];
@@ -299,7 +308,7 @@ export default function ProjectActivity({ projectId, onOpenTodo }: Props) {
             },
       );
     } catch (err: unknown) {
-      if (seq !== fetchSeq.current) return;
+      if (seq !== fetchSeq.current || key !== currentStateKey.current) return;
       if (isNotFoundApiError(err)) {
         setTimeline((previous) =>
           previous.key !== key
@@ -314,6 +323,7 @@ export default function ProjectActivity({ projectId, onOpenTodo }: Props) {
                 loadingMore: false,
               },
         );
+        onProjectNotFound?.(projectId, err);
       } else if (isCursorInvalidError(err)) {
         setTimeline((previous) =>
           previous.key !== key
@@ -369,7 +379,8 @@ export default function ProjectActivity({ projectId, onOpenTodo }: Props) {
     } catch (err: unknown) {
       if (
         seq !== postSeq.current ||
-        submittedProjectId !== currentProjectId.current
+        submittedProjectId !== currentProjectId.current ||
+        stateKey !== currentStateKey.current
       )
         return;
       if (isNotFoundApiError(err)) {
@@ -391,6 +402,7 @@ export default function ProjectActivity({ projectId, onOpenTodo }: Props) {
                 loadingMore: false,
               },
         );
+        onProjectNotFound?.(submittedProjectId, err);
       } else {
         setFormError(
           apiErrorMessage(

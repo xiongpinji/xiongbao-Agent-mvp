@@ -336,8 +336,11 @@ describe("ProjectActivity timeline", () => {
 
   it("clears the timeline and shows no-access when a refresh returns 404", async () => {
     const user = userEvent.setup();
+    const onProjectNotFound = vi.fn();
     list.mockResolvedValueOnce(page([messageByAlice]));
-    renderActivity("p1");
+    render(
+      <ProjectActivity projectId="p1" onProjectNotFound={onProjectNotFound} />,
+    );
     await screen.findByText("第一条留言");
 
     list.mockRejectedValueOnce(
@@ -354,12 +357,17 @@ describe("ProjectActivity timeline", () => {
     expect(
       screen.getByText("项目动态已清除；重新加载成功前不会显示旧内容。"),
     ).toBeInTheDocument();
+    expect(onProjectNotFound).toHaveBeenCalledOnce();
+    expect(onProjectNotFound).toHaveBeenCalledWith("p1", expect.any(Error));
   });
 
   it("clears already loaded rows when load more returns 404 after revocation", async () => {
     const user = userEvent.setup();
+    const onProjectNotFound = vi.fn();
     list.mockResolvedValueOnce(page([messageByAlice], "next-page"));
-    renderActivity("p1");
+    render(
+      <ProjectActivity projectId="p1" onProjectNotFound={onProjectNotFound} />,
+    );
     await screen.findByText("第一条留言");
 
     list.mockRejectedValueOnce(
@@ -374,10 +382,13 @@ describe("ProjectActivity timeline", () => {
       await screen.findByText("项目不存在或你无权访问"),
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "发表" })).toBeNull();
+    expect(onProjectNotFound).toHaveBeenCalledOnce();
+    expect(onProjectNotFound).toHaveBeenCalledWith("p1", expect.any(Error));
   });
 
   it("keeps no-access after a post 404 even when an earlier list resolves late", async () => {
     const user = userEvent.setup();
+    const onProjectNotFound = vi.fn();
     let resolveList: ((value: ReturnType<typeof page>) => void) | null = null;
     list.mockImplementationOnce(
       () => new Promise((resolve) => (resolveList = resolve)),
@@ -387,7 +398,9 @@ describe("ProjectActivity timeline", () => {
         '404 - {"error":{"code":"NOT_FOUND","message":"project not found"}}',
       ),
     );
-    renderActivity("p1");
+    render(
+      <ProjectActivity projectId="p1" onProjectNotFound={onProjectNotFound} />,
+    );
 
     await user.type(
       screen.getByPlaceholderText("以纯文本发表留言…"),
@@ -404,6 +417,62 @@ describe("ProjectActivity timeline", () => {
     });
     expect(screen.queryByText("第一条留言")).toBeNull();
     expect(screen.queryByRole("button", { name: "发表" })).toBeNull();
+    expect(onProjectNotFound).toHaveBeenCalledOnce();
+    expect(onProjectNotFound).toHaveBeenCalledWith("p1", expect.any(Error));
+  });
+
+  it("does not report a late 404 from an old project to the parent", async () => {
+    let rejectOld!: (reason: unknown) => void;
+    const onProjectNotFound = vi.fn();
+    list.mockImplementationOnce(
+      () => new Promise((_, reject) => (rejectOld = reject)),
+    );
+    const { rerender } = render(
+      <ProjectActivity projectId="p1" onProjectNotFound={onProjectNotFound} />,
+    );
+    list.mockResolvedValueOnce(page([messageByBob]));
+    rerender(
+      <ProjectActivity projectId="p2" onProjectNotFound={onProjectNotFound} />,
+    );
+    expect(await screen.findByText("第二条留言")).toBeInTheDocument();
+
+    await act(async () => {
+      rejectOld(new Error('404 - {"error":{"code":"NOT_FOUND"}}'));
+      await Promise.resolve();
+    });
+    expect(onProjectNotFound).not.toHaveBeenCalled();
+    expect(screen.getByText("第二条留言")).toBeInTheDocument();
+  });
+
+  it("does not report a late 404 from an old scope to the parent", async () => {
+    let rejectRelated!: (reason: unknown) => void;
+    const onProjectNotFound = vi.fn();
+    list.mockImplementationOnce(
+      () => new Promise((_, reject) => (rejectRelated = reject)),
+    );
+    render(
+      <ProjectActivity projectId="p1" onProjectNotFound={onProjectNotFound} />,
+    );
+    list.mockResolvedValueOnce(page([messageByBob]));
+    fireEvent.click(screen.getByRole("radio", { name: "成员动态" }));
+    expect(await screen.findByText("第二条留言")).toBeInTheDocument();
+
+    await act(async () => {
+      rejectRelated(new Error('404 - {"error":{"code":"NOT_FOUND"}}'));
+      await Promise.resolve();
+    });
+    expect(onProjectNotFound).not.toHaveBeenCalled();
+    expect(screen.getByText("第二条留言")).toBeInTheDocument();
+  });
+
+  it("does not report ordinary activity errors as revoked project access", async () => {
+    const onProjectNotFound = vi.fn();
+    list.mockRejectedValueOnce(new Error("503 - temporarily unavailable"));
+    render(
+      <ProjectActivity projectId="p1" onProjectNotFound={onProjectNotFound} />,
+    );
+    expect(await screen.findByText("temporarily unavailable")).toBeVisible();
+    expect(onProjectNotFound).not.toHaveBeenCalled();
   });
 
   it("ignores a late response from the previous project", async () => {

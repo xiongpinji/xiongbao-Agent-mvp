@@ -42,6 +42,21 @@ const { expertsProps } = vi.hoisted(() => ({
   },
 }));
 
+const { memberPanelProps } = vi.hoisted(() => ({
+  memberPanelProps: {
+    current: null as null | { onChanged?: () => void },
+  },
+}));
+
+const { activityProps } = vi.hoisted(() => ({
+  activityProps: {
+    current: null as null | {
+      projectId: string;
+      onProjectNotFound?: (projectId: string, error: unknown) => void;
+    },
+  },
+}));
+
 const { modalProps } = vi.hoisted(() => ({
   modalProps: {
     current: null as null | {
@@ -127,12 +142,21 @@ vi.mock("../../components/EmptyState", () => ({
 }));
 
 vi.mock("./ProjectActivity", () => ({
-  default: ({ onOpenTodo }: { onOpenTodo?: (id: string) => void }) => (
-    <div>
-      activity-stub
-      <button onClick={() => onOpenTodo?.("t1")}>activity-open-todo</button>
-    </div>
-  ),
+  default: (props: {
+    projectId: string;
+    onOpenTodo?: (id: string) => void;
+    onProjectNotFound?: (projectId: string, error: unknown) => void;
+  }) => {
+    activityProps.current = props;
+    return (
+      <div>
+        activity-stub
+        <button onClick={() => props.onOpenTodo?.("t1")}>
+          activity-open-todo
+        </button>
+      </div>
+    );
+  },
 }));
 vi.mock("./ProjectPlan", () => ({
   default: ({
@@ -168,11 +192,14 @@ vi.mock("./ProjectMembersPanel", () => ({
   // Mirror the real panel's outer landmark: ProjectMembersPanel renders its
   // own <section aria-label="成员">, which the detail card wrapper must not
   // duplicate with a second named region.
-  default: () => (
-    <section aria-label="成员">
-      <div>members-stub</div>
-    </section>
-  ),
+  default: (props: { onChanged?: () => void }) => {
+    memberPanelProps.current = props;
+    return (
+      <section aria-label="成员">
+        <div>members-stub</div>
+      </section>
+    );
+  },
 }));
 vi.mock("./ProjectExperts", () => ({
   default: (props: { projectId: string; role: string }) => {
@@ -288,6 +315,8 @@ function LocationProbe() {
 beforeEach(() => {
   vi.clearAllMocks();
   account.id = 1;
+  activityProps.current = null;
+  memberPanelProps.current = null;
   modalProps.current = null;
   get.mockResolvedValue({
     ...summary,
@@ -300,6 +329,186 @@ beforeEach(() => {
 });
 
 describe("ProjectDetail assets tab mount", () => {
+  it("removes the entire loaded project tree when current activity loses access", async () => {
+    const user = userEvent.setup();
+    get.mockResolvedValue({
+      ...summary,
+      name: "撤权前私密项目",
+      description: "PS03_PRIVATE_DESCRIPTION_CANARY",
+      instructions: "PS03_PRIVATE_INSTRUCTIONS_CANARY",
+      instructions_sha256: "private-sha",
+      member_count: 2,
+    });
+    members.mockResolvedValue([
+      { user_id: 1, username: "alice", role: "owner" },
+      { user_id: 2, username: "private-member", role: "member" },
+    ]);
+    const { container } = renderDetail("project-1");
+    await screen.findByText("activity-stub");
+    expect(screen.getByText("PS03_PRIVATE_INSTRUCTIONS_CANARY")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "查看详情" }));
+    expect(screen.getByText("PS03_PRIVATE_DESCRIPTION_CANARY")).toBeVisible();
+    expect(screen.getByText("2 名成员")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "编辑项目资料" }));
+    const staleSave = modalProps.current?.onSaved;
+    expect(screen.getByRole("dialog", { name: "编辑项目" })).toBeVisible();
+
+    await act(async () => {
+      activityProps.current?.onProjectNotFound?.(
+        "project-1",
+        new Error('404 - {"error":{"code":"NOT_FOUND"}}'),
+      );
+    });
+
+    expect(screen.getByText("项目不存在或你无权访问")).toBeVisible();
+    expect(container.textContent).not.toContain("撤权前私密项目");
+    expect(container.textContent).not.toContain(
+      "PS03_PRIVATE_DESCRIPTION_CANARY",
+    );
+    expect(container.textContent).not.toContain(
+      "PS03_PRIVATE_INSTRUCTIONS_CANARY",
+    );
+    expect(container.textContent).not.toContain("private-member");
+    expect(container.textContent).not.toContain("2 名成员");
+    expect(screen.queryByRole("tab", { name: "任务" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "编辑项目" })).toBeNull();
+
+    await act(async () => {
+      staleSave?.({ ...summary, name: "旧保存回调私密项目" });
+    });
+    expect(container.textContent).not.toContain("旧保存回调私密项目");
+  });
+
+  it("does not restore cached details from a parent reload that began before activity 404", async () => {
+    let resolveProject!: (value: unknown) => void;
+    let resolveMembers!: (value: unknown) => void;
+    get.mockResolvedValueOnce({
+      ...summary,
+      instructions: "初始指令",
+      instructions_sha256: "initial",
+    });
+    get.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveProject = resolve)),
+    );
+    members.mockResolvedValueOnce([
+      { user_id: 1, username: "alice", role: "owner" },
+    ]);
+    members.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveMembers = resolve)),
+    );
+    const { container } = renderDetail("project-1");
+    await screen.findByText("activity-stub");
+    const activityNotFound = activityProps.current?.onProjectNotFound;
+
+    await act(async () => memberPanelProps.current?.onChanged?.());
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      activityNotFound?.(
+        "project-1",
+        new Error('404 - {"error":{"code":"NOT_FOUND"}}'),
+      );
+    });
+    expect(screen.getByText("项目不存在或你无权访问")).toBeVisible();
+
+    await act(async () => {
+      resolveProject({
+        ...summary,
+        name: "PS03_PRIVATE_RELOAD_CANARY",
+        instructions: "PS03_PRIVATE_INSTRUCTIONS_CANARY",
+        instructions_sha256: "private",
+      });
+      resolveMembers([
+        { user_id: 2, username: "PS03_PRIVATE_MEMBER_CANARY", role: "member" },
+      ]);
+      await Promise.resolve();
+    });
+    expect(screen.getByText("项目不存在或你无权访问")).toBeVisible();
+    expect(container.textContent).not.toContain("PS03_PRIVATE_RELOAD_CANARY");
+    expect(container.textContent).not.toContain(
+      "PS03_PRIVATE_INSTRUCTIONS_CANARY",
+    );
+    expect(container.textContent).not.toContain("PS03_PRIVATE_MEMBER_CANARY");
+  });
+
+  it("ignores a prior account's activity 404 after the new account loads", async () => {
+    const tree = () => (
+      <MemoryRouter initialEntries={["/projects/project-1"]}>
+        <Routes>
+          <Route path="/projects/:projectId" element={<ProjectDetail />} />
+        </Routes>
+      </MemoryRouter>
+    );
+    const { rerender } = render(tree());
+    await screen.findByText("activity-stub");
+    const staleNotFound = activityProps.current?.onProjectNotFound;
+
+    account.id = 9;
+    get.mockResolvedValue({
+      ...summary,
+      name: "新账号可读项目",
+      instructions: "",
+      instructions_sha256: "new-account",
+    });
+    rerender(tree());
+    expect(
+      await screen.findByRole("heading", { name: "新账号可读项目" }),
+    ).toBeVisible();
+    await act(async () => {
+      staleNotFound?.(
+        "project-1",
+        new Error('404 - {"error":{"code":"NOT_FOUND"}}'),
+      );
+    });
+    expect(
+      screen.getByRole("heading", { name: "新账号可读项目" }),
+    ).toBeVisible();
+  });
+
+  it("ignores a prior project's activity 404 after navigating to another project", async () => {
+    const user = userEvent.setup();
+    get.mockImplementation((projectId: string) =>
+      Promise.resolve({
+        ...summary,
+        project_id: projectId,
+        name: projectId === "project-1" ? "旧项目" : "新项目",
+        instructions: "",
+        instructions_sha256: projectId,
+      }),
+    );
+    function SwitchProject() {
+      const navigate = useNavigate();
+      return (
+        <button onClick={() => navigate("/projects/project-2")}>
+          switch-project
+        </button>
+      );
+    }
+    render(
+      <MemoryRouter initialEntries={["/projects/project-1"]}>
+        <SwitchProject />
+        <Routes>
+          <Route path="/projects/:projectId" element={<ProjectDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(
+      await screen.findByRole("heading", { name: "旧项目" }),
+    ).toBeVisible();
+    const staleNotFound = activityProps.current?.onProjectNotFound;
+    await user.click(screen.getByRole("button", { name: "switch-project" }));
+    expect(
+      await screen.findByRole("heading", { name: "新项目" }),
+    ).toBeVisible();
+
+    await act(async () => {
+      staleNotFound?.(
+        "project-1",
+        new Error('404 - {"error":{"code":"NOT_FOUND"}}'),
+      );
+    });
+    expect(screen.getByRole("heading", { name: "新项目" })).toBeVisible();
+  });
+
   it("reloads the same project when account identity changes and ignores the previous account's late GET", async () => {
     let resolveOld!: (value: unknown) => void;
     get.mockReturnValueOnce(

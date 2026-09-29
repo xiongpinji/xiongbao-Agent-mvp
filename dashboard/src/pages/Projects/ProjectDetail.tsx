@@ -108,6 +108,7 @@ function useProjectLoader(projectId: string) {
   const [reloadKey, setReloadKey] = useState(0);
   /** Monotonic guard: responses from a previously viewed project are dropped. */
   const requestSeq = useRef(0);
+  const revokedKey = useRef<string | null>(null);
 
   useEffect(() => {
     const seq = ++requestSeq.current;
@@ -122,6 +123,7 @@ function useProjectLoader(projectId: string) {
     ])
       .then(([record, memberRows]) => {
         if (key !== currentKey.current || seq !== requestSeq.current) return;
+        revokedKey.current = null;
         setProject(record);
         setMembers(memberRows);
         setError(null);
@@ -142,13 +144,39 @@ function useProjectLoader(projectId: string) {
   }, [projectId, key, reloadKey]);
 
   const reload = useCallback(() => setReloadKey((k) => k + 1), []);
+  const invalidateAccess = useCallback(
+    (reportedProjectId: string, err: unknown) => {
+      if (
+        reportedProjectId !== projectId ||
+        key !== currentKey.current ||
+        !isNotFoundApiError(err)
+      )
+        return;
+      revokedKey.current = key;
+      requestSeq.current += 1;
+      setProject(null);
+      setMembers(null);
+      setError(err);
+      setLoadedProjectId(key);
+      setLoading(false);
+    },
+    [projectId, key],
+  );
+  const applySavedProject = useCallback(
+    (saved: ProjectRecord) => {
+      if (key !== currentKey.current || revokedKey.current === key) return;
+      setProject(saved);
+    },
+    [key],
+  );
   return {
     project,
-    setProject,
+    applySavedProject,
     members,
     loading: loading || loadedProjectId !== key,
     error,
     reload,
+    invalidateAccess,
   };
 }
 
@@ -160,8 +188,15 @@ export default function ProjectDetail() {
   const { projectId } = useParams<{ projectId: string }>();
   const id = projectId ?? "";
 
-  const { project, setProject, members, loading, error, reload } =
-    useProjectLoader(id);
+  const {
+    project,
+    applySavedProject,
+    members,
+    loading,
+    error,
+    reload,
+    invalidateAccess,
+  } = useProjectLoader(id);
   const routeQuery = new URLSearchParams(location.search);
   const selectedTodoId = routeQuery.get("todo") || null;
   const requestedTab = routeQuery.get("tab");
@@ -431,7 +466,11 @@ export default function ProjectDetail() {
       key: "activity",
       label: t("projects.tabs.activity", "动态"),
       children: (
-        <ProjectActivity projectId={project.project_id} onOpenTodo={openTodo} />
+        <ProjectActivity
+          projectId={project.project_id}
+          onOpenTodo={openTodo}
+          onProjectNotFound={invalidateAccess}
+        />
       ),
     },
     {
@@ -668,7 +707,7 @@ export default function ProjectDetail() {
         onClose={() => setEditOpen(false)}
         onSaved={(saved) => {
           setEditOpen(false);
-          setProject(saved);
+          applySavedProject(saved);
         }}
       />
     </>
