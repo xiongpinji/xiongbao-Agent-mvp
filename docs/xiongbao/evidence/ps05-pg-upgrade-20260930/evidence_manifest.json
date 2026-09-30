@@ -1,0 +1,31 @@
+{
+  "scope": "PS05 synthetic v23-to-v35 PostgreSQL upgrade",
+  "baseline": "deb94e8373be00d4a8793a9196a2fa5ff634fc2e",
+  "files": [
+    {
+      "name": "cluster-result.json",
+      "bytes": 3406,
+      "sha256": "9fb9841251fc8d47d527708be180ac246f3fdde6b456051b0dc78fc1d7c7be25"
+    },
+    {
+      "name": "upgrade_cleanup.py.txt",
+      "bytes": 2287,
+      "sha256": "c65e3b77ecbd6d91f5de588da53e274aaabe8f24328f36048d046ad3bf549db1"
+    },
+    {
+      "name": "upgrade_probe.py.txt",
+      "bytes": 10510,
+      "sha256": "39b637f3adabb24015f3cd276184e34313cc00ed1d416f21eaad36db178d4c0d"
+    },
+    {
+      "name": "upgrade-cleanup.json",
+      "bytes": 202,
+      "sha256": "73bea4afe08cc7d43ca6d6313a5101107b3d1f57916e96d2e41e93a31eb7cc8d"
+    },
+    {
+      "name": "upgrade-result.json",
+      "bytes": 576,
+      "sha256": "74fb569a47f7493cf3c9699eb624cbfe03f7200b12c604b16e7940e2cad09fef"
+    }
+  ]
+}

@@ -58,6 +58,8 @@ GLM 本次未执行，恢复后补审；WorkBuddy 同夹具逐状态像素、键
 
 2026-09-30 PS-05B 024/025 补验：[全新 PostgreSQL/TCP 与 Chrome 局部记录](PROJECT_TASK_SHARE_PS05_PG_TCP_ACCEPTANCE_20260930.md)在固定 `25950683` 验证四身份 API、recipient 浏览器撤权、两组各 20 轮有界交错和顺序归档门禁；自建数据库已删除、PG/API 正常停机，Vite 端口已关闭。上表 024/025 原批次的“PG 未验”保留历史语境；新证据不覆盖旧库升级、归档/授予同发、完整任务级 ACL、协同或 WorkBuddy 1:1，006 与 PS-05B 仍未完成。
 
+2026-09-30 续补：[合成 v23 旧库逐版升级验收](PROJECT_TASK_SHARE_PS05_PG_UPGRADE_ACCEPTANCE_20260930.md)在固定 `deb94e83` 验证 PostgreSQL `23 → 24 → 25 → 35`，确认旧卡片授权不会自动授予正文，且重复升级幂等；测试库与临时集群均已清理。它不等于真实用户旧库升级或完整 PS-05B 验收。
+
 # Validation strategy
 
 2026-09-24 进度注记：001/003/004 已在 Agent Orchestrator 台账通过并推送；002 的项目 UI 已由 Codex 整合推送，但 OpenCode 原任务未交付可接受差异，台账保持进行中。005 的 Claude 020 后端候选越出工作路径白名单，Codex 仅取所需文件并修正；OpenCode 前端候选在允许范围内交付，Codex 修复后通过定向测试、生产构建和隔离浏览器关键链路，GLM 只读审查指出的锁序与台账问题已修复，调度器标记该**实施片**完成。PS-04 的全部真实界面路径、PG 实库及 WorkBuddy 视觉仍未验收；不能凭复选框推断项目空间 1:1。

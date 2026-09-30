@@ -1,0 +1,59 @@
+"""Remove only the stopped, receipt-bound WSL cluster from upgrade_probe."""
+from __future__ import annotations
+
+import json
+import shutil
+import socket
+import subprocess
+from pathlib import Path
+
+QA = Path(
+    "/mnt/c/Users/canqu/Documents/Codex/2026-09-23/"
+    "qctop-work-buddy-agent-logo-ui-3/work/qa-project-task-share-20260930/upgrade-20260930"
+)
+PORT = 52498
+
+
+def main() -> None:
+    assert QA.is_dir()
+    report = json.loads((QA / "cluster" / "cluster-result.json").read_text(encoding="utf-8"))
+    upgrade = json.loads((QA / "upgrade-result.json").read_text(encoding="utf-8"))
+    assert report["state"] == "STOPPED" and report["actual_exit_code"] == 0
+    assert report["scope"] == "PS05_CARD_TEXT_PG" and report["port"] == PORT
+    assert report["normal_stop_requested"] is True
+    assert report["cleanup"]["stop_exit_code"] == 0
+    assert report["cleanup"]["status_after"] == 3
+    assert report["cleanup"]["port_closed"] is True
+    assert upgrade["result"] == "PASS" and upgrade["database_dropped"] is True
+    assert upgrade["remaining_connections"] == 0
+    base = Path(report["base"])
+    data = Path(report["cluster"])
+    assert base.parent == Path("/tmp")
+    assert base.name.startswith("xiongbao-project-task-share-qa-")
+    assert data == base / "cluster"
+    assert base.is_dir() and data.is_dir()
+    assert not base.is_symlink() and not data.is_symlink()
+    assert base.resolve() == base and data.resolve() == data
+    status = subprocess.run(
+        ["/usr/lib/postgresql/18/bin/pg_ctl", "-D", str(data), "status"],
+        capture_output=True, text=True, timeout=20, check=False,
+    )
+    assert status.returncode == 3, status.returncode
+    with socket.socket() as sock:
+        sock.settimeout(1)
+        assert sock.connect_ex(("127.0.0.1", PORT)) != 0
+    shutil.rmtree(base)
+    assert not base.exists()
+    receipt = {
+        "result": "passed", "scope": "PS05_OLD_PG_UPGRADE",
+        "base": str(base), "pg_status_before": status.returncode,
+        "port_closed_before": True, "base_exists_after": False,
+    }
+    (QA / "upgrade-cleanup.json").write_text(
+        json.dumps(receipt, indent=2) + "\n", encoding="utf-8"
+    )
+    print("PS05 historical-upgrade owned PG cluster removed", flush=True)
+
+
+if __name__ == "__main__":
+    main()

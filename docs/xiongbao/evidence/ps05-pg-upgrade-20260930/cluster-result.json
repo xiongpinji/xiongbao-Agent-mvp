@@ -1,0 +1,96 @@
+{
+  "state": "STOPPED",
+  "scope": "PS05_CARD_TEXT_PG",
+  "port": 52498,
+  "cluster": "/tmp/xiongbao-project-task-share-qa-1_b2kwey/cluster",
+  "base": "/tmp/xiongbao-project-task-share-qa-1_b2kwey",
+  "user": "ps05qa_9e463ebba027",
+  "database_prefix": "ps05qa_9e463ebba027_",
+  "pid": 194159,
+  "lease_seconds": 7200,
+  "commands": [
+    {
+      "tool": "initdb",
+      "arguments": [
+        "-D",
+        "/tmp/xiongbao-project-task-share-qa-1_b2kwey/cluster",
+        "-A",
+        "trust",
+        "-U",
+        "ps05qa_9e463ebba027",
+        "--no-instructions"
+      ],
+      "exit_code": 0,
+      "stdout": "The files belonging to this database system will be owned by user \"canqu\".\nThis user must also own the server process.\n\nThe database cluster will be initialized with locale \"C.UTF-8\".\nThe default database encoding has accordingly been set to \"UTF8\".\nThe default text search configuration will be set to \"english\".\n\nData page checksums are enabled.\n\ncreating directory /tmp/xiongbao-project-task-share-qa-1_b2kwey/cluster ... ok\ncreating subdirectories ... ok\nselecting dynamic shared memory implementation ... posix\nselecting default \"max_connections\" ... 100\nselecting default \"shared_buffers\" ... 128MB\nselecting default time zone ... Asia/Shanghai\ncreating configuration files ... ok\nrunning bootstrap script ... ok\nperforming post-bootstrap initialization ... ok\nsyncing data to disk ... ok\n",
+      "stderr": ""
+    },
+    {
+      "tool": "pg_ctl",
+      "arguments": [
+        "-D",
+        "/tmp/xiongbao-project-task-share-qa-1_b2kwey/cluster",
+        "-o",
+        "-h 127.0.0.1 -k /tmp/xiongbao-project-task-share-qa-1_b2kwey -p 52498",
+        "-l",
+        "/tmp/xiongbao-project-task-share-qa-1_b2kwey/postgres.log",
+        "-w",
+        "start"
+      ],
+      "exit_code": 0,
+      "stdout": "waiting for server to start.... done\nserver started\n",
+      "stderr": ""
+    },
+    {
+      "tool": "pg_ctl",
+      "arguments": [
+        "-D",
+        "/tmp/xiongbao-project-task-share-qa-1_b2kwey/cluster",
+        "status"
+      ],
+      "exit_code": 0,
+      "stdout": "pg_ctl: server is running (PID: 194189)\n/usr/lib/postgresql/18/bin/postgres \"-D\" \"/tmp/xiongbao-project-task-share-qa-1_b2kwey/cluster\" \"-h\" \"127.0.0.1\" \"-k\" \"/tmp/xiongbao-project-task-share-qa-1_b2kwey\" \"-p\" \"52498\"\n",
+      "stderr": ""
+    },
+    {
+      "tool": "pg_ctl",
+      "arguments": [
+        "-D",
+        "/tmp/xiongbao-project-task-share-qa-1_b2kwey/cluster",
+        "-m",
+        "fast",
+        "-w",
+        "stop"
+      ],
+      "exit_code": 0,
+      "stdout": "waiting for server to shut down.... done\nserver stopped\n",
+      "stderr": ""
+    },
+    {
+      "tool": "pg_ctl",
+      "arguments": [
+        "-D",
+        "/tmp/xiongbao-project-task-share-qa-1_b2kwey/cluster",
+        "status"
+      ],
+      "exit_code": 3,
+      "stdout": "pg_ctl: no server running\n",
+      "stderr": ""
+    }
+  ],
+  "cleanup": {
+    "stop_exit_code": 0,
+    "status_after": 3,
+    "port_closed": true
+  },
+  "error": null,
+  "identity": {
+    "database": "postgres",
+    "user": "ps05qa_9e463ebba027",
+    "port": 52498,
+    "backend_pid": 194199,
+    "data_directory": "/tmp/xiongbao-project-task-share-qa-1_b2kwey/cluster"
+  },
+  "postgresql": "18.6 (Ubuntu 18.6-0ubuntu0.26.04.1)",
+  "normal_stop_requested": true,
+  "actual_exit_code": 0
+}

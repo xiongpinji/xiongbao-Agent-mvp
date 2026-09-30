@@ -1,0 +1,26 @@
+{
+  "database": "ps05qa_9e463ebba027_2c6a5835ba07",
+  "baseline_sha": "deb94e83",
+  "stages": [
+    23,
+    24,
+    25,
+    "current"
+  ],
+  "admin_pid": 195001,
+  "database_pid": 195002,
+  "synthetic_ids": {
+    "owner": 1,
+    "recipient": 2,
+    "agent": "qa_agent_2c6a5835ba07",
+    "thread": "qa_thread_2c6a5835ba07",
+    "project": "qa_project_2c6a5835ba07",
+    "created_at": 1790730312
+  },
+  "result": "PASS",
+  "current_version": 35,
+  "old_card_did_not_gain_text": true,
+  "explicit_grant_required": true,
+  "remaining_connections": 0,
+  "database_dropped": true
+}

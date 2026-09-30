@@ -1,0 +1,236 @@
+"""One-off, owned PostgreSQL 23->24->25->current upgrade probe for PS05B.
+
+This script only creates a unique database inside the verified disposable PG
+cluster named by --context; it never accepts an application DSN.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import time
+from pathlib import Path
+from unittest.mock import patch
+from uuid import uuid4
+
+import psycopg
+from psycopg.conninfo import make_conninfo
+from psycopg.sql import Identifier, SQL
+
+from octop.infra.db import migrate
+from octop.infra.db.pool import PostgresPool
+from octop.infra.db.repos.project_task_content import ProjectTaskContentRepo
+from octop.infra.db.repos.project_task_shares import ProjectTaskShareRepo
+
+
+QA_ROOT = Path(__file__).resolve().parent
+EXPECTED_PORT = 52498
+
+
+def _identity(conn: object, context: dict[str, object], database: str) -> int:
+    row = conn.execute(  # type: ignore[attr-defined]
+        "SELECT current_database(), current_user, inet_server_port(), "
+        "host(inet_server_addr()), pg_backend_pid()"
+    ).fetchone()
+    data_dir = conn.execute("SHOW data_directory").fetchone()[0]  # type: ignore[attr-defined]
+    assert tuple(row[index] for index in range(4)) == (
+        database, context["user"], context["port"], "127.0.0.1"
+    )
+    assert data_dir == context["cluster"]
+    return int(row[4])
+
+
+def _stage(pool: PostgresPool, cap: int | None) -> int:
+    if cap is None:
+        migrate.run_migrations(pool)
+    else:
+        discover = migrate._discover
+        with patch.object(
+            migrate,
+            "_discover",
+            side_effect=lambda dialect: [(v, p) for v, p in discover(dialect) if v <= cap],
+        ):
+            migrate.run_migrations(pool)
+    with pool.connect() as conn:
+        return int(conn.execute("SELECT version FROM _schema_version").fetchone()[0])
+
+
+def _seed_v23(pool: PostgresPool, nonce: str) -> dict[str, object]:
+    now = int(time.time())
+    agent = f"qa_agent_{nonce}"
+    thread = f"qa_thread_{nonce}"
+    project = f"qa_project_{nonce}"
+    with pool.transaction() as conn:
+        owner = int(
+            conn.execute(
+                "INSERT INTO users(username,password_hash,role,created_at) "
+                "VALUES (?,?,?,?) RETURNING id",
+                (f"qa_owner_{nonce}", "synthetic-no-login", "user", now),
+            ).fetchone()[0]
+        )
+        recipient = int(
+            conn.execute(
+                "INSERT INTO users(username,password_hash,role,created_at) "
+                "VALUES (?,?,?,?) RETURNING id",
+                (f"qa_recipient_{nonce}", "synthetic-no-login", "user", now),
+            ).fetchone()[0]
+        )
+        key = f"{agent}:dashboard:{owner}:dm"
+        conn.execute(
+            "INSERT INTO agents(agent_id,user_id,name,created_at,updated_at) "
+            "VALUES (?,?,?,?,?)",
+            (agent, owner, "QA old Agent", now, now),
+        )
+        conn.execute(
+            "INSERT INTO threads(thread_id,agent_id,user_id,channel_type,session_key,"
+            "last_active,created_at) VALUES (?,?,?,?,?,?,?)",
+            (thread, agent, owner, "dashboard", key, 0, now),
+        )
+        conn.execute(
+            "INSERT INTO project_spaces(project_id,creator_user_id,name,created_at,updated_at) "
+            "VALUES (?,?,?,?,?)",
+            (project, owner, "QA old Project", now, now),
+        )
+        for user_id, role in ((owner, "owner"), (recipient, "member")):
+            conn.execute(
+                "INSERT INTO project_members(project_id,user_id,role,joined_at) "
+                "VALUES (?,?,?,?)",
+                (project, user_id, role, now),
+            )
+        conn.execute(
+            "INSERT INTO project_task_links(project_id,thread_id,owner_user_id,source,"
+            "created_at) VALUES (?,?,?,?,?)",
+            (project, thread, owner, "manual", now),
+        )
+    return {"owner": owner, "recipient": recipient, "agent": agent,
+            "thread": thread, "project": project, "created_at": now}
+
+
+def _run(context_path: Path, output_path: Path) -> None:
+    context_path = context_path.resolve()
+    output_path = output_path.resolve()
+    expected_dir = (QA_ROOT / "upgrade-20260930" / "cluster").resolve()
+    assert context_path == expected_dir / "cluster-context.json"
+    assert output_path == (QA_ROOT / "upgrade-20260930" / "upgrade-result.json").resolve()
+    context = json.loads(context_path.read_text(encoding="utf-8"))
+    assert context["state"] == "READY" and context["scope"] == "PS05_CARD_TEXT_PG"
+    assert context["port"] == EXPECTED_PORT
+    assert context["cluster"].startswith("/tmp/xiongbao-project-task-share-qa-")
+    assert context["user"].startswith("ps05qa_")
+    assert context["database_prefix"].startswith("ps05qa_")
+    nonce = uuid4().hex[:12]
+    database = context["database_prefix"] + nonce
+    report: dict[str, object] = {"database": database, "baseline_sha": "deb94e83", "stages": []}
+    conninfo = make_conninfo(
+        host="127.0.0.1", port=context["port"], user=context["user"],
+        dbname=database, connect_timeout=3,
+    )
+    pool: PostgresPool | None = None
+    with psycopg.connect(
+        host="127.0.0.1", port=context["port"], user=context["user"],
+        dbname="postgres", connect_timeout=3, autocommit=True,
+    ) as admin:
+        report["admin_pid"] = _identity(admin, context, "postgres")
+        admin.execute(SQL("CREATE DATABASE {}").format(Identifier(database)))
+        try:
+            pool = PostgresPool(conninfo, min_size=1, max_size=2)
+            with pool.connect() as conn:
+                report["database_pid"] = _identity(conn, context, database)
+            assert _stage(pool, 23) == 23
+            report["stages"].append(23)
+            ids = _seed_v23(pool, nonce)
+            report["synthetic_ids"] = ids
+            assert _stage(pool, 24) == 24
+            report["stages"].append(24)
+            with pool.transaction() as conn:
+                conn.execute(
+                    "INSERT INTO project_task_shares(project_id,thread_id,grantee_user_id,"
+                    "granted_by_user_id,role,granted_at) VALUES (?,?,?,?,?,?)",
+                    (ids["project"], ids["thread"], ids["recipient"], ids["owner"],
+                     "reader", ids["created_at"]),
+                )
+            assert _stage(pool, 25) == 25
+            report["stages"].append(25)
+            with pool.connect() as conn:
+                card = conn.execute(
+                    "SELECT revoked_at FROM project_task_shares WHERE project_id=? "
+                    "AND thread_id=? AND grantee_user_id=?",
+                    (ids["project"], ids["thread"], ids["recipient"]),
+                ).fetchone()
+                text_count = conn.execute(
+                    "SELECT COUNT(*) FROM project_task_content_grants WHERE project_id=? "
+                    "AND thread_id=? AND grantee_user_id=?",
+                    (ids["project"], ids["thread"], ids["recipient"]),
+                ).fetchone()[0]
+            assert card is not None and card[0] is None and text_count == 0
+            assert ProjectTaskContentRepo(pool).read_page(
+                project_id=ids["project"], thread_id=ids["thread"],
+                actor_user_id=ids["recipient"], limit=10,
+            ) is None
+            assert _stage(pool, None) == migrate._max_discovered_version("postgresql")
+            report["stages"].append("current")
+            assert _stage(pool, None) == migrate._max_discovered_version("postgresql")
+            share_repo = ProjectTaskShareRepo(pool)
+            content_repo = ProjectTaskContentRepo(pool)
+            summary = share_repo.get_shared_summary(
+                ids["project"], ids["thread"], user_id=ids["recipient"]
+            )
+            assert summary is not None and summary.can_read_text is False
+            shares = share_repo.list_shares(
+                ids["project"], ids["thread"], actor_user_id=ids["owner"]
+            )
+            assert shares is not None and len(shares) == 1 and not shares[0].can_read_text
+            assert content_repo.read_page(
+                project_id=ids["project"], thread_id=ids["thread"],
+                actor_user_id=ids["recipient"], limit=10,
+            ) is None
+            mutation = content_repo.grant(
+                project_id=ids["project"], thread_id=ids["thread"],
+                actor_user_id=ids["owner"], grantee_user_id=ids["recipient"],
+            )
+            assert mutation.outcome == "created", mutation.outcome
+            summary_after = share_repo.get_shared_summary(
+                ids["project"], ids["thread"], user_id=ids["recipient"]
+            )
+            assert summary_after is not None and summary_after.can_read_text is True
+            page = content_repo.read_page(
+                project_id=ids["project"], thread_id=ids["thread"],
+                actor_user_id=ids["recipient"], limit=10,
+            )
+            assert page is not None and page.status == "pending"
+            report["result"] = "PASS"
+            report["current_version"] = migrate._max_discovered_version("postgresql")
+            report["old_card_did_not_gain_text"] = True
+            report["explicit_grant_required"] = True
+        except BaseException as exc:
+            report["result"] = "FAIL"
+            report["error"] = f"{type(exc).__name__}: {exc}"
+            raise
+        finally:
+            if pool is not None:
+                pool.close()
+            remaining = admin.execute(
+                "SELECT COUNT(*) FROM pg_stat_activity WHERE datname=%s", (database,)
+            ).fetchone()[0]
+            report["remaining_connections"] = remaining
+            if remaining == 0:
+                admin.execute(SQL("DROP DATABASE {}").format(Identifier(database)))
+                report["database_dropped"] = True
+            else:
+                report["database_dropped"] = False
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n",
+                                   encoding="utf-8")
+            assert report["database_dropped"] is True
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--context", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args()
+    _run(args.context, args.output)
+    print(json.dumps({"result": "PASS", "output": str(args.output.resolve())}))
+
+
+if __name__ == "__main__":
+    main()
