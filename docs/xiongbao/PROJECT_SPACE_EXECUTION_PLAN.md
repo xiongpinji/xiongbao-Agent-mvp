@@ -87,3 +87,5 @@ PS-05B 前置安全修复子计划 `plan-20260924-040719-701cfd`：OpenCode/Deep
 # Completion criteria
 
 每批已接受变更推送用户仓库后记录远端 SHA；全部旅程和视觉证据齐全或明确保留项后才可声明项目空间对齐。
+
+2026-09-30 PS-04C 当前增量[PostgreSQL 浏览器补验](PROJECT_TODO_PS04C_CURRENT_PG_BROWSER_20260930.md)在固定 `00897ccb` 完成10/10阶段：owner/member真实页面与滑块登录、字段保存、优先级行内编辑、三类409比较重提、日历焦点、两身份五视图共享定义与同一待办核对。3119来源/6方法前后一致，最终PG待办4/标签关联4/待办事件7、catalogR7/views7；21截图，页面/网络错误及外连0，API/PG正常停止、DB删除、Jobs/端口关闭，四轮自建停止集群已审核清理。独立实际证据GO，无P0/P1/P2；前三次QA失败保留，PyPI更新probe为QA stub，业务源码未改、全套质量未重跑、GLM待补审。它不核销WorkBuddy视觉/保存1:1、完整PS04/PS05或25项，总目标active。

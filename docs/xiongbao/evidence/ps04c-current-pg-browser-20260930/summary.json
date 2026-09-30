@@ -1,0 +1,148 @@
+{
+  "scope": "PS04C approved C1/C2 current delta PostgreSQL browser acceptance",
+  "state": "PASS",
+  "tested_source_head": "00897ccb44ec41db2ebad566cf1b10f8fcbe3f3d",
+  "method_version": "V4",
+  "source_files_bound": 3119,
+  "executable_methods_bound": 6,
+  "source_clean_before_after": true,
+  "source_method_bytes_unchanged": true,
+  "phase_count": 10,
+  "phases": [
+    {
+      "name": "synthetic_fixture_fields_table",
+      "state": "PASS"
+    },
+    {
+      "name": "owner_browser_create_fields_and_reload",
+      "state": "PASS"
+    },
+    {
+      "name": "inline_priority_save_preserves_draft_and_todo_identity",
+      "state": "PASS"
+    },
+    {
+      "name": "member_browser_fields_save_and_catalog_denial",
+      "state": "PASS"
+    },
+    {
+      "name": "stale_todo_409_draft_compare_and_resubmit",
+      "state": "PASS"
+    },
+    {
+      "name": "stale_catalog_create_409_draft_compare_and_resubmit",
+      "state": "PASS"
+    },
+    {
+      "name": "stale_catalog_manager_409_compare_resubmit_without_todo_writes",
+      "state": "PASS"
+    },
+    {
+      "name": "final_owner_member_reload_matches_database",
+      "state": "PASS"
+    },
+    {
+      "name": "deadline_month_boundary_escape_focus_without_write",
+      "state": "PASS"
+    },
+    {
+      "name": "five_shared_views_same_saved_todo_and_definition_readback",
+      "state": "PASS"
+    }
+  ],
+  "fixture_phase": "real local API; not browser UI creation",
+  "authentication": {
+    "owner": {
+      "real_local_page_and_slider": true,
+      "no_auth_preload": true,
+      "status": 200
+    },
+    "member": {
+      "real_local_page_and_slider": true,
+      "no_auth_preload": true,
+      "status": 200
+    }
+  },
+  "database": "fresh synthetic PostgreSQL 18 with actual PostgresPool, schema35, repeatable-read read-only snapshots",
+  "final_counts": {
+    "todos": 4,
+    "tag_links": 4,
+    "todo_events": 7
+  },
+  "catalog_revision": 7,
+  "persisted_views": 7,
+  "view_collection_revision": 6,
+  "owner_member_rendered_view_checks": 10,
+  "types": ["list", "table", "board", "gantt", "calendar"],
+  "shared_view_creation": "real local API fixture; five-view selection/render checked in real browser",
+  "browser_registered_project_requests": 50,
+  "browser_non_query_mutation_requests": 11,
+  "request_count_exclusions": [
+    "fixture API",
+    "deliberate concurrent API updates",
+    "authentication",
+    "GETs"
+  ],
+  "screenshots": 21,
+  "page_errors": 0,
+  "network_failures": 0,
+  "browser_external_requests": 0,
+  "project_detail_module_responses": 14,
+  "project_detail_module_statuses": [200],
+  "api_external_attempts_denied": 0,
+  "pypi_update_probe": "QA stub returning None; product updater NOT_ACCEPTED",
+  "model": "fake harness only; paid/real provider NOT_RUN",
+  "cleanup": {
+    "api_normal_stop": true,
+    "pg_normal_stop": true,
+    "api_stop_complete": true,
+    "pg_pools": [
+      {
+        "closes": 1,
+        "underlying_closed": true
+      }
+    ],
+    "database_sessions_before_drop": 0,
+    "database_dropped": true,
+    "pg_ctl_stop_exit": 0,
+    "pg_ctl_status_after": 3,
+    "all_ports_closed": true,
+    "all_windows_jobs_closed_and_idle": true,
+    "owned_stopped_cluster_directories_removed": 4,
+    "owned_logs_archived": true
+  },
+  "failed_attempts": [
+    {
+      "version": "V1",
+      "state": "FAILED_OR_INCONCLUSIVE",
+      "completed_browser_phases": 0,
+      "cause": "QA Mapping row miscomparison; tracked init pool not closed and DB drop refused; cluster normally stopped"
+    },
+    {
+      "version": "V2",
+      "state": "FAILED_OR_INCONCLUSIVE",
+      "completed_phases": 9,
+      "cause": "QA stale catalog projection R4 versus R7; 29 denied PyPI/update socket attempts; DB dropped, API exit2, cluster normally stopped"
+    },
+    {
+      "version": "V3",
+      "state": "FAILED_OR_INCONCLUSIVE",
+      "completed_phases": 9,
+      "cause": "QA observer used board limit1 count probe; 2 dynamic module pageerrors; normal API/DB/PG cleanup; module error root not established"
+    }
+  ],
+  "independent_native_actual_review": "GO; no P0/P1/P2",
+  "glm_review": "NOT_RUN; later review remains pending",
+  "full_suite_this_batch": "NOT_RUN; no product source change",
+  "not_accepted": [
+    "WorkBuddy visual/save semantics 1:1",
+    "real accounts",
+    "production database",
+    "provider/model output",
+    "full PS04/PS05/25 item parity",
+    "internal notifications",
+    "packaging/deployment",
+    "030 UI",
+    "045-F"
+  ]
+}
