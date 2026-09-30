@@ -130,11 +130,25 @@ describe("C1 shared field controls", () => {
       expect(onChange).not.toHaveBeenCalled();
     },
   );
-  it("opens the calendar at server today and disables only past new due days", async () => {
+  it("blocks past due-month navigation while keeping start-month navigation available", async () => {
     const user = userEvent.setup();
     render(<Harness />);
     await user.click(screen.getByRole("button", { name: "选择截止日期" }));
-    const dialog = screen.getByRole("dialog", { name: "截止日期" });
+    let dialog = screen.getByRole("dialog", { name: "截止日期" });
+    expect(
+      within(dialog).getByRole("button", { name: "上个月" }),
+    ).toBeDisabled();
+    await user.click(within(dialog).getByRole("button", { name: "下个月" }));
+    expect(within(dialog).getByRole("grid", { name: "2026-10" })).toBeVisible();
+    await user.click(within(dialog).getByRole("button", { name: "上个月" }));
+    expect(within(dialog).getByRole("grid", { name: "2026-09" })).toBeVisible();
+    expect(
+      within(dialog).getByRole("button", { name: "下个月" }),
+    ).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "截止日期" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "选择截止日期" }));
+    dialog = screen.getByRole("dialog", { name: "截止日期" });
     expect(
       within(dialog).getByRole("button", { name: "2026-09-27" }),
     ).toBeDisabled();
@@ -151,6 +165,7 @@ describe("C1 shared field controls", () => {
     );
     expect(screen.getByLabelText("截止日期")).toHaveValue("2026-09-28");
     await user.click(screen.getByRole("button", { name: "选择开始日期" }));
+    expect(screen.getByRole("button", { name: "上个月" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "2026-09-27" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "2026-09-27" }));
     expect(screen.getByLabelText("开始日期")).toHaveValue("2026-09-27");
@@ -162,8 +177,15 @@ describe("C1 shared field controls", () => {
     await user.click(screen.getByRole("button", { name: "选择截止日期" }));
     expect(screen.getByRole("button", { name: "2020-01-01" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "2020-01-02" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "下个月" }));
+    expect(screen.getByRole("button", { name: "上个月" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "上个月" }));
+    expect(screen.getByRole("button", { name: "2020-01-01" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "下个月" })).toHaveFocus();
     await user.keyboard("{Escape}");
-    expect(screen.queryByRole("dialog", { name: "截止日期" })).toBeNull();
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "截止日期" })).toBeNull(),
+    );
     expect(screen.getByRole("button", { name: "选择截止日期" })).toHaveFocus();
   });
   it("uses server today, allows past starts and keeps full tag selection", async () => {

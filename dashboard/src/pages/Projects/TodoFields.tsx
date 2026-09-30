@@ -90,6 +90,7 @@ export default function TodoFields({
       Record<"start_date" | "due_date", HTMLButtonElement | HTMLAnchorElement>
     >
   >({});
+  const nextMonthButton = useRef<HTMLButtonElement | null>(null);
   const priorityTrigger = useRef<HTMLButtonElement | null>(null);
   const tagTrigger = useRef<HTMLButtonElement | null>(null);
   const metadataReady =
@@ -99,6 +100,19 @@ export default function TodoFields({
     isPlanDate(catalog.server_today) &&
     !!catalog.server_timezone;
   const dateControlsDisabled = disabled || !metadataReady;
+  const previousCalendarMonth = shiftPlanMonth(calendarMonth, -1);
+  const isPreviousMonthDisabled = (month: string) => {
+    const previous = shiftPlanMonth(month, -1);
+    return (
+      dateControlsDisabled ||
+      previous === null ||
+      (calendarField === "due_date" &&
+        !!catalog &&
+        previous < catalog.server_today.slice(0, 7) &&
+        previous !== original.due_date?.slice(0, 7))
+    );
+  };
+  const previousMonthDisabled = isPreviousMonthDisabled(calendarMonth);
   const patch = (next: Partial<TodoFieldValues>) =>
     onChange?.({ ...values, ...next });
   const closePicker = () => {
@@ -400,13 +414,15 @@ export default function TodoFields({
           <div className={styles.calendarNavigation}>
             <Button
               aria-label={t("projects.todoFields.previousMonth", "上个月")}
-              disabled={
-                dateControlsDisabled || !shiftPlanMonth(calendarMonth, -1)
-              }
+              disabled={previousMonthDisabled}
               onClick={() => {
-                if (dateControlsDisabled) return;
-                const month = shiftPlanMonth(calendarMonth, -1);
-                if (month) changeMonth(month);
+                if (previousMonthDisabled || !previousCalendarMonth) return;
+                const losesFocus = isPreviousMonthDisabled(
+                  previousCalendarMonth,
+                );
+                changeMonth(previousCalendarMonth);
+                if (losesFocus)
+                  queueMicrotask(() => nextMonthButton.current?.focus());
               }}
             >
               ‹
@@ -456,6 +472,7 @@ export default function TodoFields({
               </select>
             </label>
             <Button
+              ref={nextMonthButton}
               aria-label={t("projects.todoFields.nextMonth", "下个月")}
               disabled={
                 dateControlsDisabled || !shiftPlanMonth(calendarMonth, 1)
