@@ -61,3 +61,5 @@
 # Completion criteria
 
 25 项矩阵每行均有源码、测试、只读审查、真实用户旅程和视觉证据，或明确记录用户未授权/外部服务不可用的保留项；所有适用任务均由 Codex 接受并推送，远端 SHA 与本地一致、工作区无意外改动。不得把计划完成、worker 退出、CodeQL 通过或登录页截图等同于 WorkBuddy 全功能 1:1。
+
+2026-10-01 追加 [021 Windows 桌面基线](DESKTOP_WINDOWS_BASELINE_021_20261001.md)：固定 `7444a920` 的原生 Go 测试 **34/34** 与开发 PE 编译通过，73 个桌面来源文件保持原字节，owned Jobs 正常结束。未执行 EXE，未改显示品牌，未打 production portable/NSIS 或做安装/升级/卸载与 WorkBuddy 视觉；021 和全 25 项仍未核销。
