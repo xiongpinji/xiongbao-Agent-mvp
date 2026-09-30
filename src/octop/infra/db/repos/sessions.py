@@ -177,6 +177,37 @@ class SessionRepo:
                 (thread_id, now_ts(), session_key),
             )
 
+    def bind_dashboard_owner(
+        self, *, session_key: str, agent_id: str, user_id: int, thread_id: str
+    ) -> None:
+        """Atomically bind a canonical Dashboard DM and repair old owner metadata."""
+        with self._db.transaction() as conn:
+            conn.execute(
+                "INSERT INTO sessions(session_key, agent_id, user_id, channel_type, "
+                "chat_type, thread_id, updated_at, channel_subject_id, "
+                "channel_chat_type, channel_metadata) "
+                "VALUES (?, ?, ?, 'dashboard', 'dm', ?, ?, ?, 'dm', ?) "
+                "ON CONFLICT(session_key) DO UPDATE SET "
+                "agent_id = excluded.agent_id, user_id = excluded.user_id, "
+                "channel_type = excluded.channel_type, chat_type = excluded.chat_type, "
+                "thread_id = excluded.thread_id, updated_at = excluded.updated_at, "
+                "channel_subject_id = excluded.channel_subject_id, "
+                "channel_chat_type = excluded.channel_chat_type, "
+                "channel_metadata = excluded.channel_metadata, channel_id = NULL, "
+                "unread_count = CASE WHEN sessions.user_id = excluded.user_id "
+                "AND sessions.agent_id = excluded.agent_id "
+                "THEN sessions.unread_count ELSE 0 END",
+                (
+                    session_key,
+                    agent_id,
+                    user_id,
+                    thread_id,
+                    now_ts(),
+                    str(user_id),
+                    _encode_metadata({"channel_type": "dashboard", "user_id": user_id}),
+                ),
+            )
+
     def set_agent_id(self, session_key: str, agent_id: str) -> None:
         with self._db.transaction() as conn:
             conn.execute(

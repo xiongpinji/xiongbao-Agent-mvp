@@ -6,12 +6,14 @@ import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
 from starlette.websockets import WebSocketDisconnect
 
+from octop.infra.errors import ErrorCode, OctopError
+from octop.infra.gateway.threads import ThreadRegistry
 from tests.support.app import octop_client
 from tests.support.auth import (
     auth_header,
@@ -306,6 +308,246 @@ async def test_ws_subscribe_rejects_another_users_thread(env: Any) -> None:
 
     frame = await _subscribe_ws(c, aid, alice_auth, tid)
     assert frame == {"type": "error", "message": f"thread {tid!r} not found"}
+
+
+async def test_ws_user_turn_rejects_another_users_bound_session(env: Any) -> None:
+    """A shared agent's user cannot turn or subscribe through an owner's session key."""
+    c, srv, fake, alice_auth, bob_auth, aid = env
+    response = await c.patch(f"/api/agents/{aid}", headers=alice_auth, json={"is_shared": True})
+    assert response.status_code == 200, response.text
+
+    owner_frames = await _consume_ws_turn(c, aid, alice_auth, text="owner turn")
+    owner_tid = next(
+        str(frame["thread_id"]) for frame in owner_frames if frame.get("type") == "token"
+    )
+    registry = srv.app_runtime.gateway.thread_registry
+    owner_row = registry.get_thread(owner_tid)
+    assert owner_row is not None
+    owner_key = ThreadRegistry.dashboard_key(agent_id=aid, user_id=owner_row.user_id)
+    assert registry.get_bound_thread_id(owner_key) == owner_tid
+    owner_request = fake.last_request
+
+    frames = await _consume_ws_turn(
+        c, aid, bob_auth, text="other user turn", extra={"session_key": owner_key}
+    )
+    assert not any(frame.get("thread_id") == owner_tid for frame in frames)
+    assert frames[0]["type"] == "error"
+    assert fake.last_request is owner_request
+
+
+async def test_ws_user_turn_cannot_claim_another_users_unbound_session(env: Any) -> None:
+    """A foreign key must not be created on behalf of a user with no active session."""
+    c, srv, fake, alice_auth, bob_auth, aid = env
+    response = await c.patch(f"/api/agents/{aid}", headers=alice_auth, json={"is_shared": True})
+    assert response.status_code == 200, response.text
+
+    registry = srv.app_runtime.gateway.thread_registry
+    owner = srv.app_runtime.agent_registry.get_row(aid)
+    assert owner is not None
+    owner_key = ThreadRegistry.dashboard_key(agent_id=aid, user_id=owner.user_id)
+    assert registry.get_bound_thread_id(owner_key) is None
+
+    frames = await _consume_ws_turn(
+        c, aid, bob_auth, text="claim foreign key", extra={"session_key": owner_key}
+    )
+    assert registry.get_bound_thread_id(owner_key) is None
+    assert frames[0]["type"] == "error"
+    assert fake.last_request is None
+
+
+async def test_ws_user_turn_cannot_rebind_another_users_session(env: Any) -> None:
+    """A shared agent's user cannot point the owner's active session at their own thread."""
+    c, srv, fake, alice_auth, bob_auth, aid = env
+    response = await c.patch(f"/api/agents/{aid}", headers=alice_auth, json={"is_shared": True})
+    assert response.status_code == 200, response.text
+
+    owner_create = await c.post(f"/api/agents/{aid}/threads", headers=alice_auth)
+    other_create = await c.post(f"/api/agents/{aid}/threads", headers=bob_auth)
+    assert owner_create.status_code == other_create.status_code == 201
+    owner_tid = str(owner_create.json()["thread_id"])
+    other_tid = str(other_create.json()["thread_id"])
+    registry = srv.app_runtime.gateway.thread_registry
+    owner_row = registry.get_thread(owner_tid)
+    assert owner_row is not None
+    owner_key = ThreadRegistry.dashboard_key(agent_id=aid, user_id=owner_row.user_id)
+    assert registry.get_bound_thread_id(owner_key) == owner_tid
+
+    frames = await _consume_ws_turn(
+        c,
+        aid,
+        bob_auth,
+        text="other user rebind",
+        thread_id=other_tid,
+        extra={"session_key": owner_key},
+    )
+    assert registry.get_bound_thread_id(owner_key) == owner_tid
+    assert frames[0]["type"] == "error"
+    assert fake.last_request is None
+    with pytest.raises(OctopError) as exc:
+        await registry.rebind(session_key=owner_key, thread_id=other_tid, agent_id=aid)
+    assert exc.value.code == ErrorCode.FORBIDDEN
+    assert registry.get_bound_thread_id(owner_key) == owner_tid
+
+
+async def test_ws_user_turn_rejects_corrupt_own_key_foreign_thread(env: Any) -> None:
+    """A stale cross-user binding must not bypass the authenticated user's thread ACL."""
+    c, srv, fake, alice_auth, bob_auth, aid = env
+    response = await c.patch(f"/api/agents/{aid}", headers=alice_auth, json={"is_shared": True})
+    assert response.status_code == 200, response.text
+
+    owner_create = await c.post(f"/api/agents/{aid}/threads", headers=alice_auth)
+    other_create = await c.post(f"/api/agents/{aid}/threads", headers=bob_auth)
+    assert owner_create.status_code == other_create.status_code == 201
+    owner_tid = str(owner_create.json()["thread_id"])
+    other_tid = str(other_create.json()["thread_id"])
+    registry = srv.app_runtime.gateway.thread_registry
+    owner_row = registry.get_thread(owner_tid)
+    assert owner_row is not None
+    owner_key = ThreadRegistry.dashboard_key(agent_id=aid, user_id=owner_row.user_id)
+    # Seed a historical bad binding directly; public rebind may itself become guarded.
+    srv.services.session_repo.set_thread(owner_key, other_tid)
+    assert registry.get_bound_thread_id(owner_key) == other_tid
+
+    frames = await _consume_ws_turn(c, aid, alice_auth, text="own default session")
+    assert not any(frame.get("thread_id") == other_tid for frame in frames)
+    assert frames[0]["type"] == "error"
+    assert fake.last_request is None
+
+
+async def test_ws_user_turn_rejects_corrupt_own_key_other_agent_thread(env: Any) -> None:
+    """An own-user binding must not carry a turn into a different Agent."""
+    c, srv, fake, alice_auth, _bob_auth, aid = env
+    created = await c.post(f"/api/agents/{aid}/threads", headers=alice_auth)
+    assert created.status_code == 201, created.text
+    own_tid = str(created.json()["thread_id"])
+    other_aid = await create_agent(c, alice_auth, name="other-agent")
+    other_created = await c.post(f"/api/agents/{other_aid}/threads", headers=alice_auth)
+    assert other_created.status_code == 201, other_created.text
+    other_tid = str(other_created.json()["thread_id"])
+
+    registry = srv.app_runtime.gateway.thread_registry
+    own_row = registry.get_thread(own_tid)
+    assert own_row is not None
+    own_key = ThreadRegistry.dashboard_key(agent_id=aid, user_id=own_row.user_id)
+    srv.services.session_repo.set_thread(own_key, other_tid)
+    assert registry.get_bound_thread_id(own_key) == other_tid
+
+    frames = await _consume_ws_turn(c, aid, alice_auth, text="own default session")
+    assert not any(frame.get("thread_id") == other_tid for frame in frames)
+    assert frames[0]["type"] == "error"
+    assert fake.last_request is None
+
+
+async def test_dashboard_rebind_repairs_historical_foreign_session_owner(
+    env: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An old claimed key must not push to the claimer after its owner returns."""
+    c, srv, _fake, alice_auth, bob_auth, aid = env
+    response = await c.patch(f"/api/agents/{aid}", headers=alice_auth, json={"is_shared": True})
+    assert response.status_code == 200, response.text
+    other_created = await c.post(f"/api/agents/{aid}/threads", headers=bob_auth)
+    assert other_created.status_code == 201, other_created.text
+    other_tid = str(other_created.json()["thread_id"])
+
+    registry = srv.app_runtime.gateway.thread_registry
+    owner = srv.app_runtime.agent_registry.get_row(aid)
+    other_row = registry.get_thread(other_tid)
+    assert owner is not None and other_row is not None
+    owner_key = ThreadRegistry.dashboard_key(agent_id=aid, user_id=owner.user_id)
+    srv.services.session_repo.upsert(
+        session_key=owner_key,
+        agent_id=aid,
+        user_id=other_row.user_id,
+        channel_type=ThreadRegistry.CHANNEL_DASHBOARD,
+        chat_type=ThreadRegistry.CHAT_TYPE_DM,
+        thread_id=other_tid,
+    )
+    poisoned = srv.services.session_repo.get(owner_key)
+    assert poisoned is not None and poisoned.user_id == other_row.user_id
+    assert registry.get_session(owner_key) is None
+    with pytest.raises(ValueError, match="not found"):
+        srv.app_runtime.gateway.require_session(aid, owner_key)
+    before_thread = registry.get_thread(other_tid)
+    notify = AsyncMock()
+    monkeypatch.setattr(srv.app_runtime.gateway, "notify_dashboard_push", notify)
+    with pytest.raises(ValueError, match="not found"):
+        await srv.app_runtime.gateway.push_text_from_session(aid, owner_key, "private")
+    notify.assert_not_awaited()
+    assert registry.get_thread(other_tid) == before_thread
+    assert srv.services.session_repo.get(owner_key) == poisoned
+
+    owner_created = await c.post(f"/api/agents/{aid}/threads", headers=alice_auth)
+    assert owner_created.status_code == 201, owner_created.text
+    owner_tid = str(owner_created.json()["thread_id"])
+    repaired = srv.services.session_repo.get(owner_key)
+    assert repaired is not None
+    assert repaired.user_id == owner.user_id
+    assert repaired.thread_id == owner_tid
+    assert repaired.channel_metadata is not None
+    assert repaired.channel_metadata["user_id"] == owner.user_id
+    assert registry.get_session(owner_key) is not None
+    assert srv.app_runtime.gateway.require_session(aid, owner_key).user_id == owner.user_id
+
+
+async def test_ws_user_turn_recovers_deleted_own_bound_thread(env: Any) -> None:
+    """A deleted own thread can still be replaced by the next default turn."""
+    c, srv, _fake, alice_auth, _bob_auth, aid = env
+    created = await c.post(f"/api/agents/{aid}/threads", headers=alice_auth)
+    assert created.status_code == 201, created.text
+    old_tid = str(created.json()["thread_id"])
+    registry = srv.app_runtime.gateway.thread_registry
+    old_row = registry.get_thread(old_tid)
+    assert old_row is not None
+    owner_key = ThreadRegistry.dashboard_key(agent_id=aid, user_id=old_row.user_id)
+    registry.delete_thread(old_tid)
+
+    frames = await _consume_ws_turn(c, aid, alice_auth, text="new default thread")
+    new_tid = next(str(frame["thread_id"]) for frame in frames if frame.get("type") == "token")
+    assert new_tid != old_tid
+    assert registry.get_bound_thread_id(owner_key) == new_tid
+
+
+async def test_ws_user_turn_keeps_shared_users_sessions_separate(env: Any) -> None:
+    """The caller's canonical key still supports default turns and own-thread switching."""
+    c, srv, _fake, alice_auth, bob_auth, aid = env
+    response = await c.patch(f"/api/agents/{aid}", headers=alice_auth, json={"is_shared": True})
+    assert response.status_code == 200, response.text
+
+    owner_frames = await _consume_ws_turn(c, aid, alice_auth, text="owner turn")
+    owner_tid = next(
+        str(frame["thread_id"]) for frame in owner_frames if frame.get("type") == "token"
+    )
+    other_frames = await _consume_ws_turn(c, aid, bob_auth, text="other user turn")
+    other_tid = next(
+        str(frame["thread_id"]) for frame in other_frames if frame.get("type") == "token"
+    )
+    assert owner_tid != other_tid
+
+    registry = srv.app_runtime.gateway.thread_registry
+    owner_row = registry.get_thread(owner_tid)
+    other_row = registry.get_thread(other_tid)
+    assert owner_row is not None and other_row is not None
+    owner_key = ThreadRegistry.dashboard_key(agent_id=aid, user_id=owner_row.user_id)
+    other_key = ThreadRegistry.dashboard_key(agent_id=aid, user_id=other_row.user_id)
+    assert registry.get_bound_thread_id(owner_key) == owner_tid
+    assert registry.get_bound_thread_id(other_key) == other_tid
+
+    created = await c.post(f"/api/agents/{aid}/threads", headers=bob_auth)
+    assert created.status_code == 201, created.text
+    next_tid = str(created.json()["thread_id"])
+    switched = await _consume_ws_turn(
+        c,
+        aid,
+        bob_auth,
+        text="other user switch",
+        thread_id=next_tid,
+        extra={"session_key": other_key},
+    )
+    assert any(
+        frame.get("type") == "token" and frame.get("thread_id") == next_tid for frame in switched
+    )
+    assert registry.get_bound_thread_id(other_key) == next_tid
+    assert registry.get_bound_thread_id(owner_key) == owner_tid
 
 
 async def test_ws_cancel_frame_cancels_active_turn(env: Any) -> None:

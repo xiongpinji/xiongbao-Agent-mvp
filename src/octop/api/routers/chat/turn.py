@@ -70,7 +70,9 @@ async def resolve_thread_id(
     thread_id: str | None,
     session_key: str | None,
 ) -> tuple[str, str]:
-    sk = session_key or ThreadRegistry.dashboard_key(agent_id=agent_id, user_id=user_id)
+    sk = ThreadRegistry.dashboard_key(agent_id=agent_id, user_id=user_id)
+    if session_key and session_key != sk:
+        raise OctopError(ErrorCode.FORBIDDEN, "session not owned by user")
     if thread_id:
         row = thread_registry.get_thread(thread_id)
         if row is None or row.agent_id != agent_id:
@@ -81,6 +83,9 @@ async def resolve_thread_id(
         return thread_id, sk
     bound = thread_registry.get_bound_thread_id(sk)
     if bound:
+        row = thread_registry.get_thread(bound)
+        if row is None or row.agent_id != agent_id or row.user_id != user_id:
+            raise OctopError(ErrorCode.FORBIDDEN, "thread not owned by user")
         return bound, sk
     tid = await thread_registry.get_or_create_by_key(
         session_key=sk,

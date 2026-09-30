@@ -175,7 +175,15 @@ class ThreadRegistry:
             channel_subject_id=channel_subject_id,
             channel_chat_type=channel_chat_type,
         )
+        dashboard_dm = session_key == self.dashboard_key(agent_id=agent_id, user_id=user_id)
         row = self._sessions.get(session_key)
+        if (
+            dashboard_dm
+            and row is not None
+            and self._threads.get(row.thread_id) is not None
+            and self.get_session(session_key) is None
+        ):
+            raise OctopError(ErrorCode.FORBIDDEN, "session not owned by user")
         if row is not None and self._threads.get(row.thread_id) is not None:
             self._refresh_session_if_needed(
                 row, channel_id=channel_id, channel_metadata=channel_metadata
@@ -183,6 +191,13 @@ class ThreadRegistry:
             return row.thread_id
         async with self._lock:
             row = self._sessions.get(session_key)
+            if (
+                dashboard_dm
+                and row is not None
+                and self._threads.get(row.thread_id) is not None
+                and self.get_session(session_key) is None
+            ):
+                raise OctopError(ErrorCode.FORBIDDEN, "session not owned by user")
             if row is not None and self._threads.get(row.thread_id) is not None:
                 self._refresh_session_if_needed(
                     row, channel_id=channel_id, channel_metadata=channel_metadata
@@ -202,18 +217,26 @@ class ThreadRegistry:
                 session_key=session_key,
                 last_active=0,
             )
-            self._sessions.upsert(
-                session_key=session_key,
-                agent_id=agent_id,
-                user_id=user_id,
-                channel_type=channel_type,
-                chat_type=channel_chat_type,
-                thread_id=tid,
-                channel_subject_id=channel_subject_id,
-                channel_chat_type=channel_chat_type,
-                channel_metadata=meta,
-                channel_id=channel_id,
-            )
+            if dashboard_dm:
+                self._sessions.bind_dashboard_owner(
+                    session_key=session_key,
+                    agent_id=agent_id,
+                    user_id=user_id,
+                    thread_id=tid,
+                )
+            else:
+                self._sessions.upsert(
+                    session_key=session_key,
+                    agent_id=agent_id,
+                    user_id=user_id,
+                    channel_type=channel_type,
+                    chat_type=channel_chat_type,
+                    thread_id=tid,
+                    channel_subject_id=channel_subject_id,
+                    channel_chat_type=channel_chat_type,
+                    channel_metadata=meta,
+                    channel_id=channel_id,
+                )
             return tid
 
     async def get_or_create_by_key(
@@ -234,6 +257,12 @@ class ThreadRegistry:
                 msg = f"session {session_key!r} belongs to agent {row.agent_id!r}, not {agent_id!r}"
                 raise ValueError(msg)
             if self._threads.get(row.thread_id) is not None:
+                if (
+                    channel_type == self.CHANNEL_DASHBOARD
+                    and session_key == self.dashboard_key(agent_id=agent_id, user_id=user_id)
+                    and self.get_session(session_key) is None
+                ):
+                    raise OctopError(ErrorCode.FORBIDDEN, "session not owned by user")
                 self._refresh_session_if_needed(
                     row, channel_id=channel_channel_id, channel_metadata=channel_metadata
                 )
@@ -264,7 +293,29 @@ class ThreadRegistry:
         return row.thread_id
 
     def get_session(self, session_key: str) -> SessionRow | None:
-        return self._sessions.get(session_key)
+        row = self._sessions.get(session_key)
+        if row is None:
+            return None
+        parts = session_key.split(":", 3)
+        if len(parts) == 4 and parts[1] == self.CHANNEL_DASHBOARD and parts[3] == self.CHAT_TYPE_DM:
+            thread = self._threads.get(row.thread_id)
+            if (
+                session_key != self.dashboard_key(agent_id=row.agent_id, user_id=row.user_id)
+                or row.channel_type != self.CHANNEL_DASHBOARD
+                or row.chat_type != self.CHAT_TYPE_DM
+                or row.channel_subject_id != str(row.user_id)
+                or row.channel_chat_type != self.CHAT_TYPE_DM
+                or (
+                    thread is not None
+                    and (
+                        thread.agent_id != row.agent_id
+                        or thread.user_id != row.user_id
+                        or thread.channel_type != self.CHANNEL_DASHBOARD
+                    )
+                )
+            ):
+                return None
+        return row
 
     async def rebind(self, *, session_key: str, thread_id: str, agent_id: str) -> None:
         row = self._threads.get(thread_id)
@@ -274,7 +325,23 @@ class ThreadRegistry:
         if row.agent_id != agent_id:
             msg = f"thread {thread_id!r} does not belong to agent {agent_id!r}"
             raise ValueError(msg)
+        parts = session_key.split(":", 3)
+        dashboard_dm = (
+            len(parts) == 4 and parts[1] == self.CHANNEL_DASHBOARD and parts[3] == self.CHAT_TYPE_DM
+        )
+        if dashboard_dm and session_key != self.dashboard_key(
+            agent_id=agent_id, user_id=row.user_id
+        ):
+            raise OctopError(ErrorCode.FORBIDDEN, "session not owned by user")
         async with self._lock:
+            if dashboard_dm:
+                self._sessions.bind_dashboard_owner(
+                    session_key=session_key,
+                    agent_id=agent_id,
+                    user_id=row.user_id,
+                    thread_id=thread_id,
+                )
+                return
             session = self._sessions.get(session_key)
             ref = self._sessions.get(row.session_key)
             if ref is not None:
@@ -327,6 +394,7 @@ class ThreadRegistry:
             channel_subject_id=channel_subject_id,
             channel_chat_type=channel_chat_type,
         )
+        dashboard_dm = session_key == self.dashboard_key(agent_id=agent_id, user_id=user_id)
         meta = dict(channel_metadata or {})
         meta.setdefault("channel_type", channel_type)
         meta.setdefault("user_id", user_id)
@@ -342,22 +410,30 @@ class ThreadRegistry:
                 session_key=session_key,
                 last_active=0,
             )
-            self._sessions.upsert(
-                session_key=session_key,
-                agent_id=agent_id,
-                user_id=user_id,
-                channel_type=channel_type,
-                chat_type=channel_chat_type,
-                thread_id=tid,
-                channel_subject_id=channel_subject_id,
-                channel_chat_type=channel_chat_type,
-                channel_metadata=meta,
-                channel_id=channel_id,
-            )
+            if dashboard_dm:
+                self._sessions.bind_dashboard_owner(
+                    session_key=session_key,
+                    agent_id=agent_id,
+                    user_id=user_id,
+                    thread_id=tid,
+                )
+            else:
+                self._sessions.upsert(
+                    session_key=session_key,
+                    agent_id=agent_id,
+                    user_id=user_id,
+                    channel_type=channel_type,
+                    chat_type=channel_chat_type,
+                    thread_id=tid,
+                    channel_subject_id=channel_subject_id,
+                    channel_chat_type=channel_chat_type,
+                    channel_metadata=meta,
+                    channel_id=channel_id,
+                )
             return tid
 
     async def reset_by_session_key(self, session_key: str) -> str:
-        session = self._sessions.get(session_key)
+        session = self.get_session(session_key)
         if session is None:
             msg = f"session {session_key!r} not found"
             raise ValueError(msg)
