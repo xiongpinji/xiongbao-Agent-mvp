@@ -273,7 +273,7 @@ function TodoEditorModal({
           key="submit"
           type="primary"
           loading={submitting}
-          disabled={submitting || conflict || (mode === "edit" && !changed)}
+          disabled={submitting || conflict || !changed}
           onClick={submit}
         >
           {mode === "create"

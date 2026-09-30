@@ -751,6 +751,27 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
     expect(screen.getByRole("dialog", { name: "编辑待办" })).toBeVisible();
     expect(screen.queryByText("项目不存在或你无权访问")).toBeNull();
   });
+  it("disables creation until the title contains non-whitespace text", async () => {
+    const user = userEvent.setup();
+    renderPlan();
+    await screen.findByText("写周报");
+    await user.click(screen.getByRole("button", { name: "新建待办" }));
+    const dialog = screen.getByRole("dialog", { name: "新建待办" });
+    const title = within(dialog).getByRole("textbox", { name: "标题" });
+    const createButton = within(dialog).getByRole("button", {
+      name: /^创\s*建$/,
+    });
+
+    expect(createButton).toBeDisabled();
+    await user.type(title, "   ");
+    expect(createButton).toBeDisabled();
+    await user.type(title, "计划发布");
+    expect(createButton).toBeEnabled();
+    await user.clear(title);
+    expect(createButton).toBeDisabled();
+    expect(create).not.toHaveBeenCalled();
+  });
+
   it("creates with actual status and date/priority/tag fields against the catalog revision", async () => {
     const user = userEvent.setup();
     create.mockResolvedValue({ ...todoOpen, todo_id: "new" });
