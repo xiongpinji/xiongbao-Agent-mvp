@@ -1,0 +1,8 @@
+{
+  "result": "passed",
+  "scope": "PS05_CARD_TEXT_PG",
+  "base": "/tmp/xiongbao-project-task-share-qa-nj4hu83e",
+  "pg_status_before": 3,
+  "port_closed_before": true,
+  "base_exists_after": false
+}

@@ -1,0 +1,23 @@
+{
+  "result": "passed",
+  "source_head": "259506837b95adabbccf630a7e15cccbdf7b4732",
+  "project_id": "01M3QRD8HR4SJ9KETPHM9TN220",
+  "thread_id": "thr_01M3QRD8WMM99V6PM74BR2EDGZ",
+  "agent_id": "YRK2RW",
+  "recipient_uid": 3,
+  "bystander_uid": 4,
+  "schema": "PostgreSQL 18, 35",
+  "direct_fixture_rows": 3,
+  "checks": {
+    "private_before_card": true,
+    "card_only_cannot_read_text": true,
+    "explicit_text_grant_reads_safe_human_assistant": true,
+    "tool_row_filtered": true,
+    "bystander_and_outsider_denied": true,
+    "original_agent_history_denied": 403,
+    "pg_card_and_text_rows": [
+      1,
+      1
+    ]
+  }
+}

@@ -1,0 +1,166 @@
+{
+  "result": "passed",
+  "source_head": "259506837b95adabbccf630a7e15cccbdf7b4732",
+  "scope": "synthetic local PostgreSQL 18/schema 35 + TCP API + Vite + headless Chrome",
+  "positive_acl": "passed",
+  "browser_revoke": "passed",
+  "pg_races": {
+    "read_vs_card_revoke_rounds": 20,
+    "read_status_counts": {
+      "404": 9,
+      "200": 11
+    },
+    "text_grant_vs_card_revoke_rounds": 20,
+    "grant_status_counts": {
+      "201": 15,
+      "404": 5
+    },
+    "sequential_archive_gate": "passed",
+    "concurrent_archive_grant": "unverified"
+  },
+  "cleanup": {
+    "owned_database_dropped": true,
+    "api_normal_stop": true,
+    "cluster_normal_stop": true,
+    "ports_closed": {
+      "52497": true,
+      "50441": true,
+      "53519": true
+    },
+    "source_unchanged": true,
+    "owned_cluster_temp_removed": true
+  },
+  "browser_attempts": [
+    "First browser run verified granted text and text revoke, then the script's exact-name modal close locator timed out.",
+    "Second browser run verified text revoke and card revoke, then Escape failed to close the second modal.",
+    "Third browser run used page reload for fresh authorization checks and passed end to end."
+  ],
+  "limits": [
+    "Direct fixture inserted three synthetic projection rows; no model or provider executed.",
+    "Bounded races are 20+20 observed interleavings, not exhaustive concurrency proof.",
+    "Concurrent project archive versus grant, upgrade from schema 24, installed desktop app, WorkBuddy side-by-side visual acceptance, and external sharing remain unverified.",
+    "No GLM review or paid-provider call in this validation."
+  ],
+  "files": [
+    {
+      "path": "cluster_lease.py",
+      "bytes": 4977,
+      "sha256": "dfcc0bbb16fbf33f34d356f1012a3e6c31ede4ea298bd44c65d2ab6b80bf9194"
+    },
+    {
+      "path": "api_server.py",
+      "bytes": 13597,
+      "sha256": "b3fcedfe648578022badae58c4ba4fba56bd24892cd3580d00108eb561ef6817"
+    },
+    {
+      "path": "api_flow.py",
+      "bytes": 8906,
+      "sha256": "a09bf871b1d18a44afe7df50af1a91198d8c2622d12e1eb95070819138c0e5c6"
+    },
+    {
+      "path": "browser_revoke_flow.py",
+      "bytes": 7522,
+      "sha256": "5590f5031368bbb67a67a18fa81305d072d0e2afe47ac26df91090ea1945f02f"
+    },
+    {
+      "path": "pg_races.py",
+      "bytes": 5329,
+      "sha256": "2c97e5a4c4329b74a069242e46e7b77afd3a1ec97ca058519bd0b95028cba000"
+    },
+    {
+      "path": "cleanup_cluster.py",
+      "bytes": 2152,
+      "sha256": "9d307f085555a2df8a26ce764c224d950037669839a4cd276b978790b16cedcb"
+    },
+    {
+      "path": "freeze_evidence.py",
+      "bytes": 6736,
+      "sha256": "55d5c8e77fbbf7f37af06307e798f4c0a8d97bf6cc616c08767f7917d7f04a99"
+    },
+    {
+      "path": "api_flow_result.json",
+      "bytes": 655,
+      "sha256": "d1a03a3a7bd2d598c0b2f986c9bac1d54d7dd30b1b29bf5c4dd55466080ccc28"
+    },
+    {
+      "path": "browser_revoke_result.json",
+      "bytes": 1710,
+      "sha256": "5267db330bdf220fb138d7558ac344bec8e7c8394f14e67a1e41219f28b50712"
+    },
+    {
+      "path": "pg_races_result.json",
+      "bytes": 2168,
+      "sha256": "2941c9b60e5ef0bf1c676449c4fe850cf65b08af4050a2a481f82ff963785acd"
+    },
+    {
+      "path": "owned_temp_cleanup.json",
+      "bytes": 200,
+      "sha256": "899cbd800240b29d6e8c719884ed7dd9c51375dd09c21d80c1677b1462a3a9ca"
+    },
+    {
+      "path": "cluster/cluster-result.json",
+      "bytes": 3406,
+      "sha256": "82133db3508116b7e722e194a3b6465bc25c6e216d1902f43af9a385f51df113"
+    },
+    {
+      "path": "attempt-2/api/server-result.json",
+      "bytes": 880260,
+      "sha256": "65e8958a203f6005d4c6edb9aeddf8bc97b124bc7077b5889c59c7240c14c9a8"
+    },
+    {
+      "path": "ps05-text-granted.png",
+      "bytes": 142014,
+      "sha256": "c5b91ffc321a10cbb5e9b0cd9f1bebac11b2043202613d39528ab6c6aa434488"
+    },
+    {
+      "path": "ps05-text-revoked.png",
+      "bytes": 128478,
+      "sha256": "5afa6bd6bd636374bf603eeb7bc4cefda0b54c28e478a427234e81d40cc5467a"
+    },
+    {
+      "path": "ps05-card-revoked.png",
+      "bytes": 98537,
+      "sha256": "65939a152f120e807b43e13e431a21a4e9364ff3331d9ee91cf72bcaad778903"
+    }
+  ],
+  "repository_copies": {
+    "text_line_endings": "LF for published JSON; raw QA input hashes above are unchanged",
+    "files": [
+      {
+        "path": "api_flow_result.json",
+        "bytes": 632,
+        "sha256": "8ea7d5314934445662b15b033ed3781772ee7012cf0cbc075faa067a01fd413a"
+      },
+      {
+        "path": "browser_revoke_result.json",
+        "bytes": 1650,
+        "sha256": "0cbaffe6461daf9517769293033ac044a6c64ba7eaa45e152185e607769c3766"
+      },
+      {
+        "path": "pg_races_result.json",
+        "bytes": 1994,
+        "sha256": "53d882fa4163f0645c1d35575b3983fe4afc763db6a363106e55bfbd611082a1"
+      },
+      {
+        "path": "owned_temp_cleanup.json",
+        "bytes": 200,
+        "sha256": "899cbd800240b29d6e8c719884ed7dd9c51375dd09c21d80c1677b1462a3a9ca"
+      },
+      {
+        "path": "ps05-text-granted.png",
+        "bytes": 142014,
+        "sha256": "c5b91ffc321a10cbb5e9b0cd9f1bebac11b2043202613d39528ab6c6aa434488"
+      },
+      {
+        "path": "ps05-text-revoked.png",
+        "bytes": 128478,
+        "sha256": "5afa6bd6bd636374bf603eeb7bc4cefda0b54c28e478a427234e81d40cc5467a"
+      },
+      {
+        "path": "ps05-card-revoked.png",
+        "bytes": 98537,
+        "sha256": "65939a152f120e807b43e13e431a21a4e9364ff3331d9ee91cf72bcaad778903"
+      }
+    ]
+  }
+}

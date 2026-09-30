@@ -1,0 +1,60 @@
+{
+  "result": "passed",
+  "source_head": "259506837b95adabbccf630a7e15cccbdf7b4732",
+  "scope": "owned PostgreSQL 18 + TCP API + Vite + headless Google Chrome",
+  "project_id": "01M3QRD8HR4SJ9KETPHM9TN220",
+  "thread_id": "thr_01M3QRD8WMM99V6PM74BR2EDGZ",
+  "checks": {
+    "text_visible_when_granted": true,
+    "tool_hidden_and_no_chat_navigation": true,
+    "text_revoke_read_404_and_reopen_clean": true,
+    "card_revoke_detail_messages_404_and_list_clean": true,
+    "pg_after_both_revocations": [
+      0,
+      0
+    ]
+  },
+  "browser_api_responses": [
+    {
+      "path": "/api/projects/01M3QRD8HR4SJ9KETPHM9TN220/tasks",
+      "status": 200
+    },
+    {
+      "path": "/api/projects/01M3QRD8HR4SJ9KETPHM9TN220/tasks",
+      "status": 200
+    },
+    {
+      "path": "/api/projects/01M3QRD8HR4SJ9KETPHM9TN220/tasks/thr_01M3QRD8WMM99V6PM74BR2EDGZ",
+      "status": 200
+    },
+    {
+      "path": "/api/projects/01M3QRD8HR4SJ9KETPHM9TN220/tasks/thr_01M3QRD8WMM99V6PM74BR2EDGZ/messages",
+      "status": 200
+    },
+    {
+      "path": "/api/projects/01M3QRD8HR4SJ9KETPHM9TN220/tasks",
+      "status": 200
+    },
+    {
+      "path": "/api/projects/01M3QRD8HR4SJ9KETPHM9TN220/tasks",
+      "status": 200
+    },
+    {
+      "path": "/api/projects/01M3QRD8HR4SJ9KETPHM9TN220/tasks/thr_01M3QRD8WMM99V6PM74BR2EDGZ",
+      "status": 200
+    },
+    {
+      "path": "/api/projects/01M3QRD8HR4SJ9KETPHM9TN220/tasks",
+      "status": 200
+    },
+    {
+      "path": "/api/projects/01M3QRD8HR4SJ9KETPHM9TN220/tasks",
+      "status": 200
+    }
+  ],
+  "screenshots": [
+    "ps05-text-granted.png",
+    "ps05-text-revoked.png",
+    "ps05-card-revoked.png"
+  ]
+}

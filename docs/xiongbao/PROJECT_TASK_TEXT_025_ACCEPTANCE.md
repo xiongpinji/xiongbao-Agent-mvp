@@ -23,3 +23,5 @@
 - **PostgreSQL 实库迁移/并发未验**：本机 WSL 没有 PostgreSQL 工具，Windows Docker daemon 未运行。GLM 静态审查提出 P2：读取时多表 `FOR SHARE` 与解绑级联删除可能产生死锁，数据库会中止一方请求；归档与授予之间还存在短暂状态竞态。这两项在真实 PG 环境补并发测试及修复，不视为已消除。
 - 全量 Dashboard Vitest 此次不是绿色：1214 个通过、4 个失败、3 个测试文件加载失败；失败位于本片以外的 DOMMatrix、专家发布、通道面板、输入动作与轨迹面板区域，是否为既有基线尚未证明。根目录 `make all` 未运行：Windows 环境没有 `make`。仓库 pre-commit hook 因同一缺失在提交前失败；Codex 手动完成上述相关检查后用 `SKIP_PRECOMMIT=1` 提交，不能把 hook 或最终 ship bar 标为通过。
 - WorkBuddy 5.6.2 桌面观察显示完整项目任务过滤、项目内对话及分享面板；本片只完成其中安全纯文本读取的一段。1280×768 逐状态视觉与真实多端协作还未验收，见 [项目空间差距台账](PROJECT_SPACE_GAP_AUDIT.md)。
+
+2026-09-30 补注：上面的“PostgreSQL 实库迁移/并发未验”是 **2026-09-25 固定实施提交的历史状态**。[新补验](PROJECT_TASK_SHARE_PS05_PG_TCP_ACCEPTANCE_20260930.md)已在当前固定源码的全新 PG schema 35 库上验证 024/025 权限、浏览器撤权和两组各 20 轮交错；旧库逐版升级、归档/授予同发及完整锁序矩阵仍未验，原 P2 风险不据此关闭。
