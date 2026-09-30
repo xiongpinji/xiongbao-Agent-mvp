@@ -64,7 +64,9 @@ export default function TodoFields({
   const { t } = useTranslation();
   const [picker, setPicker] = useState<"priority" | "tag" | null>(null);
   const [search, setSearch] = useState("");
-  const [manager, setManager] = useState(false);
+  const [manager, setManager] = useState<{ editingId: string | null } | null>(
+    null,
+  );
   const managementKey = JSON.stringify([accountId, projectId]);
   const retainedCatalog = useRef<{
     key: string;
@@ -578,7 +580,10 @@ export default function TodoFields({
           }}
           footer={
             <div className={styles.actions}>
-              <Button disabled={!canManage} onClick={() => setManager(true)}>
+              <Button
+                disabled={!canManage}
+                onClick={() => setManager({ editingId: null })}
+              >
                 {t("projects.todoFields.manageCatalog", "管理目录")}
               </Button>
               <Button onClick={closePicker}>
@@ -619,22 +624,39 @@ export default function TodoFields({
               {availablePriorities
                 .filter((item) => matches(item.name))
                 .map((item) => (
-                  <button
-                    type="button"
-                    key={item.priority_id}
-                    className={styles.option}
-                    data-color={item.color}
-                    disabled={
-                      item.archived_at !== null &&
-                      values.priority_id !== item.priority_id
-                    }
-                    onClick={() => {
-                      patch({ priority_id: item.priority_id });
-                      closePicker();
-                    }}
-                  >
-                    {itemLabel(item)}
-                  </button>
+                  <div key={item.priority_id} className={styles.optionRow}>
+                    <button
+                      type="button"
+                      className={styles.option}
+                      data-color={item.color}
+                      disabled={
+                        item.archived_at !== null &&
+                        values.priority_id !== item.priority_id
+                      }
+                      onClick={() => {
+                        patch({ priority_id: item.priority_id });
+                        closePicker();
+                      }}
+                    >
+                      {itemLabel(item)}
+                    </button>
+                    {canManage && (
+                      <Button
+                        size="small"
+                        disabled={disabled || loading || !!error || !catalog}
+                        aria-label={t(
+                          "projects.todoFields.editOption",
+                          "编辑 {{name}}",
+                          { name: item.name },
+                        )}
+                        onClick={() =>
+                          setManager({ editingId: item.priority_id })
+                        }
+                      >
+                        {t("common.edit", "编辑")}
+                      </Button>
+                    )}
+                  </div>
                 ))}
             </div>
           ) : (
@@ -692,7 +714,8 @@ export default function TodoFields({
               error={error}
               disabled={disabled || !catalog}
               kind={picker}
-              onClose={() => setManager(false)}
+              initialEditingId={manager.editingId}
+              onClose={() => setManager(null)}
               onRefresh={() => (onCatalogChanged ?? onRetry)?.()}
               onCreated={(kind, id) => {
                 if (kind === "priority") patch({ priority_id: id });
@@ -700,7 +723,7 @@ export default function TodoFields({
                   patch({
                     tag_ids: [...new Set([...values.tag_ids, id])].sort(),
                   });
-                setManager(false);
+                setManager(null);
               }}
             />
           )}

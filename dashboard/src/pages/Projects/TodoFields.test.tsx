@@ -251,6 +251,9 @@ describe("C1 shared field controls", () => {
     const trigger = screen.getByRole("button", { name: "选择优先级" });
     await user.click(trigger);
     const popup = screen.getByRole("dialog", { name: "优先级" });
+    expect(
+      within(popup).queryByRole("button", { name: "编辑 紧急" }),
+    ).toBeNull();
     expect(within(popup).queryByText(/历史优先级/)).toBeNull();
     expect(
       within(popup).getByRole("button", { name: "管理目录" }),
@@ -263,5 +266,31 @@ describe("C1 shared field controls", () => {
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "优先级" })).toBeNull();
     expect(trigger).toHaveFocus();
+  });
+  it("opens a priority's edit form directly without selecting or saving it", async () => {
+    const user = userEvent.setup();
+    render(<Harness canManage values={{ ...empty, priority_id: "pr1" }} />);
+    await user.click(screen.getByRole("button", { name: "选择优先级" }));
+    const picker = screen.getByRole("dialog", { name: "优先级" });
+    await user.click(within(picker).getByRole("button", { name: "编辑 紧急" }));
+    const manager = screen
+      .getByRole("button", { name: "返回字段选择" })
+      .closest('[role="dialog"]')!;
+    expect(
+      within(manager).getByRole("textbox", { name: "选项名称" }),
+    ).toHaveValue("紧急");
+    expect(within(manager).getByRole("combobox", { name: "颜色" })).toHaveValue(
+      "red",
+    );
+    expect(screen.getByRole("status").textContent).toContain(
+      '"priority_id":"pr1"',
+    );
+    await user.click(
+      within(manager).getByRole("button", { name: "返回字段选择" }),
+    );
+    expect(screen.queryByRole("button", { name: "返回字段选择" })).toBeNull();
+    expect(screen.getByRole("status").textContent).toContain(
+      '"priority_id":"pr1"',
+    );
   });
 });

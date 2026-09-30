@@ -23,6 +23,7 @@ export interface TodoCatalogManagerProps {
   error?: unknown;
   disabled?: boolean;
   kind: "priority" | "tag";
+  initialEditingId?: string | null;
   onClose: () => void;
   onRefresh: () => unknown | Promise<unknown>;
   onCreated?: (kind: "priority" | "tag", id: string) => void;
@@ -75,7 +76,12 @@ export function isTodoAccessLost(error: unknown): boolean {
 export default function TodoCatalogManager(props: TodoCatalogManagerProps) {
   return (
     <TodoCatalogManagerContent
-      key={JSON.stringify([props.accountId, props.projectId, props.kind])}
+      key={JSON.stringify([
+        props.accountId,
+        props.projectId,
+        props.kind,
+        props.initialEditingId,
+      ])}
       {...props}
     />
   );
@@ -89,6 +95,7 @@ function TodoCatalogManagerContent({
   error: catalogError,
   disabled = false,
   kind,
+  initialEditingId = null,
   onClose,
   onRefresh,
   onCreated,
@@ -112,15 +119,26 @@ function TodoCatalogManagerContent({
   latestCatalog.current = catalog;
   const savedRevision = useRef(catalog.revision);
   const active = useRef(true);
+  const initialItem = initialEditingId
+    ? kind === "priority"
+      ? catalog.priorities.find((item) => item.priority_id === initialEditingId)
+      : catalog.tags.find((item) => item.tag_id === initialEditingId)
+    : undefined;
   const [revision, setRevision] = useState(catalog.revision);
   const [formRevision, setFormRevision] = useState(catalog.revision);
-  const [name, setName] = useState("");
-  const [color, setColor] = useState<TodoCatalogColor>("blue");
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [name, setName] = useState(initialItem?.name ?? "");
+  const [color, setColor] = useState<TodoCatalogColor>(
+    initialItem?.color ?? "blue",
+  );
+  const [editingId, setEditingId] = useState<string | null>(
+    initialItem ? initialEditingId : null,
+  );
   const [editingBaseline, setEditingBaseline] = useState<{
     name: string;
     color: TodoCatalogColor;
-  } | null>(null);
+  } | null>(
+    initialItem ? { name: initialItem.name, color: initialItem.color } : null,
+  );
   const [order, setOrder] = useState(serverOrder);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
