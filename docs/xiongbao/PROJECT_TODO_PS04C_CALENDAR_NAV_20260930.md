@@ -12,3 +12,5 @@
 | 独立审查与推送 | 独立只读代码审查无发现；只暂存、提交两个 `TodoFields` 文件，远端 `xiongbao/main` 已核对为 `c65ff4b5`，本地工作树干净。 |
 
 这台 Windows 主机缺少默认 pre-commit 依赖的 `make`。本次使用仓库外、严格限定两个暂存文件的临时钩子执行格式、lint、相邻测试和构建；仓库 `.githooks` 与持久 `core.hooksPath` 未修改。本次没有重新操作 WorkBuddy、没有真实浏览器视觉对照，也没有 GLM 固定 SHA 复审；此局部交互补修不能核销 PS-04C 或整体 WorkBuddy 1:1 验收。
+
+后续固定 `925171e7` 的[当前源码浏览器补验](PROJECT_TODO_PS04C_CURRENT_BROWSER_20260930.md)已通过新建截止日期当月 prev 禁用、从下一月返回边界时焦点转 next、Escape 归焦和保留外层编辑弹窗。该局部新库 SQLite 旅程补充了真实浏览器证据，仍未保存日期或验证 WorkBuddy 同夹具 1:1；旧逾期日期的边界以本页原先的相邻自动化用例为证据。

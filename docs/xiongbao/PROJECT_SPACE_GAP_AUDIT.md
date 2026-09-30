@@ -5,7 +5,7 @@
 ## 对标证据与边界
 
 - 2026-09-30 的当前主线已包含 Dashboard WebSocket 跨用户会话归属补修 `3d30a361`，见[执行计划中的安全门禁记录](PROJECT_SPACE_EXECUTION_PLAN.md)：四个原失败越权用例转绿，原批聚焦 73 项与相邻 65 项通过；在后续 `a0086d4b` HEAD 又重跑 `tests/integration/test_chat_ws.py`，**26/26 通过**。独立只读复核无 P0/P1/P2；GLM 固定提交审查因额度 429 未运行，全仓离线套件曾在 2% 中止。它只关闭 Dashboard 会话入口，不核销 PS-05B、跨全部任务资源的 ACL 或项目空间 1:1。
-- PS-04C 已在原 C1/C2 本地验收后补两处与 WorkBuddy 可见交互相关的前端行为：`c65ff4b5` 约束新截止日期的过去月份导航并修复禁用按钮造成的 Escape 焦点丢失，[日历补验](PROJECT_TODO_PS04C_CALENDAR_NAV_20260930.md)记录 86/86 相邻测试；`471096b0` 为 owner/admin 在优先级选项旁增加受权限和目录状态保护的“编辑”入口，[优先级补验](PROJECT_TODO_PS04C_PRIORITY_INLINE_20260930.md)记录 113/113 相邻测试。两批均已推送并经独立只读代码复核；尚未完成真实 WorkBuddy 保存语义、同夹具逐状态视觉或最新补丁的真实浏览器复验。
+- PS-04C 已在原 C1/C2 本地验收后补两处与 WorkBuddy 可见交互相关的前端行为：`c65ff4b5` 约束新截止日期的过去月份导航并修复禁用按钮造成的 Escape 焦点丢失，[日历补验](PROJECT_TODO_PS04C_CALENDAR_NAV_20260930.md)记录 86/86 相邻测试；`471096b0` 为 owner/admin 在优先级选项旁增加受权限和目录状态保护的“编辑”入口，[优先级补验](PROJECT_TODO_PS04C_PRIORITY_INLINE_20260930.md)记录 113/113 相邻测试。随后在固定 `925171e7` 的[新库真实浏览器补验](PROJECT_TODO_PS04C_CURRENT_BROWSER_20260930.md)完成 8/8 阶段：231 项跨页筛选、真实 bulk 成功/409 整批回滚、成员移除/失效筛选临时恢复，以及两处补丁的日历焦点和编辑草稿 smoke 均通过，独立复核 GO。该批为合成账号、SQLite 和本地 API 登录，不是 WorkBuddy 保存语义、同夹具逐状态视觉、真实登录页、PG 或完整项目空间验收。
 - PS-04D 私密待办附件与一级子待办的[第三版设计候选](PROJECT_TODO_ATTACHMENTS_SUBTODOS_PS04D_DESIGN.md)已推送 `a0086d4b`；[独立原生设计复审](PROJECT_TODO_PS04D_DESIGN_REVIEW_20260930.md)对固定提交给出设计 GO、无 P0/P1，但 GLM 未运行，亦非实现验收。设计等待用户本批批准，附件/子待办业务代码与验收尚未开始；PS-04C 的承接授权不自动扩大到本批，PS-04 整条旅程仍未核销。
 
 - 2026-09-30 在固定 HEAD `25950683` 完成 [PS-05B 024/025 全新 PostgreSQL/TCP 与 Chrome 局部补验](PROJECT_TASK_SHARE_PS05_PG_TCP_ACCEPTANCE_20260930.md)：四合成身份 API 的私密默认与指定接收者双授权/撤权、两组各 20 轮 PG 交错及顺序归档门禁通过；自建测试库已删除、PG/API 正常停机且三个回环端口关闭。旧库升级、归档同发、完整协同/外部分享和 WorkBuddy 逐状态视觉仍未验，PS-05 不核销。
