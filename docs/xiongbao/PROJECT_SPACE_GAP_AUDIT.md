@@ -4,6 +4,8 @@
 
 ## 对标证据与边界
 
+- 2026-09-30 固定干净 `0a79200e` 的 [PS05 Dashboard 真实 TCP/WebSocket 补验](PROJECT_TASK_SHARE_PS05_WS_TCP_ACCEPTANCE_20260930.md)完成初次 8/8、同库重启后 7/7，共 **15/15 阶段**：四类原越权入口拒绝且聊天记录与实际 Agent fake 执行无副作用，正常对话/切换、历史异常合法修复、删除后恢复通过；两 API 正常停机、5 个 child 退出 0、Job 与端口关闭。297 来源文件、6 脚本前后字节一致，独立实际证据 GO；三个 QA 失败 run 保留。此批为合成 SQLite、真实回环 HTTP/WS 和本地 fake，业务源码未改；未验浏览器、PG、内部通知、真实账号、付费 provider 或 WorkBuddy 1:1。GLM 仍因 429 未运行，PS-05B/006 与 25 项保持未核销。
+
 - 2026-09-30 固定 `87cec425` 的[字段保存与冲突恢复补验](PROJECT_TODO_PS04C_SAVE_CONFLICT_20260930.md)完成新库真实浏览器 **8/8 阶段、8 张截图**：owner/member 日期、优先级与标签保存/重载，owner 行内目录保存，以及旧待办版本、新建目录修订和目录管理三类 409 的草稿保留、明确比较及重提交。新建比较就绪被晚到列表回调清除的问题已修复，有效 RED→GREEN、独立代码与实际证据 GO；30 文件/649 前端回归和当前后端离线 **5329 通过/319 跳过**。默认全前端格式检查因 Windows CRLF 存量失败，`--end-of-line auto` 通过，不能写成默认全绿。该批是合成 SQLite/API JWT 旅程，未验登录表单、PG 或 WorkBuddy 保存语义/逐状态 1:1；原批证据和失败历史保留。
 
 - 2026-09-30 的当前主线已包含 Dashboard WebSocket 跨用户会话归属补修 `3d30a361`，见[执行计划中的安全门禁记录](PROJECT_SPACE_EXECUTION_PLAN.md)：四个原失败越权用例转绿，原批聚焦 73 项与相邻 65 项通过；在后续 `a0086d4b` HEAD 又重跑 `tests/integration/test_chat_ws.py`，**26/26 通过**。独立只读复核无 P0/P1/P2；GLM 固定提交审查因额度 429 未运行，全仓离线套件曾在 2% 中止。它只关闭 Dashboard 会话入口，不核销 PS-05B、跨全部任务资源的 ACL 或项目空间 1:1。

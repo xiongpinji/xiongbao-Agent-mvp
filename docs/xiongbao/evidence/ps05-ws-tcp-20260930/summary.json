@@ -1,0 +1,201 @@
+{
+  "schema": 1,
+  "scope": "PS05 Dashboard session ownership local TCP/WebSocket acceptance",
+  "state": "PASS",
+  "tested_source_head": "0a79200e20cfce73dfa97a44efec92b816915848",
+  "published_fix_sha": "3d30a36120b673b61371be5bf28781c0a886c5cb",
+  "run": "run-5be7a351024e4708810bb4cc910cacd9",
+  "database": "synthetic owned SQLite",
+  "transport": "real loopback HTTP/WebSocket",
+  "model": "local FakeHarnessAgent; actual registry instances audited",
+  "stages": [
+    {
+      "stage": 0,
+      "state": "PASS",
+      "phases": [
+        {
+          "name": "synthetic_tcp_logins_and_shared_agents",
+          "state": "PASS"
+        },
+        {
+          "name": "foreign_unbound_session_key_rejected",
+          "state": "PASS"
+        },
+        {
+          "name": "default_turns_keep_shared_users_separate",
+          "state": "PASS"
+        },
+        {
+          "name": "foreign_bound_session_key_rejected",
+          "state": "PASS"
+        },
+        {
+          "name": "own_thread_cannot_rebind_foreign_session_key",
+          "state": "PASS"
+        },
+        {
+          "name": "own_subscription_and_foreign_subscription_rejection",
+          "state": "PASS"
+        },
+        {
+          "name": "member_explicit_thread_switch_preserves_owner",
+          "state": "PASS"
+        },
+        {
+          "name": "prepare_owned_legacy_fixture_and_stop_snapshot",
+          "state": "PASS"
+        }
+      ],
+      "recorded_http_requests": 17,
+      "websocket_exchanges": 8,
+      "all_sockets_closed": true,
+      "actual_fake_stream_calls": 3,
+      "server_state": "STOPPED",
+      "normal_stop": true,
+      "bootstrap": "initial synthetic accounts via setup helper; public journey logins are TCP",
+      "restored_existing_owned_database": false
+    },
+    {
+      "stage": 1,
+      "state": "PASS",
+      "phases": [
+        {
+          "name": "same_owned_database_restart_and_fresh_tcp_login",
+          "state": "PASS"
+        },
+        {
+          "name": "corrupt_own_key_foreign_thread_rejected",
+          "state": "PASS"
+        },
+        {
+          "name": "legitimate_owner_http_new_thread_repairs_binding",
+          "state": "PASS"
+        },
+        {
+          "name": "historical_foreign_session_owner_http_repair",
+          "state": "PASS"
+        },
+        {
+          "name": "member_subscription_and_bound_turn_after_restart",
+          "state": "PASS"
+        },
+        {
+          "name": "member_http_delete_and_default_turn_recovery",
+          "state": "PASS"
+        },
+        {
+          "name": "foreign_key_denials_remain_after_repair",
+          "state": "PASS"
+        }
+      ],
+      "recorded_http_requests": 9,
+      "websocket_exchanges": 7,
+      "all_sockets_closed": true,
+      "actual_fake_stream_calls": 3,
+      "server_state": "STOPPED",
+      "normal_stop": true,
+      "bootstrap": "NOT_RUN on restore",
+      "restored_existing_owned_database": true
+    }
+  ],
+  "source_files_unchanged": 297,
+  "method_files_unchanged": 6,
+  "method_sha256": {
+    "run.py": "7990252531e7db8155391db592519f24385e3b728d9c87818ff1c52002bf208f",
+    "serve.py": "0cc42e1bb7fe6039e419e2d876525477a9d6d0e8240471b99af98ab2bde2d53f",
+    "ws_journey.py": "cacc99e57f3d3d6322fa77f341f62e34d783014e0c2f55b906109909fbc157bf",
+    "snapshot.py": "536725fbfbbdc7ce18e7fbbd76d40ac70140db6476b834bb011dd032fbf5b34c",
+    "legacy_fixture.py": "328706f4509dd11280970a4400c1ecf13934297b3e22aeada3aee982dc792ad7",
+    "owned_process.py": "b886d9ee47df183ccd13c97a9e64e02fd7990bc6fe311d75e46c14b09f351cd9"
+  },
+  "legacy_fixture": {
+    "kind": "QA-only stopped-database legacy fixture, not an observed production migration",
+    "changed_session_rows": 2,
+    "threads_and_messages_unchanged": true
+  },
+  "cleanup": {
+    "tcp-0_tree_counts": {
+      "total": 3,
+      "active": 0,
+      "terminated": 0
+    },
+    "tcp-0_job_closed": true,
+    "api-0_normal_stop": true,
+    "api-0_tree_counts": {
+      "total": 3,
+      "active": 0,
+      "terminated": 0
+    },
+    "api-0_job_closed": true,
+    "api-0_stop_observed": true,
+    "api-0_watch_error": null,
+    "api-0_port_closed": true,
+    "fixture_tree_counts": {
+      "total": 3,
+      "active": 0,
+      "terminated": 0
+    },
+    "fixture_job_closed": true,
+    "tcp-1_tree_counts": {
+      "total": 3,
+      "active": 0,
+      "terminated": 0
+    },
+    "tcp-1_job_closed": true,
+    "api-1_normal_stop": true,
+    "api-1_tree_counts": {
+      "total": 3,
+      "active": 0,
+      "terminated": 0
+    },
+    "api-1_job_closed": true,
+    "api-1_stop_observed": true,
+    "api-1_watch_error": null,
+    "api-1_port_closed": true,
+    "port_closed": true
+  },
+  "child_exit_codes": {
+    "api-0": 0,
+    "tcp-0": 0,
+    "fixture": 0,
+    "api-1": 0,
+    "tcp-1": 0
+  },
+  "failures_preserved": [
+    {
+      "run": "run-f7eeb61483c04c088bf76a401ab7ca44",
+      "overall_state": "FAILED_OR_INCONCLUSIVE",
+      "completed_phases": 8,
+      "reason": "QA watcher did not observe stop; precise exception was not recorded",
+      "run_result_sha256": "cfb8a5cb730759c22e3db99cb905c30342de6d0a4a27c1d50078213b8f37b297",
+      "not_counted_as_success": true
+    },
+    {
+      "run": "run-2e638d6a8d4b48899c56d3e54245e23e",
+      "overall_state": "FAILED_OR_INCONCLUSIVE",
+      "completed_phases": 3,
+      "reason": "Diagnostic confirmed Windows observation file replacement WinError 5",
+      "run_result_sha256": "0601ed25c620846ba2c210fa9aef32f74795a7523985e26a90e3100844f2746e",
+      "not_counted_as_success": true
+    },
+    {
+      "run": "run-a0f294b0e81e45eaae2b9b83f5a0b27b",
+      "overall_state": "FAILED_OR_INCONCLUSIVE",
+      "completed_phases": 13,
+      "reason": "QA DELETE expected 200; existing source contract returns 204",
+      "run_result_sha256": "2aad1d80ad9ca76106bf65749307996641b3a55889306051a493a8d9a8ceae5b",
+      "not_counted_as_success": true
+    }
+  ],
+  "excluded": [
+    "browser UI / login form",
+    "PostgreSQL in this batch",
+    "internal notification branches in this TCP journey",
+    "real account / production data",
+    "paid model provider",
+    "history body persistence with a real checkpoint",
+    "WorkBuddy 1:1",
+    "complete PS05 / 25-item acceptance"
+  ],
+  "recorded_http_count_scope": "Only journey request wrapper and login records; setup/provider helper requests excluded"
+}

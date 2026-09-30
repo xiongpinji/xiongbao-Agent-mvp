@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "tested_source_head": "0a79200e20cfce73dfa97a44efec92b816915848",
+  "run": "run-5be7a351024e4708810bb4cc910cacd9",
+  "published_bytes": {
+    "summary.json": "c701b58e6fed2f97e471856e113960f75185198c43209b41b6e1dad18c0cf870"
+  },
+  "local_artifact_root": "C:\\Users\\canqu\\Documents\\Codex\\2026-09-23\\qctop-work-buddy-agent-logo-ui-3\\work\\qa-ps05-ws-tcp-20260930",
+  "local_raw_evidence_sha256": {
+    "runs/run-5be7a351024e4708810bb4cc910cacd9/run-result.json": "5a4d21453798e9fed5d1c41f28053d2d34ee3567159b6fced533f3faa20f8e0f",
+    "runs/run-5be7a351024e4708810bb4cc910cacd9/tcp-0-result.json": "cae0fe930812c7aaa6c41a0db2ce97f7a30cf2f1b86219a247c2ec0bcaec5c60",
+    "runs/run-5be7a351024e4708810bb4cc910cacd9/tcp-1-result.json": "ff4a72283f3487f2b4169569a2fbdcee91cd82aa9691de8381167449a4abf1d3",
+    "runs/run-5be7a351024e4708810bb4cc910cacd9/server-0-result.json": "6abb724ff54d86e5d0201f51266f8d1c69b67362f8b8ed5823fbc3825d279370",
+    "runs/run-5be7a351024e4708810bb4cc910cacd9/server-1-result.json": "e49580bceaed24734b5e97f16697ea5917cff6a05bb5bf201055303b3b89e259",
+    "runs/run-5be7a351024e4708810bb4cc910cacd9/observations-0.json": "57d5caeae33cb8cc9e3a9e9a1d57813ed915eadcb35c8cb67724a98435475f7b",
+    "runs/run-5be7a351024e4708810bb4cc910cacd9/observations-1.json": "9e46ccc079085165542387989f748aafd6b57b158f75faf38e8c79956109a604",
+    "runs/run-5be7a351024e4708810bb4cc910cacd9/legacy-fixture-result.json": "1473391d61ef88fd70a837312b6d4b17a4c3047c5c4e3396760d3312e173a539",
+    "runs/run-5be7a351024e4708810bb4cc910cacd9/fixture.json": "ed3c9a44673223760ef6f8b48a27ebca69f3888db43fb7f0fc6629ebdb23208e",
+    "runs/run-5be7a351024e4708810bb4cc910cacd9/before-stop-db.json": "526dcb3f4c3d1bd1bd16f54c4e935ad059414807174dd59996395806f0357a04"
+  },
+  "local_review_sha256": {
+    "HARNESS_REVIEW_V1.md": "587e3a11d5ba6575c3afdf3e558303e9f1f7ffc92068c8d52e43c5d6c63a5fd5",
+    "HARNESS_REVIEW_V2.md": "c7a1fe475680be6244af339b4d12829e632b517502f590e69acd32568efb014a",
+    "HARNESS_REVIEW_V3.md": "81f0d242429b682d047ef999036e8c1c8180121e838242528f73a615b5906b3b",
+    "HARNESS_REVIEW_V4.md": "5e772b40554ab1932d355fbbf07525e71c467c3e32d2bac413861f08de818eab",
+    "LIFECYCLE_ROOT_CAUSE_V1.md": "3e58878310ad42dcce1e75d7d69588186baec248e516f1655701a33d41a0ebb4",
+    "ACCEPTANCE_REVIEW_V4.md": "717de8f279150d2fa965c540030fdfbd6e4377d15d559151d5ac0c72fe5495ba"
+  },
+  "method_sha256": {
+    "run.py": "7990252531e7db8155391db592519f24385e3b728d9c87818ff1c52002bf208f",
+    "serve.py": "0cc42e1bb7fe6039e419e2d876525477a9d6d0e8240471b99af98ab2bde2d53f",
+    "ws_journey.py": "cacc99e57f3d3d6322fa77f341f62e34d783014e0c2f55b906109909fbc157bf",
+    "snapshot.py": "536725fbfbbdc7ce18e7fbbd76d40ac70140db6476b834bb011dd032fbf5b34c",
+    "legacy_fixture.py": "328706f4509dd11280970a4400c1ecf13934297b3e22aeada3aee982dc792ad7",
+    "owned_process.py": "b886d9ee47df183ccd13c97a9e64e02fd7990bc6fe311d75e46c14b09f351cd9"
+  }
+}
