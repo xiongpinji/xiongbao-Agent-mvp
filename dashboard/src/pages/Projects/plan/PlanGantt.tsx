@@ -233,7 +233,9 @@ export default function PlanGantt(props: PlanRendererProps) {
               {
                 "--plan-day-width": `${dayWidth}px`,
                 "--plan-day-count": days.length,
-                minWidth: `${270 + days.length * dayWidth}px`,
+                minWidth: `calc(var(--plan-gantt-label-width) + ${
+                  days.length * dayWidth
+                }px)`,
               } as CSSProperties
             }
           >

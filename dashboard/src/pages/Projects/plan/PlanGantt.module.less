@@ -1,4 +1,5 @@
 .gantt {
+  --plan-gantt-label-width: 270px;
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -72,7 +73,7 @@
 .headerRow,
 .ganttRow {
   display: grid;
-  grid-template-columns: 270px minmax(0, 1fr);
+  grid-template-columns: var(--plan-gantt-label-width) minmax(0, 1fr);
 }
 .headerRow {
   position: sticky;
@@ -221,6 +222,10 @@
   outline-offset: 2px;
 }
 @media (max-width: 1000px) {
+  .gantt {
+    --plan-gantt-label-width: 160px;
+  }
+
   .toolbar {
     flex-wrap: nowrap;
     flex-shrink: 0;
