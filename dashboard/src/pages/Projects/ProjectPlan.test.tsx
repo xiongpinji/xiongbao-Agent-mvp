@@ -33,6 +33,44 @@ vi.mock("../../api/modules/projectPlanViews", async (importOriginal) => {
     },
   };
 });
+const { loadedDelivery } = vi.hoisted(() => ({
+  loadedDelivery: {
+    hold: false,
+    latestScope: null as
+      | import("./plan/ProjectPlanViews").PlanOperationScope
+      | null,
+    queued: [] as {
+      scope: import("./plan/ProjectPlanViews").PlanOperationScope;
+      deliver: () => void;
+    }[],
+  },
+}));
+vi.mock("./plan/ProjectPlanViews", async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import("./plan/ProjectPlanViews")
+  >();
+  const { forwardRef } = await import("react");
+  const ActualProjectPlanViews = actual.default;
+  return {
+    ...actual,
+    default: forwardRef<
+      import("./plan/ProjectPlanViews").ProjectPlanViewsHandle,
+      import("./plan/ProjectPlanViews").ProjectPlanViewsProps
+    >((props, ref) => (
+      <ActualProjectPlanViews
+        {...props}
+        ref={ref}
+        onLoadedTodosChanged={(todos, scope) => {
+          loadedDelivery.latestScope = scope;
+          const deliver = () => props.onLoadedTodosChanged(todos, scope);
+          if (loadedDelivery.hold)
+            loadedDelivery.queued.push({ scope, deliver });
+          else deliver();
+        }}
+      />
+    )),
+  };
+});
 vi.mock("react-i18next", async (importOriginal) => {
   const actual = await importOriginal<typeof import("react-i18next")>();
   const resources = (await import("../../locales/zh.json")).default;
@@ -360,6 +398,9 @@ function rowFor(title: string): HTMLElement {
 
 beforeEach(() => {
   localStorage.clear();
+  loadedDelivery.hold = false;
+  loadedDelivery.latestScope = null;
+  loadedDelivery.queued = [];
   serverViews = [
     makePlanView({ view_id: "table-p1", project_id: "p1", name: "表格" }),
     makePlanView({
@@ -814,6 +855,197 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
       }),
     );
   }, 15000);
+  it("retains creation comparison after catalog conflict refresh finishes in the same view and filter", async () => {
+    const user = userEvent.setup();
+    const draft = {
+      title: "目录冲突待办草稿",
+      description: "刷新比较前保留完整草稿",
+      status: "in_progress" as const,
+      assignee_user_id: 1,
+      start_date: "2020-01-01",
+      due_date: "2026-09-30",
+      priority_id: "pr1",
+      tag_ids: ["tag1"],
+    };
+    const latest = {
+      ...catalogFixture,
+      revision: 2,
+      priorities: catalogFixture.priorities.map((item) =>
+        item.priority_id === "pr1" ? { ...item, name: "刷新后的紧急" } : item,
+      ),
+      tags: catalogFixture.tags.map((item) =>
+        item.tag_id === "tag1" ? { ...item, name: "刷新后的设计" } : item,
+      ),
+    };
+    create
+      .mockRejectedValueOnce(
+        new Error(
+          '409 - {"error":{"code":"CONFLICT","details":{"reason":"catalog_revision_conflict"}}}',
+        ),
+      )
+      .mockResolvedValueOnce({
+        ...todoOpen,
+        ...draft,
+        todo_id: "new-catalog-conflict",
+        catalog_revision: 2,
+      });
+    renderPlan();
+    await screen.findByText("写周报");
+    await user.type(
+      screen.getByRole("textbox", { name: "搜索待办" }),
+      "周报{enter}",
+    );
+    await waitFor(() =>
+      expect(
+        (planViewsQuery.mock.calls.at(-1)![1] as PlanQueryRequest)
+          .override_definition!.filters,
+      ).toContainEqual({ field: "title", op: "contains", value: "周报" }),
+    );
+    const originalQuery = structuredClone(
+      planViewsQuery.mock.calls.at(-1)![1] as PlanQueryRequest,
+    );
+    await user.click(screen.getByRole("button", { name: "新建待办" }));
+    const dialog = screen.getByRole("dialog", { name: "新建待办" });
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "标题" }), {
+      target: { value: draft.title },
+    });
+    fireEvent.change(
+      within(dialog).getByPlaceholderText("可选：补充说明（不超过 4000 字符）"),
+      { target: { value: draft.description } },
+    );
+    chooseOption(
+      within(dialog).getByRole("combobox", { name: "状态" }),
+      "进行中",
+    );
+    chooseOption(
+      within(dialog).getByRole("combobox", { name: "处理人" }),
+      "alice",
+    );
+    fireEvent.change(within(dialog).getByLabelText("开始日期"), {
+      target: { value: draft.start_date },
+    });
+    fireEvent.change(within(dialog).getByLabelText("截止日期"), {
+      target: { value: draft.due_date },
+    });
+    await user.click(
+      within(dialog).getByRole("button", { name: "选择优先级" }),
+    );
+    await user.click(screen.getByRole("button", { name: "紧急" }));
+    await user.click(within(dialog).getByRole("button", { name: "选择标签" }));
+    await user.click(screen.getByRole("checkbox", { name: "设计" }));
+    await user.click(screen.getByRole("button", { name: "完成选择" }));
+    await user.click(within(dialog).getByRole("button", { name: /^创\s*建$/ }));
+    await within(dialog).findByRole("button", { name: "刷新后比较" });
+    expect(create).toHaveBeenCalledExactlyOnceWith("p1", {
+      ...draft,
+      expected_catalog_revision: 1,
+    });
+
+    const originalScope = loadedDelivery.latestScope!;
+    loadedDelivery.hold = true;
+    catalogGet.mockResolvedValue(latest);
+    await user.click(
+      within(dialog).getByRole("button", { name: "刷新后比较" }),
+    );
+    await waitFor(() =>
+      expect(planViewsQuery).toHaveBeenLastCalledWith(
+        "p1",
+        expect.objectContaining({
+          view_id: originalQuery.view_id,
+          expected_view_version: originalQuery.expected_view_version,
+          expected_catalog_revision: 2,
+          override_definition: originalQuery.override_definition,
+        }),
+        expect.anything(),
+      ),
+    );
+    expect(
+      within(dialog).getByRole("button", { name: /创\s*建$/ }),
+    ).toBeDisabled();
+    // Keep real view/query generations and forward the real ref. Delay only
+    // callback delivery to reproduce Chrome's effect arriving after compare.
+    await act(async () => {
+      await Promise.all(
+        planViewsQuery.mock.results
+          .filter(
+            (_result, index) =>
+              (planViewsQuery.mock.calls[index][1] as PlanQueryRequest)
+                .expected_catalog_revision === 2,
+          )
+          .map((result) => result.value),
+      );
+    });
+    await within(dialog).findByRole("button", { name: "确认比较" });
+    await waitFor(() =>
+      expect(loadedDelivery.queued.length).toBeGreaterThan(0),
+    );
+    const lateLoaded = loadedDelivery.queued.at(-1)!;
+    expect(lateLoaded.scope).toMatchObject({
+      accountId: originalScope.accountId,
+      projectId: originalScope.projectId,
+      viewId: originalScope.viewId,
+    });
+    expect(lateLoaded.scope.queryGeneration).toBeGreaterThan(
+      originalScope.queryGeneration,
+    );
+    await act(async () => {
+      loadedDelivery.hold = false;
+      loadedDelivery.queued = [];
+      lateLoaded.deliver();
+    });
+    const currentDialog = screen.getByRole("dialog", { name: "新建待办" });
+    expect(
+      within(currentDialog).getByRole("textbox", { name: "标题" }),
+    ).toHaveValue(draft.title);
+    expect(
+      within(currentDialog).getByPlaceholderText(
+        "可选：补充说明（不超过 4000 字符）",
+      ),
+    ).toHaveValue(draft.description);
+    expect(within(currentDialog).getByLabelText("开始日期")).toHaveValue(
+      draft.start_date,
+    );
+    expect(within(currentDialog).getByLabelText("截止日期")).toHaveValue(
+      draft.due_date,
+    );
+    expect(
+      within(currentDialog)
+        .getByRole("combobox", { name: "状态" })
+        .closest(".ant-select"),
+    ).toHaveTextContent("进行中");
+    expect(
+      within(currentDialog)
+        .getByRole("combobox", { name: "处理人" })
+        .closest(".ant-select"),
+    ).toHaveTextContent("alice");
+    expect(
+      within(currentDialog).getByRole("button", { name: "选择优先级" }),
+    ).toHaveTextContent("刷新后的紧急");
+    expect(
+      within(currentDialog).getByRole("button", { name: "选择标签" }),
+    ).toHaveTextContent("刷新后的设计");
+    const createButton = within(currentDialog).getByRole("button", {
+      name: /^创\s*建$/,
+    });
+    expect(createButton).toBeDisabled();
+    await user.click(createButton);
+    expect(create).toHaveBeenCalledTimes(1);
+    await user.click(
+      await within(currentDialog).findByRole("button", { name: "确认比较" }),
+    );
+    await user.click(createButton);
+    await waitFor(() =>
+      expect(create).toHaveBeenLastCalledWith("p1", {
+        ...draft,
+        expected_catalog_revision: 2,
+      }),
+    );
+    expect(create).toHaveBeenCalledTimes(2);
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "新建待办" })).toBeNull(),
+    );
+  }, 15000);
+
   it("retains editor draft on 409, displays refreshed server comparison and uses its new version after confirmation", async () => {
     const user = userEvent.setup();
     update

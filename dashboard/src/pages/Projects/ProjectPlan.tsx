@@ -1216,6 +1216,9 @@ function ProjectPlanContent({
         setEditorError(t("projects.planViews.integration.compareFailed"));
         return;
       }
+      // Loaded rows may commit after the refresh promise settles. Keep the
+      // draft on that frame while its catalog baseline awaits confirmation.
+      editorContext.current = { ...original, scope: fresh };
       comparisonContext.current = { scope: fresh, catalogRevision: revision };
       setServerComparison(result?.state === "ready" ? result.todo : null);
       setComparisonReady(true);
