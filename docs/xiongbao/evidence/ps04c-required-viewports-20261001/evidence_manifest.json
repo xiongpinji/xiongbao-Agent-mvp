@@ -1,0 +1,847 @@
+{
+  "tested_source_head": "9d8763fd5bd605402f9a891b9d5f6f5c12ca14b7",
+  "local_qa_directory": "qa-ps04c-required-viewports-20261001",
+  "method_version": "V5",
+  "inputs": [
+    {
+      "local_qa_relative_path": "EXECUTION_METHOD_BINDING_V4.json",
+      "sha256": "d673d76a001ce099c222e2fc07e86ac937e8ce6ac2ba57f728755254e2bce110"
+    },
+    {
+      "local_qa_relative_path": "EXECUTION_METHOD_BINDING_V5.json",
+      "sha256": "c1fe28345e3ce1c72d039c97f9f847f1bf5e8397a207fa8b7903f5af36cd64e4"
+    },
+    {
+      "local_qa_relative_path": "GANTT_FIX_PLAN.md",
+      "sha256": "e31fca35a62e0753e529552883654ba7376d8b9d5a0d32d8d06ede6807578a51"
+    },
+    {
+      "local_qa_relative_path": "METHODS_V3.json",
+      "sha256": "6bdbf02306c46c5473be4dfed97becbf8567ffd22f2f31b1a84d562eec177eaa"
+    },
+    {
+      "local_qa_relative_path": "METHODS_V4.json",
+      "sha256": "e529da48339f5d05a55ec2891f40a22376a11c08e39d2a45e6b573539622f84b"
+    },
+    {
+      "local_qa_relative_path": "METHODS_V5.json",
+      "sha256": "1963545268b63eb8dd934f687e7242525d25bc05a6e52487924e27b61df70a75"
+    },
+    {
+      "local_qa_relative_path": "PUBLICATION_CANDIDATE_BINDING.json",
+      "sha256": "385d58d0211afa1d8086adb019c107a09a74994e2cf94fa3758c84338c53eac5"
+    },
+    {
+      "local_qa_relative_path": "PUBLICATION_V1_REJECTED.json",
+      "sha256": "8a66d16bb490624dcdae0dbbb1a367ffdf7384ca17c81d071e108fa7afae93e5"
+    },
+    {
+      "local_qa_relative_path": "commit_candidate_guard.py",
+      "sha256": "5937fd1319095374162acd2c71b79de38cfbe714c56739fc77db0b57513b71f7"
+    },
+    {
+      "local_qa_relative_path": "hooks_candidate/pre-commit",
+      "sha256": "e6e0fbecdaf9908325007444cfe248a6b7899073c35de2bd805ab34adf92d7f2"
+    },
+    {
+      "local_qa_relative_path": "publication-candidate/docs/xiongbao/MASTER_PARITY_PLAN.md",
+      "sha256": "b5e42aaf633167dced017b89dc847d541f64ac73929c3055c09d2755445ad9d0"
+    },
+    {
+      "local_qa_relative_path": "publication-candidate/docs/xiongbao/PROJECT_TODO_PS04C_REQUIRED_VIEWPORTS_20261001.md",
+      "sha256": "5ac82c9a8599a65f674e9437a886e285acfa0c6d077cb93d0697e628bf88af08"
+    },
+    {
+      "local_qa_relative_path": "publication-candidate/docs/xiongbao/WORKBUDDY_PARITY.md",
+      "sha256": "28d972d935d11523bd98d51e35318ee6169cd9bac3647c27e1ecb8fbd87cce55"
+    },
+    {
+      "local_qa_relative_path": "publication-candidate/docs/xiongbao/evidence/ps04c-required-viewports-20261001/evidence_manifest.json",
+      "sha256": "b3b0c16f310bc62b6e82f5bcb94b4d3b01b43929eb1654737b17dbe217b7b600"
+    },
+    {
+      "local_qa_relative_path": "publication-candidate/docs/xiongbao/evidence/ps04c-required-viewports-20261001/summary.json",
+      "sha256": "f8fa4086b4abe25f86b64a6bc9da7ef2ddc821a06a2553de7937399b1142e9a8"
+    },
+    {
+      "local_qa_relative_path": "quality.py",
+      "sha256": "27cdb2c0f640f77091cc771dc65f29b18b6eeacdeb04969d68cea231094cfa48"
+    },
+    {
+      "local_qa_relative_path": "quality/backend-retry-1/mypy.log",
+      "sha256": "c22811471e98b3b7aacb39bd5e387f31fa56bac5878f2a7b708600e45cc6bc6c"
+    },
+    {
+      "local_qa_relative_path": "quality/backend-retry-1/pytest-offline.log",
+      "sha256": "0dde07bd0c10f4b9c5eefa112ae1458099022d62cccc7549988b2d8c0bb8ab3a"
+    },
+    {
+      "local_qa_relative_path": "quality/backend-retry-1/result.json",
+      "sha256": "869f9476a30a1ee2a289210cba6c697d44b782d79813104eeed991a9a3ec491f"
+    },
+    {
+      "local_qa_relative_path": "quality/backend-retry-1/ruff-format.log",
+      "sha256": "06de2f3d76a1be5874dd10c03c53b85c18f475928fd64155defbfe3aa6aeb4f5"
+    },
+    {
+      "local_qa_relative_path": "quality/backend-retry-1/ruff.log",
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    {
+      "local_qa_relative_path": "quality/backend-utf8-focused/mypy.log",
+      "sha256": "c22811471e98b3b7aacb39bd5e387f31fa56bac5878f2a7b708600e45cc6bc6c"
+    },
+    {
+      "local_qa_relative_path": "quality/backend-utf8-focused/pytest-encoding-focused.log",
+      "sha256": "12ec569173e5b832902f88451529f65ce90da1dde4a30f6ac7ec56575a607f31"
+    },
+    {
+      "local_qa_relative_path": "quality/backend-utf8-focused/python-utf8.log",
+      "sha256": "9381c4c2aedc3aec83cdd75b8042ff0b60b188c3aac32fe1faa923f792c338a2"
+    },
+    {
+      "local_qa_relative_path": "quality/backend-utf8-focused/result.json",
+      "sha256": "ec5e6d55e64ed0d57b5f493ef34ac6b4dc8942c8983bb5cdfce72bfe68181730"
+    },
+    {
+      "local_qa_relative_path": "quality/backend-utf8-focused/ruff-format.log",
+      "sha256": "06de2f3d76a1be5874dd10c03c53b85c18f475928fd64155defbfe3aa6aeb4f5"
+    },
+    {
+      "local_qa_relative_path": "quality/backend-utf8-focused/ruff.log",
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    {
+      "local_qa_relative_path": "quality/backend-utf8-full/mypy.log",
+      "sha256": "c22811471e98b3b7aacb39bd5e387f31fa56bac5878f2a7b708600e45cc6bc6c"
+    },
+    {
+      "local_qa_relative_path": "quality/backend-utf8-full/pytest-offline.log",
+      "sha256": "d6bec762358291ba10d45c125532e7cea5c91959a73c350ff54e26abee06e7e5"
+    },
+    {
+      "local_qa_relative_path": "quality/backend-utf8-full/python-utf8.log",
+      "sha256": "9381c4c2aedc3aec83cdd75b8042ff0b60b188c3aac32fe1faa923f792c338a2"
+    },
+    {
+      "local_qa_relative_path": "quality/backend-utf8-full/result.json",
+      "sha256": "fb67a1083ac0abf4071877764b04b23e089c7f0084e9b2f3c873b41fa7324617"
+    },
+    {
+      "local_qa_relative_path": "quality/backend-utf8-full/ruff-format.log",
+      "sha256": "06de2f3d76a1be5874dd10c03c53b85c18f475928fd64155defbfe3aa6aeb4f5"
+    },
+    {
+      "local_qa_relative_path": "quality/backend-utf8-full/ruff.log",
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    {
+      "local_qa_relative_path": "quality/backend/mypy.log",
+      "sha256": "c22811471e98b3b7aacb39bd5e387f31fa56bac5878f2a7b708600e45cc6bc6c"
+    },
+    {
+      "local_qa_relative_path": "quality/backend/pytest-offline.log",
+      "sha256": "1c255fb6c7160075d211cb962eb5502da7ffb93beb5e6d18ffc7e2b3288a071e"
+    },
+    {
+      "local_qa_relative_path": "quality/backend/result.json",
+      "sha256": "3a1487a08dc7c39353db6ba3291bce5845eb93a934d3b614e0f0e323cfd09c27"
+    },
+    {
+      "local_qa_relative_path": "quality/backend/ruff-format.log",
+      "sha256": "06de2f3d76a1be5874dd10c03c53b85c18f475928fd64155defbfe3aa6aeb4f5"
+    },
+    {
+      "local_qa_relative_path": "quality/backend/ruff.log",
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    {
+      "local_qa_relative_path": "quality/frontend/build.log",
+      "sha256": "2cfa1fc77600c9db0586a4a7f32873895397afbd830c2fdd1b486a9aceb7747b"
+    },
+    {
+      "local_qa_relative_path": "quality/frontend/full-eslint.log",
+      "sha256": "94fd7be3df8218d7166ec3c9070de260ba96c84c2d852dab3f182b924a7b5838"
+    },
+    {
+      "local_qa_relative_path": "quality/frontend/full-format-default.log",
+      "sha256": "4020785758e65e45f841b43a3d0b5e485ac34ec8e6baac75706ea5b3f82edd54"
+    },
+    {
+      "local_qa_relative_path": "quality/frontend/full-format-windows.log",
+      "sha256": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20"
+    },
+    {
+      "local_qa_relative_path": "quality/frontend/related-tests.log",
+      "sha256": "dd71885bdbff9b0678d992e6a0e3c9affff7c234d768ec91eddc8861d0ca9cba"
+    },
+    {
+      "local_qa_relative_path": "quality/frontend/result.json",
+      "sha256": "ad146286319aae81a9e3195eb516126402394e3dd7007dd71c98481980c323e8"
+    },
+    {
+      "local_qa_relative_path": "quality/frontend/source-eslint.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "local_qa_relative_path": "quality/frontend/source-format.log",
+      "sha256": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20"
+    },
+    {
+      "local_qa_relative_path": "quality/frontend/types.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "local_qa_relative_path": "quality_backend_retry.py",
+      "sha256": "cfcda7c4b0af3a33130cbbc37e89940c5cf770b03e58bb5fec77c1a8681d433a"
+    },
+    {
+      "local_qa_relative_path": "quality_backend_utf8_retry.py",
+      "sha256": "f4a730cc30fc9cbecbb6c967ce8c8a812bc066e6601119c81c7b781fe444b8a8"
+    },
+    {
+      "local_qa_relative_path": "review-actual-v5.json",
+      "sha256": "e5951a00bff4d5ecdd41219bc4d8b265c01931028568c21eb1b6f0fac72ccc22"
+    },
+    {
+      "local_qa_relative_path": "review-actual-v5.md",
+      "sha256": "d2b6cf2e1d10c86dedf4a81245facd9632257d3243dfad41b5e65bf4fb977923"
+    },
+    {
+      "local_qa_relative_path": "review-backend-failures.json",
+      "sha256": "85cbee03f00b2171d9d7d7e0e03e0f7a06af6b6726bb56afd57a345323637266"
+    },
+    {
+      "local_qa_relative_path": "review-backend-failures.md",
+      "sha256": "2a0391bed71011f5c59828fd218777acec8589addbdc18847064adcda77ac983"
+    },
+    {
+      "local_qa_relative_path": "review-candidate-gate.json",
+      "sha256": "3d91705b6c02f29c398564e588147a3703255332032662e1f977efcf2711009d"
+    },
+    {
+      "local_qa_relative_path": "review-candidate-gate.md",
+      "sha256": "be3c4456c4648690b473d119bc6830c21454901b877a0ade9cf36ffae3098fe1"
+    },
+    {
+      "local_qa_relative_path": "review-gantt-fix.json",
+      "sha256": "5b1383b84768b74dd72f65e4b53aa497e45e421c5c471314f15e6116b5c91f1c"
+    },
+    {
+      "local_qa_relative_path": "review-gantt-fix.md",
+      "sha256": "976da5c947be9e2d832a5924938e21f2c542d8823371a5c255b39192163b592c"
+    },
+    {
+      "local_qa_relative_path": "review-method-v4.json",
+      "sha256": "776d235e2e63f2e30545d35c83527de9b1b799659665ab474f84fe07027b9418"
+    },
+    {
+      "local_qa_relative_path": "review-method-v4.md",
+      "sha256": "15c643bf1a67709b4074ba53fd56d27344c25c757ad4b4ecf7e5a6375b4f7155"
+    },
+    {
+      "local_qa_relative_path": "review-method-v5.json",
+      "sha256": "87285e95360f18a918d781d14311f4d4fdc19381a47fc0c7c03bcadb84f385e0"
+    },
+    {
+      "local_qa_relative_path": "review-method-v5.md",
+      "sha256": "3f44249318db4198332fa95490028f94ee13f437d173afc1e9309a177e34a345"
+    },
+    {
+      "local_qa_relative_path": "review-method.json",
+      "sha256": "a284036673be964507ba863ebc8c129181a83b2ba37e2263d00b5e004a0f4f6e"
+    },
+    {
+      "local_qa_relative_path": "review-method.md",
+      "sha256": "bd568268761a5d5d09b16eaa9447f3229fbdd2a3ae6384322e0664566ec2fc2b"
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/result.json",
+      "sha256": "c4d479ef72d90eed9b0efddb185f0ceed9d5b81e73accb00bda005311c15210c"
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/pg/cluster-result.json",
+      "sha256": "5892f27e3e27c8576bb855dda308da3ef7cd831528c6e9e18dce493ed34b67bb"
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/run-result.json",
+      "sha256": "aeca4e809edf42803616fd8639db35ecd3d60beea8e4e568201e7b0529b3e689"
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/server-result.json",
+      "sha256": "c46731c656050cf3ec09f75c829b960c2012b6b4b9a440b5a5347ae0f692a84c"
+    },
+    {
+      "local_qa_relative_path": "runs/run-95ac21270ba84b5cb80a4897c3b448bc/journey/failure.html",
+      "sha256": "cf4d6fffb03934b548b3f7ccf40780b032329510576bed685a82a49c0ded9347"
+    },
+    {
+      "local_qa_relative_path": "runs/run-95ac21270ba84b5cb80a4897c3b448bc/journey/failure.png",
+      "sha256": "70ccbe64daaf31354be95f88194722c8ede87d359f114a0f4984808d99a55eba"
+    },
+    {
+      "local_qa_relative_path": "runs/run-95ac21270ba84b5cb80a4897c3b448bc/journey/result.json",
+      "sha256": "65105689eab4d85774d095f4e993ebd50b89a48d4136d87e0c434bb287f828d8"
+    },
+    {
+      "local_qa_relative_path": "runs/run-95ac21270ba84b5cb80a4897c3b448bc/pg/cluster-result.json",
+      "sha256": "71fbae675c297fa24c87fdb1af75d6ae4d9db42003550a84629f0840614e5f98"
+    },
+    {
+      "local_qa_relative_path": "runs/run-95ac21270ba84b5cb80a4897c3b448bc/run-result.json",
+      "sha256": "76caa5a541da1a9e881f5550b75791d357ec69bafd7477153879cdf7a6b493bc"
+    },
+    {
+      "local_qa_relative_path": "runs/run-95ac21270ba84b5cb80a4897c3b448bc/server-result.json",
+      "sha256": "a1591b849414b7bb711dc9e2ce41ea32a3c8dd6790575cea51955968f5cecc5e"
+    },
+    {
+      "local_qa_relative_path": "runs/run-ace86d7e29134cfda04163c7bf2ab184/journey/failure.html",
+      "sha256": "c519afe58f4a256315dfb07522770d533792b816980309f0d2171f3317c07757"
+    },
+    {
+      "local_qa_relative_path": "runs/run-ace86d7e29134cfda04163c7bf2ab184/journey/failure.png",
+      "sha256": "95d4749c1476417ee2d4968a4690588714c77f7e4da8e79d95fee8d1c405a35c"
+    },
+    {
+      "local_qa_relative_path": "runs/run-ace86d7e29134cfda04163c7bf2ab184/journey/result.json",
+      "sha256": "86fbd87e333abdec047589037ad398710d8d6146e8ecf787721c1f2986cdc0c4"
+    },
+    {
+      "local_qa_relative_path": "runs/run-ace86d7e29134cfda04163c7bf2ab184/pg/cluster-result.json",
+      "sha256": "800abaf5b6ddd24b4be93994b8e3817c67dcd73f3f6d27c81f07056f3892aba7"
+    },
+    {
+      "local_qa_relative_path": "runs/run-ace86d7e29134cfda04163c7bf2ab184/run-result.json",
+      "sha256": "706b0da4ed761fd3046be1859831f752cefc892aa93ab473e8e8c34fe639ea56"
+    },
+    {
+      "local_qa_relative_path": "runs/run-ace86d7e29134cfda04163c7bf2ab184/server-result.json",
+      "sha256": "c3afb61a0561399f3e6028a2aeb8bed73a7dbc801ce268c51a868f130bf2ef97"
+    },
+    {
+      "local_qa_relative_path": "versions/v3/journey.cjs",
+      "sha256": "6b1595d342edd874386b4bb1b60cc4ff4f52b23a1e2557a05cf9a76e2c4890ab"
+    },
+    {
+      "local_qa_relative_path": "versions/v3/owned_process.py",
+      "sha256": "b886d9ee47df183ccd13c97a9e64e02fd7990bc6fe311d75e46c14b09f351cd9"
+    },
+    {
+      "local_qa_relative_path": "versions/v3/pg_lease.py",
+      "sha256": "b8da84d7758980b152bc5c7a118993bc7d9a94897bdf45c89fe1b55aba7b5470"
+    },
+    {
+      "local_qa_relative_path": "versions/v3/pg_readback.py",
+      "sha256": "b351727431f72488a7db1089b9bf78f0f6dd858342257559d372829dd031210c"
+    },
+    {
+      "local_qa_relative_path": "versions/v3/run.py",
+      "sha256": "298d4b03fdc0b7b8bbb292300bae723e287462b74c6dd0d3bc48eb4d914dc522"
+    },
+    {
+      "local_qa_relative_path": "versions/v3/serve.py",
+      "sha256": "933dc09e7796bc9c4247068181c914247e8f34c7556e837b2ae64b8310f19f56"
+    },
+    {
+      "local_qa_relative_path": "versions/v4/journey.cjs",
+      "sha256": "6b1595d342edd874386b4bb1b60cc4ff4f52b23a1e2557a05cf9a76e2c4890ab"
+    },
+    {
+      "local_qa_relative_path": "versions/v4/owned_process.py",
+      "sha256": "b886d9ee47df183ccd13c97a9e64e02fd7990bc6fe311d75e46c14b09f351cd9"
+    },
+    {
+      "local_qa_relative_path": "versions/v4/pg_lease.py",
+      "sha256": "b8da84d7758980b152bc5c7a118993bc7d9a94897bdf45c89fe1b55aba7b5470"
+    },
+    {
+      "local_qa_relative_path": "versions/v4/pg_readback.py",
+      "sha256": "b351727431f72488a7db1089b9bf78f0f6dd858342257559d372829dd031210c"
+    },
+    {
+      "local_qa_relative_path": "versions/v4/run.py",
+      "sha256": "6aa92f4cc637307f50f04ed48af1c0bcf45f7b21a5657f8f27065d1635048229"
+    },
+    {
+      "local_qa_relative_path": "versions/v4/serve.py",
+      "sha256": "933dc09e7796bc9c4247068181c914247e8f34c7556e837b2ae64b8310f19f56"
+    },
+    {
+      "local_qa_relative_path": "versions/v5/journey.cjs",
+      "sha256": "2b82507faacde16f2603cea23d702805fb9ef63264c3d96ab3399127d8128743"
+    },
+    {
+      "local_qa_relative_path": "versions/v5/owned_process.py",
+      "sha256": "b886d9ee47df183ccd13c97a9e64e02fd7990bc6fe311d75e46c14b09f351cd9"
+    },
+    {
+      "local_qa_relative_path": "versions/v5/pg_lease.py",
+      "sha256": "b8da84d7758980b152bc5c7a118993bc7d9a94897bdf45c89fe1b55aba7b5470"
+    },
+    {
+      "local_qa_relative_path": "versions/v5/pg_readback.py",
+      "sha256": "b351727431f72488a7db1089b9bf78f0f6dd858342257559d372829dd031210c"
+    },
+    {
+      "local_qa_relative_path": "versions/v5/run.py",
+      "sha256": "6aa92f4cc637307f50f04ed48af1c0bcf45f7b21a5657f8f27065d1635048229"
+    },
+    {
+      "local_qa_relative_path": "versions/v5/serve.py",
+      "sha256": "933dc09e7796bc9c4247068181c914247e8f34c7556e837b2ae64b8310f19f56"
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/member-1280x768-board.png",
+      "sha256": "89e38509d5a83dd04dedef32f62f450d3d62d045640141641e5dc970a406a6b7",
+      "png_dimensions": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/member-1280x768-calendar-corner-0.png",
+      "sha256": "fdd73fbe52d4b94d9c5275eeb24d206a898a6edac9fb13c0336ed5b4ae0c299f",
+      "png_dimensions": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/member-1280x768-calendar-corner-35.png",
+      "sha256": "c92117952811ca5d76e9a32bc9168ed360bee6a695255876c8bef9a3aa565ce8",
+      "png_dimensions": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/member-1280x768-calendar-corner-41.png",
+      "sha256": "520df5fc1e841b97844a55fbbef4aa310cfac94b6a5ff8ceea0ef0971639fc85",
+      "png_dimensions": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/member-1280x768-calendar-corner-6.png",
+      "sha256": "9944486a39c73e86476f7d21fac0b72c7b0106c92b2e2bf1b5df66b2d78de7e9",
+      "png_dimensions": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/member-1280x768-calendar-dated-todo.png",
+      "sha256": "4022da861aa39e95d5b422f2aa30b79907be1e8fac0d73dc2ebe19522a598fc9",
+      "png_dimensions": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/member-1280x768-calendar.png",
+      "sha256": "4022da861aa39e95d5b422f2aa30b79907be1e8fac0d73dc2ebe19522a598fc9",
+      "png_dimensions": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/member-1280x768-gantt-end.png",
+      "sha256": "ea92b631fe4f84a1860ad4dd59b7954f514e2dca2b5200b8f586f17168db44e7",
+      "png_dimensions": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/member-1280x768-gantt-row-date-button.png",
+      "sha256": "661d8d52d25cf4f40b21d7f344bfb090f5f048ff77dafa3900715d04c8a9933a",
+      "png_dimensions": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/member-1280x768-gantt-start.png",
+      "sha256": "120c1c71b6e7660afe0089ad6b4cd66be8dc64d2384ce2037365bccdaf1ffd5d",
+      "png_dimensions": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/member-1280x768-gantt.png",
+      "sha256": "661d8d52d25cf4f40b21d7f344bfb090f5f048ff77dafa3900715d04c8a9933a",
+      "png_dimensions": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/member-1280x768-list.png",
+      "sha256": "1a9153722aeccfbec37b7693cc88c90ddeedac080b830b948872566a6724ff9f",
+      "png_dimensions": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/member-1280x768-real-login-slider.png",
+      "sha256": "230d076ee22e620b031bc61328f6a99c32d376e9a8818a3b6bb9abc97a83b0ff",
+      "png_dimensions": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/member-1280x768-table.png",
+      "sha256": "0f5db8e5d7f7ceca1b1086f5fb70b19c6ff10c824c8bd832df4e724b936b738c",
+      "png_dimensions": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/member-800x728-board.png",
+      "sha256": "fb406de95dc8d81e0a78a85c6d8e6a8fa0efa07fbc81f13879501f5acc4b2bbd",
+      "png_dimensions": {
+        "width": 800,
+        "height": 728
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/member-800x728-calendar-corner-0.png",
+      "sha256": "97a94cfd61d64fc1f401b86cfb37c1c201526d6c110507eee73ecdd02e317e02",
+      "png_dimensions": {
+        "width": 800,
+        "height": 728
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/member-800x728-calendar-corner-35.png",
+      "sha256": "105c0fc423ead24c74c50220b4c43fc2e6121db7accd4e82155ed5cf08e1aa4d",
+      "png_dimensions": {
+        "width": 800,
+        "height": 728
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/member-800x728-calendar-corner-41.png",
+      "sha256": "34c972ca9e9fc48bbebc5beb2eceba6814ab2730da7f314cd89fc6f1f7a66d26",
+      "png_dimensions": {
+        "width": 800,
+        "height": 728
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/member-800x728-calendar-corner-6.png",
+      "sha256": "b359e7de789f0df5a69991b5bf9955db94cca2213d2849312e5e3b6b78fd894f",
+      "png_dimensions": {
+        "width": 800,
+        "height": 728
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/member-800x728-calendar-dated-todo.png",
+      "sha256": "58592ac50393c8295ae73d9300b3ba561d670e7908aff6ae8337962e6279354b",
+      "png_dimensions": {
+        "width": 800,
+        "height": 728
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/member-800x728-calendar.png",
+      "sha256": "58592ac50393c8295ae73d9300b3ba561d670e7908aff6ae8337962e6279354b",
+      "png_dimensions": {
+        "width": 800,
+        "height": 728
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/member-800x728-gantt-end.png",
+      "sha256": "ac293cff61cc3e81ee737687a91d2d4cba51296eaea9b62e745002128a15a0f2",
+      "png_dimensions": {
+        "width": 800,
+        "height": 728
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/member-800x728-gantt-row-date-button.png",
+      "sha256": "d2266a27e08347684fc652a601c6b1b663b77ecca5192c936c75cf66e0d03d4d",
+      "png_dimensions": {
+        "width": 800,
+        "height": 728
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/member-800x728-gantt-start.png",
+      "sha256": "9e82bca1e6da95f303fd7eb092e0bf415caf86a012c1f73919acef16fd8ff69f",
+      "png_dimensions": {
+        "width": 800,
+        "height": 728
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/member-800x728-gantt.png",
+      "sha256": "d2266a27e08347684fc652a601c6b1b663b77ecca5192c936c75cf66e0d03d4d",
+      "png_dimensions": {
+        "width": 800,
+        "height": 728
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/member-800x728-list.png",
+      "sha256": "84e09ea1436a337dde4b54edff0b9196dedf77e73ee6cd6ffdadf890504d824d",
+      "png_dimensions": {
+        "width": 800,
+        "height": 728
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/member-800x728-real-login-slider.png",
+      "sha256": "0fb5b6c933772a1083e6d7e16e83dd02844363a67ff2d63044bbf5c477ce6f14",
+      "png_dimensions": {
+        "width": 800,
+        "height": 728
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/member-800x728-table.png",
+      "sha256": "2fc5f558da5b1d7b0a969a65100719edf6266235990c0451eeb7b71d04c217ad",
+      "png_dimensions": {
+        "width": 800,
+        "height": 728
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/owner-1280x768-board.png",
+      "sha256": "311f2748d187f841730020f2accabd7a918e69afe4879599a8504ba219d91a63",
+      "png_dimensions": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/owner-1280x768-calendar-corner-0.png",
+      "sha256": "cdf203e33fb87ab3f53c9a0901d1353d3e8b015012817d840563cace58a873f4",
+      "png_dimensions": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/owner-1280x768-calendar-corner-35.png",
+      "sha256": "f9d444f6099ef35a91c3c8bd98fb8ebf81acae3ebc46faed83ab209ee5fa97f8",
+      "png_dimensions": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/owner-1280x768-calendar-corner-41.png",
+      "sha256": "4ba22251c982ab51c6c70488a26fad61a8b6ffe562f865bc3fea64128f5a6f4c",
+      "png_dimensions": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/owner-1280x768-calendar-corner-6.png",
+      "sha256": "b37def17ec73e77a4d05bfd4ac21aeedb5e4346fa67a37830998d0a0a281dc5a",
+      "png_dimensions": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/owner-1280x768-calendar-dated-todo.png",
+      "sha256": "4831d28a7e3283e57afc80e450f02a0432387505533a634259bd464fd8ced21b",
+      "png_dimensions": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/owner-1280x768-calendar.png",
+      "sha256": "4831d28a7e3283e57afc80e450f02a0432387505533a634259bd464fd8ced21b",
+      "png_dimensions": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/owner-1280x768-gantt-end.png",
+      "sha256": "6401c0e53a0fbe525b756b7a092ee4b65f3981f5513ca8533aaa3f493a8de4aa",
+      "png_dimensions": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/owner-1280x768-gantt-row-date-button.png",
+      "sha256": "5befc1c85413b5739d47024e053aa5227e52fe93f6b7c703f7884fabf5c9175d",
+      "png_dimensions": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/owner-1280x768-gantt-start.png",
+      "sha256": "da4770136731d9809f0ee7473d842b0559c835d7012f4b8cc83168907b7c6526",
+      "png_dimensions": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/owner-1280x768-gantt.png",
+      "sha256": "5befc1c85413b5739d47024e053aa5227e52fe93f6b7c703f7884fabf5c9175d",
+      "png_dimensions": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/owner-1280x768-list.png",
+      "sha256": "6d411b05f57c299767506692dc434545d4d608f298168874c14d2981c8d69ede",
+      "png_dimensions": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/owner-1280x768-real-login-slider.png",
+      "sha256": "e7ed7fabdb19e96cd384ae8218e818d5c1505802fa89a93106527b641c81a687",
+      "png_dimensions": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/owner-1280x768-table.png",
+      "sha256": "741c34e7456c3e1590f97c693017e32bee2868c31c08be0f63d9d940f12e3280",
+      "png_dimensions": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/owner-800x728-board.png",
+      "sha256": "5904a7a3efc88eb053b7063400838130fe6e4820c7702eb0a00fbcec38116453",
+      "png_dimensions": {
+        "width": 800,
+        "height": 728
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/owner-800x728-calendar-corner-0.png",
+      "sha256": "e9bdae389f9ff1160a6cae766055d88178ddcfc5d9432a78fa800e32c2aadf73",
+      "png_dimensions": {
+        "width": 800,
+        "height": 728
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/owner-800x728-calendar-corner-35.png",
+      "sha256": "3a06e776f3ad8489356f637ed79d7a4c8215f6287f9b72174600fec990916144",
+      "png_dimensions": {
+        "width": 800,
+        "height": 728
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/owner-800x728-calendar-corner-41.png",
+      "sha256": "4dc637a3ac458705168b33521f9c44855cddff3ce20f370c1c5001b0e6791d7d",
+      "png_dimensions": {
+        "width": 800,
+        "height": 728
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/owner-800x728-calendar-corner-6.png",
+      "sha256": "70f63b01b2f65f539e9d8a0bbfdded58b89c75c3796256b36fa339b76a259ce3",
+      "png_dimensions": {
+        "width": 800,
+        "height": 728
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/owner-800x728-calendar-dated-todo.png",
+      "sha256": "c0bac5e6ef75ed8467c9fd443dca605bbbeee5f7a636a7b546b1aa9b16a0ea51",
+      "png_dimensions": {
+        "width": 800,
+        "height": 728
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/owner-800x728-calendar.png",
+      "sha256": "c0bac5e6ef75ed8467c9fd443dca605bbbeee5f7a636a7b546b1aa9b16a0ea51",
+      "png_dimensions": {
+        "width": 800,
+        "height": 728
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/owner-800x728-gantt-end.png",
+      "sha256": "a1333da747637d58fe2925b7d5322b574bd566896ce6b3dc1605e5c2c19c143a",
+      "png_dimensions": {
+        "width": 800,
+        "height": 728
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/owner-800x728-gantt-row-date-button.png",
+      "sha256": "a5a03f9b577259832d88066dc34295c87693ab53aebc8ffc9d765b2dff89636e",
+      "png_dimensions": {
+        "width": 800,
+        "height": 728
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/owner-800x728-gantt-start.png",
+      "sha256": "2de0bf5bcb57500b8af3e06f617da6b9a006a409453c1e9796f389cf1e147e6e",
+      "png_dimensions": {
+        "width": 800,
+        "height": 728
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/owner-800x728-gantt.png",
+      "sha256": "a5a03f9b577259832d88066dc34295c87693ab53aebc8ffc9d765b2dff89636e",
+      "png_dimensions": {
+        "width": 800,
+        "height": 728
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/owner-800x728-list.png",
+      "sha256": "4dda9992b7e34a62dac3b4f90d266fa77d5de23105b65cd7ae5497911da21949",
+      "png_dimensions": {
+        "width": 800,
+        "height": 728
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/owner-800x728-real-login-slider.png",
+      "sha256": "be953bc59400ecfb71d130d10808d7858a0dc88ec852b4310c91ec77a7e5faf1",
+      "png_dimensions": {
+        "width": 800,
+        "height": 728
+      }
+    },
+    {
+      "local_qa_relative_path": "runs/run-30027756bd334d538ad7543640220233/journey/owner-800x728-table.png",
+      "sha256": "38db084a9bae1b5eb19c457756cc9eaa0ad894acdeebd5986ee1c898046cdded",
+      "png_dimensions": {
+        "width": 800,
+        "height": 728
+      }
+    }
+  ],
+  "published_summary_lf_sha256": "f8fa4086b4abe25f86b64a6bc9da7ef2ddc821a06a2553de7937399b1142e9a8",
+  "published_acceptance_lf_sha256": "5ac82c9a8599a65f674e9437a886e285acfa0c6d077cb93d0697e628bf88af08",
+  "raw_payloads_images_credentials_published": false,
+  "release_candidate_receipt": "external ROOT receipt binds final five staged files and review; no self hash"
+}

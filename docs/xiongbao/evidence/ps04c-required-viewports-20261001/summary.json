@@ -1,0 +1,149 @@
+{
+  "scope": "approved PS04C C1/C2 required viewport Gantt fix and local synthetic PG browser slice",
+  "state": "PASS",
+  "tested_source_head": "9d8763fd5bd605402f9a891b9d5f6f5c12ca14b7",
+  "method_version": "V5",
+  "run_id": "run-30027756bd334d538ad7543640220233",
+  "source_files_bound": 3119,
+  "executable_methods_bound": 6,
+  "source_clean_before_after": true,
+  "source_method_bytes_unchanged": true,
+  "roles": ["owner", "member"],
+  "viewports": [
+    {
+      "width": 1280,
+      "height": 768
+    },
+    {
+      "width": 800,
+      "height": 728
+    }
+  ],
+  "types": ["table", "list", "board", "gantt", "calendar"],
+  "layout_scenarios": 20,
+  "phase_count": 26,
+  "phase_components": {
+    "api_fixture": 1,
+    "real_slider_logins_without_auth_preload": 4,
+    "layout_scenarios": 20,
+    "database_invariance": 1
+  },
+  "fixture_creation": "actual local API; not browser UI creation",
+  "gantt": {
+    "actual_edge_hits": 8,
+    "closed_interval_days": 4,
+    "existing_field_exposures": 28,
+    "title_focus_hit_checks": 4,
+    "date_button_state_hit_checks": 4,
+    "date_button_clicks": 0,
+    "scrolling": "original timeline pane in both axes; document remains at zero"
+  },
+  "calendar": {
+    "real_dates_per_context": 42,
+    "keyboard_visits": 168,
+    "arrow_right_presses": 164,
+    "exposure_checked_before_supplemental_scroll": true
+  },
+  "database": "fresh owned PostgreSQL18, actual PostgresPool/schema35, repeatable-read read-only snapshots",
+  "final_counts": {
+    "todos": 4,
+    "tag_links": 4,
+    "todo_events": 4
+  },
+  "persisted_views": 7,
+  "full_database_snapshot_equal": true,
+  "browser_project_POST_requests": 36,
+  "browser_nonquery_writes": 0,
+  "page_errors": 0,
+  "network_failures": 0,
+  "browser_external_requests": 0,
+  "project_detail_module_responses": 4,
+  "module_statuses": [200],
+  "server_denied_external_connections": 0,
+  "screenshots": 56,
+  "screenshot_dimensions": {
+    "1280x768": 28,
+    "800x728": 28
+  },
+  "frontend_quality": {
+    "related_test_files": 36,
+    "related_tests_passed": 686,
+    "types_modified_format_eslint_build": "PASS",
+    "eslint_errors": 0,
+    "eslint_warnings": 67,
+    "full_format_default": "KNOWN_DEFAULT_CRLF_FAILURE in unchanged files",
+    "full_format_windows_auto": "PASS",
+    "make_available": false
+  },
+  "backend_quality": {
+    "static_checks": "PASS",
+    "child_python_utf8": "1",
+    "focused_encoding_cases_passed": 19,
+    "full_offline_passed": 5329,
+    "skipped": 319,
+    "warnings": 24,
+    "runtime_seconds": 1818.2,
+    "state": "PASS",
+    "warning_types": {
+      "dependency_deprecation": 20,
+      "subprocess_reader_decode_threads": 4
+    },
+    "warning_boundary": "Windows external command readers warned; two mklink fixtures, VNC probe and browser install test. Browser producer not established, historical same-class warning exists. No backend/desktop/test source changed; no warning-free or actual VNC/browser install claim."
+  },
+  "independent_native_source_method_actual_quality_reviews": "GO within each declared scope",
+  "glm_review": "NOT_RUN; later review pending",
+  "preserved_failures": [
+    {
+      "kind": "browser V3 original source",
+      "run_id": "run-95ac21270ba84b5cb80a4897c3b448bc",
+      "state": "FAILED_OR_INCONCLUSIVE",
+      "passed_layouts": 13,
+      "cause": "270px sticky title covers entire narrow timeline"
+    },
+    {
+      "kind": "browser V4 fixed source",
+      "run_id": "run-ace86d7e29134cfda04163c7bf2ab184",
+      "state": "FAILED_OR_INCONCLUSIVE",
+      "passed_layouts": 13,
+      "cause": "QA only horizontal scroll; bar below intrinsic short pane"
+    },
+    {
+      "kind": "first full offline",
+      "state": "FAIL_TIMEOUT",
+      "deadline_seconds": 1200
+    },
+    {
+      "kind": "second full offline without explicit UTF8",
+      "state": "FAIL",
+      "failed": 19,
+      "passed": 5310,
+      "skipped": 319,
+      "cause": "Windows fixture defaults decode UTF8 SQL using GBK; no production/test source edits"
+    }
+  ],
+  "cleanup": {
+    "parent_browser_API_PG_exit_codes": [0, 0, 0, 0],
+    "vite_exit_code": 2,
+    "vite_finish": "owned Job termination",
+    "API_PG_normal_stop": true,
+    "pool_closes": 1,
+    "pool_underlying_closed": true,
+    "database_sessions_before_drop": 0,
+    "database_dropped": true,
+    "pg_status_after": 3,
+    "closed_jobs": 4,
+    "active_job_processes": 0,
+    "closed_ports": 3,
+    "stopped_cluster_directories": "retained locally for audit"
+  },
+  "narrow_window_limit": "three project columns remain; content uses inner scroll; no WorkBuddy visual equivalence asserted",
+  "not_accepted": [
+    "WorkBuddy same-state visual/whole-feature 1:1",
+    "full PS04 or 25 item parity",
+    "real accounts/provider/model",
+    "production data",
+    "packaging/deployment",
+    "030 UI",
+    "045-F"
+  ]
+}
