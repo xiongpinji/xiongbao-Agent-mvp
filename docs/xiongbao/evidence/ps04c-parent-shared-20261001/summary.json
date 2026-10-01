@@ -1,0 +1,160 @@
+{
+  "state": "LOCAL_SCOPED_ACCEPTANCE_PASS",
+  "tested_source_head": "47bf19d10089f093aaa2c9e3ae9464d262a40d7c",
+  "parent": {
+    "method": "V3",
+    "run": "run-de1ca0aa9b554a499345f4ae7e6a2f94",
+    "phases_pass": 6,
+    "phases_total": 6,
+    "independent_actual": "GO",
+    "scope": "PS04C_PARENT_ACCESS_PG",
+    "boundary": "Second actual project GET404 then parent React terminal commit clears private DOM; no first-GET instant claim"
+  },
+  "shared": {
+    "method": "V8",
+    "run": "run-9ddef79fbdc04f07aabcdd5b87c23fe6",
+    "phases_pass": 11,
+    "phases_total": 11,
+    "independent_actual": "GO",
+    "scope": "PS04C_SHARED_CONTROLS_PG",
+    "three_AND_filters": true,
+    "three_sort_keys": true,
+    "final_audit": {
+      "owner_shared_PATCH": 2,
+      "member_nonquery_writes": 0,
+      "todo_writes": 0,
+      "shared_version_path": [1, 2, 3],
+      "view_event_delta": 2,
+      "query_limits": [50],
+      "stats_query_scope": "NOT_CLAIMED_UNGROUPED_TABLES",
+      "query_count": 15,
+      "cancellations": [],
+      "unchanged_todos_catalog_and_other_views": true,
+      "source_head": "47bf19d10089f093aaa2c9e3ae9464d262a40d7c"
+    },
+    "query_count": 15,
+    "captured_query_200": 15,
+    "query_limits": [50],
+    "stats": "NOT_CLAIMED_UNGROUPED_TABLES",
+    "screenshots": 15,
+    "in_memory_full_DTO_compared_query_pages": 13,
+    "initial_default_query_pages_with_captured_summaries": 2,
+    "all_query_metadata_ID_order_total_cursor_independently_recalculated": true,
+    "response_boundary": "Serialized request/response summaries; 13 required action/refresh pages compare full DTO in memory; two initial default pages retain summaries"
+  },
+  "source_quality": {
+    "focused_components": {
+      "files": 2,
+      "passed": 103
+    },
+    "adjacent_project_api_regression": {
+      "files": 36,
+      "passed": 704
+    },
+    "frontend_checks": 7,
+    "eslint_errors": 0,
+    "eslint_warnings": 67,
+    "build_warning_retained": true,
+    "windows_format_end_of_line": "auto",
+    "backend": {
+      "adopted_source_head": "9d8763fd5bd605402f9a891b9d5f6f5c12ca14b7",
+      "passed": 5329,
+      "skipped": 319,
+      "warnings": 24,
+      "fresh_for_this_batch": false
+    },
+    "whole_dashboard_test_suite_rerun": false,
+    "make_all_rerun": false
+  },
+  "cleanup": {
+    "parent": {
+      "browser_tree_counts": {
+        "total": 31,
+        "active": 0,
+        "terminated": 0
+      },
+      "browser_job_closed": true,
+      "vite_tree_counts": {
+        "total": 7,
+        "active": 0,
+        "terminated": 0
+      },
+      "vite_job_closed": true,
+      "api_normal_stop": true,
+      "api_tree_counts": {
+        "total": 3,
+        "active": 0,
+        "terminated": 0
+      },
+      "api_job_closed": true,
+      "pg_normal_stop": true,
+      "pg_tree_counts": {
+        "total": 5,
+        "active": 0,
+        "terminated": 0
+      },
+      "pg_job_closed": true,
+      "ports_closed": {
+        "api": true,
+        "web": true,
+        "pg": true
+      }
+    },
+    "shared": {
+      "browser_tree_counts": {
+        "total": 78,
+        "active": 0,
+        "terminated": 0
+      },
+      "browser_job_closed": true,
+      "vite_tree_counts": {
+        "total": 7,
+        "active": 0,
+        "terminated": 0
+      },
+      "vite_job_closed": true,
+      "api_normal_stop": true,
+      "api_tree_counts": {
+        "total": 3,
+        "active": 0,
+        "terminated": 0
+      },
+      "api_job_closed": true,
+      "pg_normal_stop": true,
+      "pg_tree_counts": {
+        "total": 5,
+        "active": 0,
+        "terminated": 0
+      },
+      "pg_job_closed": true,
+      "ports_closed": {
+        "api": true,
+        "web": true,
+        "pg": true
+      }
+    },
+    "api_and_pg_normal_stop": true,
+    "owned_vite_exit_code": 2,
+    "all_child_exit_zero_claimed": false
+  },
+  "history_preserved": {
+    "prior_C1_C2_local_function_acceptance": true,
+    "parent_method_V1": "NO_GO_NOT_RUN",
+    "parent_actual_V2": "FAIL",
+    "shared_actual_V1_V2_V3_V5_V6_V7": "FAIL",
+    "shared_method_V4": "NO_GO_NOT_RUN"
+  },
+  "source_file_count_unchanged": 3119,
+  "business_changes_for_this_document_batch": false,
+  "test_or_build_rerun_for_this_document_batch": false,
+  "not_accepted": [
+    "WorkBuddy native same-fixture UI/interaction1:1",
+    "whole25 or full project journey dual acceptance",
+    "GLM fresh review",
+    "Groupedstats in this shared slice",
+    "actual409 failed-save race",
+    "actual422/metadata failures",
+    "whole403/object404/account-switch browser matrix",
+    "paid provider/real accounts/production/Windows installation"
+  ]
+}
