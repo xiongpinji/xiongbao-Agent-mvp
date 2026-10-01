@@ -1,0 +1,118 @@
+{
+  "state": "LOCAL_AUTHENTICATED_BROWSER_ACCEPTED",
+  "scope": "PS04C_CATALOG_HTTP_STATUS_CURRENT_SOURCE_BROWSER_SQLITE",
+  "date": "2026-10-02",
+  "source_head": "976f34b8fba79cf310b99e77bbcde040c2488bf2",
+  "runtime_run_id": "run-b62bcad974df48f7ad9668690147a7df",
+  "core_cases": {
+    "passed": 4,
+    "total": 4
+  },
+  "phases": {
+    "passed": 6,
+    "total": 6
+  },
+  "browser_api_requests": {
+    "observed": 71,
+    "missing_terminal_state": 0
+  },
+  "login": {
+    "fresh_context": true,
+    "real_form_slider": true,
+    "no_auth_preload": true,
+    "actual_status": 200,
+    "startup_get_200": 3
+  },
+  "cases": [
+    {
+      "name": "catalog_500_misleading_body",
+      "state": "PASS",
+      "catalog_status": 500,
+      "catalog_provenance": "controlled_browser_catalog_fault",
+      "draft_retained": true,
+      "date_create_disabled": true,
+      "extra_parent_gets_after_fault": 0,
+      "explicit_comparison_before_resume": true
+    },
+    {
+      "name": "catalog_422_misleading_body",
+      "state": "PASS",
+      "catalog_status": 422,
+      "catalog_provenance": "controlled_browser_catalog_fault",
+      "draft_retained": true,
+      "date_create_disabled": true,
+      "extra_parent_gets_after_fault": 0,
+      "explicit_comparison_before_resume": true
+    },
+    {
+      "name": "catalog_503_misleading_body",
+      "state": "PASS",
+      "catalog_status": 503,
+      "catalog_provenance": "controlled_browser_catalog_fault",
+      "draft_retained": true,
+      "date_create_disabled": true,
+      "extra_parent_gets_after_fault": 0,
+      "explicit_comparison_before_resume": true
+    },
+    {
+      "name": "catalog_actual_revoke_404",
+      "state": "PASS",
+      "catalog_status": 404,
+      "catalog_provenance": "actual_local_api",
+      "draft_retained": null,
+      "date_create_disabled": null,
+      "extra_parent_gets_after_fault": null,
+      "explicit_comparison_before_resume": null
+    }
+  ],
+  "actual_create_201": 1,
+  "controlled_date_post_422": 4,
+  "actual_membership_delete_204": 1,
+  "actual_catalog_404": 1,
+  "actual_parent_404": 1,
+  "private_canaries_cleared": 6,
+  "final_plan_snapshot_same": true,
+  "png_count": 5,
+  "aria_count": 5,
+  "errors": {
+    "page": 0,
+    "observer": 0,
+    "network": 0,
+    "external": 0
+  },
+  "owned_cleanup_verified": true,
+  "source_files": {
+    "checked": 3632,
+    "drift": 0
+  },
+  "prior_quality": {
+    "source_bytes_match": true,
+    "file_count": 3632,
+    "reexecuted": false
+  },
+  "earlier_runs_preserved": [
+    "run-f9d79ebfc4c8447fa234c1242824ece4",
+    "run-07ce9e30518b4acda72c522efb4d69c1",
+    "run-c9e233a6a5ae42e694fc28ca0d75521f",
+    "run-b980f0756ea94f56b677a7f35407e782"
+  ],
+  "method_review": "METHOD_REVIEW_V5_GO",
+  "final_review_requirement": {
+    "report": "FINAL_REVIEW_V1.json",
+    "required_decision_before_publication": "GO"
+  },
+  "product_source_changed": false,
+  "not_run": [
+    "PostgreSQL",
+    "full backend/frontend suites",
+    "production bundle",
+    "GLM",
+    "old-source browser RED",
+    "account/project races browser replay",
+    "native WorkBuddy parity",
+    "paid provider",
+    "real account",
+    "production deployment",
+    "whole 25 completion"
+  ]
+}
