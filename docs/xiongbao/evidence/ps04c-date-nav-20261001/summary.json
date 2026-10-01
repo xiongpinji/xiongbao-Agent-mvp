@@ -1,0 +1,1625 @@
+{
+  "state": "PASS_INDEPENDENT_ACTUAL_REVIEW_GO",
+  "scope": "PS04C_DATE_NAV_PG",
+  "tested_source_head": "67e8849048ddb2380aa7e1e5b2401c8e9e054261",
+  "run_id": "run-da614d0a451f43ee94486a132ff8e32e",
+  "source_files_unchanged": 3119,
+  "phases": [
+    {
+      "name": "fresh_actual_pg_api_fixture",
+      "state": "PASS"
+    },
+    {
+      "name": "owner_real_slider_login_and_initial_gantt_full_db_baseline",
+      "state": "PASS"
+    },
+    {
+      "name": "gantt_zoom_day",
+      "state": "PASS"
+    },
+    {
+      "name": "gantt_zoom_week",
+      "state": "PASS"
+    },
+    {
+      "name": "gantt_zoom_month",
+      "state": "PASS"
+    },
+    {
+      "name": "gantt_previous_57",
+      "state": "PASS"
+    },
+    {
+      "name": "gantt_next_57",
+      "state": "PASS"
+    },
+    {
+      "name": "gantt_today_57",
+      "state": "PASS"
+    },
+    {
+      "name": "calendar_discard_and_week_start_date",
+      "state": "PASS"
+    },
+    {
+      "name": "calendar_week_next",
+      "state": "PASS"
+    },
+    {
+      "name": "calendar_week_to_month_preserves_anchor",
+      "state": "PASS"
+    },
+    {
+      "name": "calendar_month_previous",
+      "state": "PASS"
+    },
+    {
+      "name": "calendar_today_distinct_window_setup",
+      "state": "PASS"
+    },
+    {
+      "name": "calendar_month_today",
+      "state": "PASS"
+    },
+    {
+      "name": "final_full_public_application_rows_and_traffic_audit",
+      "state": "PASS"
+    }
+  ],
+  "core_action_count": 10,
+  "core_actions": [
+    {
+      "name": "gantt_zoom_day",
+      "state": "PASS",
+      "window": {
+        "start_date": "2026-09-17",
+        "end_date": "2026-11-12"
+      },
+      "mode_or_zoom": "day",
+      "date_cell_count": 57,
+      "pages": [
+        {
+          "request_id": 48,
+          "request": {
+            "view_id": "01M3V5BMZECH5V2VJNMWAHYDHQ",
+            "expected_view_version": 1,
+            "expected_catalog_revision": 1,
+            "limit": 50,
+            "override_definition": {
+              "schema_version": 1,
+              "fields": [
+                "title",
+                "status",
+                "assignee",
+                "priority",
+                "tags",
+                "start_date",
+                "due_date"
+              ],
+              "filters": [],
+              "sort": [
+                {
+                  "field": "title",
+                  "direction": "asc"
+                }
+              ],
+              "group_by": null,
+              "gantt": {
+                "zoom": "day"
+              }
+            },
+            "bucket": "scheduled",
+            "window": {
+              "start_date": "2026-09-17",
+              "end_date": "2026-11-12"
+            }
+          },
+          "status": 200,
+          "ids": [
+            "01M3V5BMFJEH662F970TB53VWQ",
+            "01M3V5BMJB6QBM9DF3MD0S5M14",
+            "01M3V5BMRK3JXKNPHWPTBAKAB8"
+          ],
+          "titles": ["B 日期 f01bee34", "C 日期 f01bee34", "F 日期 f01bee34"],
+          "full_dto_equal": true,
+          "total": 7,
+          "matched_total": 3,
+          "unscheduled_total": 1,
+          "next_cursor": null,
+          "groups": [],
+          "query_fingerprint": "46875422cc0f0f6f09957de49223cc5a7ab4bab6eb2a1810225195ad2800d0fd"
+        },
+        {
+          "request_id": 49,
+          "request": {
+            "view_id": "01M3V5BMZECH5V2VJNMWAHYDHQ",
+            "expected_view_version": 1,
+            "expected_catalog_revision": 1,
+            "limit": 50,
+            "override_definition": {
+              "schema_version": 1,
+              "fields": [
+                "title",
+                "status",
+                "assignee",
+                "priority",
+                "tags",
+                "start_date",
+                "due_date"
+              ],
+              "filters": [],
+              "sort": [
+                {
+                  "field": "title",
+                  "direction": "asc"
+                }
+              ],
+              "group_by": null,
+              "gantt": {
+                "zoom": "day"
+              }
+            },
+            "bucket": "unscheduled",
+            "window": {
+              "start_date": "2026-09-17",
+              "end_date": "2026-11-12"
+            }
+          },
+          "status": 200,
+          "ids": ["01M3V5BMD6M1VC3YE7R99ME6JF"],
+          "titles": ["A 日期 f01bee34"],
+          "full_dto_equal": true,
+          "total": 7,
+          "matched_total": 1,
+          "unscheduled_total": 1,
+          "next_cursor": null,
+          "groups": [],
+          "query_fingerprint": "769d3e8d24b2ad725a718fedbae8a9e5ffd20d56fd6a08c2777e9460dbbca2d4"
+        }
+      ],
+      "full_public_rows_equal": true,
+      "screenshot": "gantt-zoom-day.png"
+    },
+    {
+      "name": "gantt_zoom_week",
+      "state": "PASS",
+      "window": {
+        "start_date": "2026-09-17",
+        "end_date": "2026-11-12"
+      },
+      "mode_or_zoom": "week",
+      "date_cell_count": 57,
+      "pages": [
+        {
+          "request_id": 50,
+          "request": {
+            "view_id": "01M3V5BMZECH5V2VJNMWAHYDHQ",
+            "expected_view_version": 1,
+            "expected_catalog_revision": 1,
+            "limit": 50,
+            "override_definition": {
+              "schema_version": 1,
+              "fields": [
+                "title",
+                "status",
+                "assignee",
+                "priority",
+                "tags",
+                "start_date",
+                "due_date"
+              ],
+              "filters": [],
+              "sort": [
+                {
+                  "field": "title",
+                  "direction": "asc"
+                }
+              ],
+              "group_by": null,
+              "gantt": {
+                "zoom": "week"
+              }
+            },
+            "bucket": "scheduled",
+            "window": {
+              "start_date": "2026-09-17",
+              "end_date": "2026-11-12"
+            }
+          },
+          "status": 200,
+          "ids": [
+            "01M3V5BMFJEH662F970TB53VWQ",
+            "01M3V5BMJB6QBM9DF3MD0S5M14",
+            "01M3V5BMRK3JXKNPHWPTBAKAB8"
+          ],
+          "titles": ["B 日期 f01bee34", "C 日期 f01bee34", "F 日期 f01bee34"],
+          "full_dto_equal": true,
+          "total": 7,
+          "matched_total": 3,
+          "unscheduled_total": 1,
+          "next_cursor": null,
+          "groups": [],
+          "query_fingerprint": "e0a22b2ffc20307a95bc6f83fba1e4b3a138f5967c0e4043a533345c85b25599"
+        },
+        {
+          "request_id": 51,
+          "request": {
+            "view_id": "01M3V5BMZECH5V2VJNMWAHYDHQ",
+            "expected_view_version": 1,
+            "expected_catalog_revision": 1,
+            "limit": 50,
+            "override_definition": {
+              "schema_version": 1,
+              "fields": [
+                "title",
+                "status",
+                "assignee",
+                "priority",
+                "tags",
+                "start_date",
+                "due_date"
+              ],
+              "filters": [],
+              "sort": [
+                {
+                  "field": "title",
+                  "direction": "asc"
+                }
+              ],
+              "group_by": null,
+              "gantt": {
+                "zoom": "week"
+              }
+            },
+            "bucket": "unscheduled",
+            "window": {
+              "start_date": "2026-09-17",
+              "end_date": "2026-11-12"
+            }
+          },
+          "status": 200,
+          "ids": ["01M3V5BMD6M1VC3YE7R99ME6JF"],
+          "titles": ["A 日期 f01bee34"],
+          "full_dto_equal": true,
+          "total": 7,
+          "matched_total": 1,
+          "unscheduled_total": 1,
+          "next_cursor": null,
+          "groups": [],
+          "query_fingerprint": "0f830188fbc1db94ae3870b7fc3a94015c5b4f00be5f06f78ce30968e3ed397a"
+        }
+      ],
+      "full_public_rows_equal": true,
+      "screenshot": "gantt-zoom-week.png"
+    },
+    {
+      "name": "gantt_zoom_month",
+      "state": "PASS",
+      "window": {
+        "start_date": "2026-09-17",
+        "end_date": "2026-11-12"
+      },
+      "mode_or_zoom": "month",
+      "date_cell_count": 57,
+      "pages": [
+        {
+          "request_id": 52,
+          "request": {
+            "view_id": "01M3V5BMZECH5V2VJNMWAHYDHQ",
+            "expected_view_version": 1,
+            "expected_catalog_revision": 1,
+            "limit": 50,
+            "override_definition": {
+              "schema_version": 1,
+              "fields": [
+                "title",
+                "status",
+                "assignee",
+                "priority",
+                "tags",
+                "start_date",
+                "due_date"
+              ],
+              "filters": [],
+              "sort": [
+                {
+                  "field": "title",
+                  "direction": "asc"
+                }
+              ],
+              "group_by": null,
+              "gantt": {
+                "zoom": "month"
+              }
+            },
+            "bucket": "scheduled",
+            "window": {
+              "start_date": "2026-09-17",
+              "end_date": "2026-11-12"
+            }
+          },
+          "status": 200,
+          "ids": [
+            "01M3V5BMFJEH662F970TB53VWQ",
+            "01M3V5BMJB6QBM9DF3MD0S5M14",
+            "01M3V5BMRK3JXKNPHWPTBAKAB8"
+          ],
+          "titles": ["B 日期 f01bee34", "C 日期 f01bee34", "F 日期 f01bee34"],
+          "full_dto_equal": true,
+          "total": 7,
+          "matched_total": 3,
+          "unscheduled_total": 1,
+          "next_cursor": null,
+          "groups": [],
+          "query_fingerprint": "def59dbf7549985764f225ffd70019eef9b03236d707d18aeeab55dc14771517"
+        },
+        {
+          "request_id": 53,
+          "request": {
+            "view_id": "01M3V5BMZECH5V2VJNMWAHYDHQ",
+            "expected_view_version": 1,
+            "expected_catalog_revision": 1,
+            "limit": 50,
+            "override_definition": {
+              "schema_version": 1,
+              "fields": [
+                "title",
+                "status",
+                "assignee",
+                "priority",
+                "tags",
+                "start_date",
+                "due_date"
+              ],
+              "filters": [],
+              "sort": [
+                {
+                  "field": "title",
+                  "direction": "asc"
+                }
+              ],
+              "group_by": null,
+              "gantt": {
+                "zoom": "month"
+              }
+            },
+            "bucket": "unscheduled",
+            "window": {
+              "start_date": "2026-09-17",
+              "end_date": "2026-11-12"
+            }
+          },
+          "status": 200,
+          "ids": ["01M3V5BMD6M1VC3YE7R99ME6JF"],
+          "titles": ["A 日期 f01bee34"],
+          "full_dto_equal": true,
+          "total": 7,
+          "matched_total": 1,
+          "unscheduled_total": 1,
+          "next_cursor": null,
+          "groups": [],
+          "query_fingerprint": "21a8e72351a895342060016f1e5d357bbae6767052a368df93bd746015d6a8bb"
+        }
+      ],
+      "full_public_rows_equal": true,
+      "screenshot": "gantt-zoom-month.png"
+    },
+    {
+      "name": "gantt_previous_57",
+      "state": "PASS",
+      "window": {
+        "start_date": "2026-07-22",
+        "end_date": "2026-09-16"
+      },
+      "mode_or_zoom": "month",
+      "date_cell_count": 57,
+      "pages": [
+        {
+          "request_id": 54,
+          "request": {
+            "view_id": "01M3V5BMZECH5V2VJNMWAHYDHQ",
+            "expected_view_version": 1,
+            "expected_catalog_revision": 1,
+            "limit": 50,
+            "override_definition": {
+              "schema_version": 1,
+              "fields": [
+                "title",
+                "status",
+                "assignee",
+                "priority",
+                "tags",
+                "start_date",
+                "due_date"
+              ],
+              "filters": [],
+              "sort": [
+                {
+                  "field": "title",
+                  "direction": "asc"
+                }
+              ],
+              "group_by": null,
+              "gantt": {
+                "zoom": "month"
+              }
+            },
+            "bucket": "scheduled",
+            "window": {
+              "start_date": "2026-07-22",
+              "end_date": "2026-09-16"
+            }
+          },
+          "status": 200,
+          "ids": ["01M3V5BMMGD1F3163WKQVSGA8A", "01M3V5BMTW86ZKY1XN4JDMBP0R"],
+          "titles": ["D 日期 f01bee34", "G 日期 f01bee34"],
+          "full_dto_equal": true,
+          "total": 7,
+          "matched_total": 2,
+          "unscheduled_total": 1,
+          "next_cursor": null,
+          "groups": [],
+          "query_fingerprint": "790a24d4913e9db7d79454ede2ba0a322fa9d8f63f4fbf947eb7f968e081e720"
+        },
+        {
+          "request_id": 55,
+          "request": {
+            "view_id": "01M3V5BMZECH5V2VJNMWAHYDHQ",
+            "expected_view_version": 1,
+            "expected_catalog_revision": 1,
+            "limit": 50,
+            "override_definition": {
+              "schema_version": 1,
+              "fields": [
+                "title",
+                "status",
+                "assignee",
+                "priority",
+                "tags",
+                "start_date",
+                "due_date"
+              ],
+              "filters": [],
+              "sort": [
+                {
+                  "field": "title",
+                  "direction": "asc"
+                }
+              ],
+              "group_by": null,
+              "gantt": {
+                "zoom": "month"
+              }
+            },
+            "bucket": "unscheduled",
+            "window": {
+              "start_date": "2026-07-22",
+              "end_date": "2026-09-16"
+            }
+          },
+          "status": 200,
+          "ids": ["01M3V5BMD6M1VC3YE7R99ME6JF"],
+          "titles": ["A 日期 f01bee34"],
+          "full_dto_equal": true,
+          "total": 7,
+          "matched_total": 1,
+          "unscheduled_total": 1,
+          "next_cursor": null,
+          "groups": [],
+          "query_fingerprint": "d19af6edb4ffd6fe72ca7a90cad6096a2c159f42e37f755d311ac6b54e849876"
+        }
+      ],
+      "full_public_rows_equal": true,
+      "screenshot": "gantt-previous-57.png"
+    },
+    {
+      "name": "gantt_next_57",
+      "state": "PASS",
+      "window": {
+        "start_date": "2026-09-17",
+        "end_date": "2026-11-12"
+      },
+      "mode_or_zoom": "month",
+      "date_cell_count": 57,
+      "pages": [
+        {
+          "request_id": 56,
+          "request": {
+            "view_id": "01M3V5BMZECH5V2VJNMWAHYDHQ",
+            "expected_view_version": 1,
+            "expected_catalog_revision": 1,
+            "limit": 50,
+            "override_definition": {
+              "schema_version": 1,
+              "fields": [
+                "title",
+                "status",
+                "assignee",
+                "priority",
+                "tags",
+                "start_date",
+                "due_date"
+              ],
+              "filters": [],
+              "sort": [
+                {
+                  "field": "title",
+                  "direction": "asc"
+                }
+              ],
+              "group_by": null,
+              "gantt": {
+                "zoom": "month"
+              }
+            },
+            "bucket": "scheduled",
+            "window": {
+              "start_date": "2026-09-17",
+              "end_date": "2026-11-12"
+            }
+          },
+          "status": 200,
+          "ids": [
+            "01M3V5BMFJEH662F970TB53VWQ",
+            "01M3V5BMJB6QBM9DF3MD0S5M14",
+            "01M3V5BMRK3JXKNPHWPTBAKAB8"
+          ],
+          "titles": ["B 日期 f01bee34", "C 日期 f01bee34", "F 日期 f01bee34"],
+          "full_dto_equal": true,
+          "total": 7,
+          "matched_total": 3,
+          "unscheduled_total": 1,
+          "next_cursor": null,
+          "groups": [],
+          "query_fingerprint": "def59dbf7549985764f225ffd70019eef9b03236d707d18aeeab55dc14771517"
+        },
+        {
+          "request_id": 57,
+          "request": {
+            "view_id": "01M3V5BMZECH5V2VJNMWAHYDHQ",
+            "expected_view_version": 1,
+            "expected_catalog_revision": 1,
+            "limit": 50,
+            "override_definition": {
+              "schema_version": 1,
+              "fields": [
+                "title",
+                "status",
+                "assignee",
+                "priority",
+                "tags",
+                "start_date",
+                "due_date"
+              ],
+              "filters": [],
+              "sort": [
+                {
+                  "field": "title",
+                  "direction": "asc"
+                }
+              ],
+              "group_by": null,
+              "gantt": {
+                "zoom": "month"
+              }
+            },
+            "bucket": "unscheduled",
+            "window": {
+              "start_date": "2026-09-17",
+              "end_date": "2026-11-12"
+            }
+          },
+          "status": 200,
+          "ids": ["01M3V5BMD6M1VC3YE7R99ME6JF"],
+          "titles": ["A 日期 f01bee34"],
+          "full_dto_equal": true,
+          "total": 7,
+          "matched_total": 1,
+          "unscheduled_total": 1,
+          "next_cursor": null,
+          "groups": [],
+          "query_fingerprint": "21a8e72351a895342060016f1e5d357bbae6767052a368df93bd746015d6a8bb"
+        }
+      ],
+      "full_public_rows_equal": true,
+      "screenshot": "gantt-next-57.png"
+    },
+    {
+      "name": "gantt_today_57",
+      "state": "PASS",
+      "window": {
+        "start_date": "2026-10-01",
+        "end_date": "2026-11-26"
+      },
+      "mode_or_zoom": "month",
+      "date_cell_count": 57,
+      "pages": [
+        {
+          "request_id": 58,
+          "request": {
+            "view_id": "01M3V5BMZECH5V2VJNMWAHYDHQ",
+            "expected_view_version": 1,
+            "expected_catalog_revision": 1,
+            "limit": 50,
+            "override_definition": {
+              "schema_version": 1,
+              "fields": [
+                "title",
+                "status",
+                "assignee",
+                "priority",
+                "tags",
+                "start_date",
+                "due_date"
+              ],
+              "filters": [],
+              "sort": [
+                {
+                  "field": "title",
+                  "direction": "asc"
+                }
+              ],
+              "group_by": null,
+              "gantt": {
+                "zoom": "month"
+              }
+            },
+            "bucket": "scheduled",
+            "window": {
+              "start_date": "2026-10-01",
+              "end_date": "2026-11-26"
+            }
+          },
+          "status": 200,
+          "ids": [
+            "01M3V5BMFJEH662F970TB53VWQ",
+            "01M3V5BMPYTM45EJZ333A5E530",
+            "01M3V5BMRK3JXKNPHWPTBAKAB8"
+          ],
+          "titles": ["B 日期 f01bee34", "E 日期 f01bee34", "F 日期 f01bee34"],
+          "full_dto_equal": true,
+          "total": 7,
+          "matched_total": 3,
+          "unscheduled_total": 1,
+          "next_cursor": null,
+          "groups": [],
+          "query_fingerprint": "eac459089e2bc6fa8dddf2f484ee0a017c1ac9f76b9ab726faa70b20a0939dde"
+        },
+        {
+          "request_id": 59,
+          "request": {
+            "view_id": "01M3V5BMZECH5V2VJNMWAHYDHQ",
+            "expected_view_version": 1,
+            "expected_catalog_revision": 1,
+            "limit": 50,
+            "override_definition": {
+              "schema_version": 1,
+              "fields": [
+                "title",
+                "status",
+                "assignee",
+                "priority",
+                "tags",
+                "start_date",
+                "due_date"
+              ],
+              "filters": [],
+              "sort": [
+                {
+                  "field": "title",
+                  "direction": "asc"
+                }
+              ],
+              "group_by": null,
+              "gantt": {
+                "zoom": "month"
+              }
+            },
+            "bucket": "unscheduled",
+            "window": {
+              "start_date": "2026-10-01",
+              "end_date": "2026-11-26"
+            }
+          },
+          "status": 200,
+          "ids": ["01M3V5BMD6M1VC3YE7R99ME6JF"],
+          "titles": ["A 日期 f01bee34"],
+          "full_dto_equal": true,
+          "total": 7,
+          "matched_total": 1,
+          "unscheduled_total": 1,
+          "next_cursor": null,
+          "groups": [],
+          "query_fingerprint": "cbdffe61b6a41408bef00d2018b8049f120d362445e7be2b39b2ea4d6b9a2cbf"
+        }
+      ],
+      "full_public_rows_equal": true,
+      "screenshot": "gantt-today-57.png"
+    },
+    {
+      "name": "calendar_week_next",
+      "state": "PASS",
+      "window": {
+        "start_date": "2026-10-05",
+        "end_date": "2026-10-11"
+      },
+      "mode_or_zoom": "week",
+      "date_cell_count": 7,
+      "pages": [
+        {
+          "request_id": 62,
+          "request": {
+            "view_id": "01M3V5BN1T8EWW3M1RVJ08HYHG",
+            "expected_view_version": 1,
+            "expected_catalog_revision": 1,
+            "limit": 50,
+            "bucket": "scheduled",
+            "window": {
+              "start_date": "2026-10-05",
+              "end_date": "2026-10-11"
+            }
+          },
+          "status": 200,
+          "ids": ["01M3V5BMRK3JXKNPHWPTBAKAB8"],
+          "titles": ["F 日期 f01bee34"],
+          "full_dto_equal": true,
+          "total": 7,
+          "matched_total": 1,
+          "unscheduled_total": 1,
+          "next_cursor": null,
+          "groups": [],
+          "query_fingerprint": "896cd1172017298f248b1adfa6b33c4aa50a64c82344b7994d80b0618d15fd96"
+        },
+        {
+          "request_id": 63,
+          "request": {
+            "view_id": "01M3V5BN1T8EWW3M1RVJ08HYHG",
+            "expected_view_version": 1,
+            "expected_catalog_revision": 1,
+            "limit": 50,
+            "bucket": "unscheduled",
+            "window": {
+              "start_date": "2026-10-05",
+              "end_date": "2026-10-11"
+            }
+          },
+          "status": 200,
+          "ids": ["01M3V5BMD6M1VC3YE7R99ME6JF"],
+          "titles": ["A 日期 f01bee34"],
+          "full_dto_equal": true,
+          "total": 7,
+          "matched_total": 1,
+          "unscheduled_total": 1,
+          "next_cursor": null,
+          "groups": [],
+          "query_fingerprint": "3392d308e5990f549f8abcb2802f892e9815917a634ac235cc3ed1090368960e"
+        }
+      ],
+      "full_public_rows_equal": true,
+      "screenshot": "calendar-week-next.png"
+    },
+    {
+      "name": "calendar_week_to_month_preserves_anchor",
+      "state": "PASS",
+      "window": {
+        "start_date": "2026-09-28",
+        "end_date": "2026-11-08"
+      },
+      "mode_or_zoom": "month",
+      "date_cell_count": 42,
+      "pages": [
+        {
+          "request_id": 66,
+          "request": {
+            "view_id": "01M3V5BN1T8EWW3M1RVJ08HYHG",
+            "expected_view_version": 1,
+            "expected_catalog_revision": 1,
+            "limit": 50,
+            "override_definition": {
+              "schema_version": 1,
+              "fields": [
+                "title",
+                "status",
+                "assignee",
+                "priority",
+                "tags",
+                "start_date",
+                "due_date"
+              ],
+              "filters": [],
+              "sort": [
+                {
+                  "field": "title",
+                  "direction": "asc"
+                }
+              ],
+              "group_by": null,
+              "calendar": {
+                "date_basis": "start_date",
+                "mode": "month"
+              }
+            },
+            "bucket": "scheduled",
+            "window": {
+              "start_date": "2026-09-28",
+              "end_date": "2026-11-08"
+            }
+          },
+          "status": 200,
+          "ids": ["01M3V5BMFJEH662F970TB53VWQ", "01M3V5BMRK3JXKNPHWPTBAKAB8"],
+          "titles": ["B 日期 f01bee34", "F 日期 f01bee34"],
+          "full_dto_equal": true,
+          "total": 7,
+          "matched_total": 2,
+          "unscheduled_total": 1,
+          "next_cursor": null,
+          "groups": [],
+          "query_fingerprint": "1c5a3bddc304e5c5560fa34761138372bcc5a2c273d378cc35723e3cf2f45d1c"
+        },
+        {
+          "request_id": 67,
+          "request": {
+            "view_id": "01M3V5BN1T8EWW3M1RVJ08HYHG",
+            "expected_view_version": 1,
+            "expected_catalog_revision": 1,
+            "limit": 50,
+            "override_definition": {
+              "schema_version": 1,
+              "fields": [
+                "title",
+                "status",
+                "assignee",
+                "priority",
+                "tags",
+                "start_date",
+                "due_date"
+              ],
+              "filters": [],
+              "sort": [
+                {
+                  "field": "title",
+                  "direction": "asc"
+                }
+              ],
+              "group_by": null,
+              "calendar": {
+                "date_basis": "start_date",
+                "mode": "month"
+              }
+            },
+            "bucket": "unscheduled",
+            "window": {
+              "start_date": "2026-09-28",
+              "end_date": "2026-11-08"
+            }
+          },
+          "status": 200,
+          "ids": ["01M3V5BMD6M1VC3YE7R99ME6JF"],
+          "titles": ["A 日期 f01bee34"],
+          "full_dto_equal": true,
+          "total": 7,
+          "matched_total": 1,
+          "unscheduled_total": 1,
+          "next_cursor": null,
+          "groups": [],
+          "query_fingerprint": "377af884c97cccfce9cd92b29e71152be1c9fcb4ee19ae9142bf890d66e167ab"
+        }
+      ],
+      "full_public_rows_equal": true,
+      "screenshot": "calendar-week-to-month.png"
+    },
+    {
+      "name": "calendar_month_previous",
+      "state": "PASS",
+      "window": {
+        "start_date": "2026-08-31",
+        "end_date": "2026-10-11"
+      },
+      "mode_or_zoom": "month",
+      "date_cell_count": 42,
+      "pages": [
+        {
+          "request_id": 68,
+          "request": {
+            "view_id": "01M3V5BN1T8EWW3M1RVJ08HYHG",
+            "expected_view_version": 1,
+            "expected_catalog_revision": 1,
+            "limit": 50,
+            "override_definition": {
+              "schema_version": 1,
+              "fields": [
+                "title",
+                "status",
+                "assignee",
+                "priority",
+                "tags",
+                "start_date",
+                "due_date"
+              ],
+              "filters": [],
+              "sort": [
+                {
+                  "field": "title",
+                  "direction": "asc"
+                }
+              ],
+              "group_by": null,
+              "calendar": {
+                "date_basis": "start_date",
+                "mode": "month"
+              }
+            },
+            "bucket": "scheduled",
+            "window": {
+              "start_date": "2026-08-31",
+              "end_date": "2026-10-11"
+            }
+          },
+          "status": 200,
+          "ids": [
+            "01M3V5BMFJEH662F970TB53VWQ",
+            "01M3V5BMJB6QBM9DF3MD0S5M14",
+            "01M3V5BMMGD1F3163WKQVSGA8A",
+            "01M3V5BMRK3JXKNPHWPTBAKAB8",
+            "01M3V5BMTW86ZKY1XN4JDMBP0R"
+          ],
+          "titles": [
+            "B 日期 f01bee34",
+            "C 日期 f01bee34",
+            "D 日期 f01bee34",
+            "F 日期 f01bee34",
+            "G 日期 f01bee34"
+          ],
+          "full_dto_equal": true,
+          "total": 7,
+          "matched_total": 5,
+          "unscheduled_total": 1,
+          "next_cursor": null,
+          "groups": [],
+          "query_fingerprint": "d2a97d8975ab2aace955d1fc1a3aeb10cbb536aaba4bac8c65740e355ff777e4"
+        },
+        {
+          "request_id": 69,
+          "request": {
+            "view_id": "01M3V5BN1T8EWW3M1RVJ08HYHG",
+            "expected_view_version": 1,
+            "expected_catalog_revision": 1,
+            "limit": 50,
+            "override_definition": {
+              "schema_version": 1,
+              "fields": [
+                "title",
+                "status",
+                "assignee",
+                "priority",
+                "tags",
+                "start_date",
+                "due_date"
+              ],
+              "filters": [],
+              "sort": [
+                {
+                  "field": "title",
+                  "direction": "asc"
+                }
+              ],
+              "group_by": null,
+              "calendar": {
+                "date_basis": "start_date",
+                "mode": "month"
+              }
+            },
+            "bucket": "unscheduled",
+            "window": {
+              "start_date": "2026-08-31",
+              "end_date": "2026-10-11"
+            }
+          },
+          "status": 200,
+          "ids": ["01M3V5BMD6M1VC3YE7R99ME6JF"],
+          "titles": ["A 日期 f01bee34"],
+          "full_dto_equal": true,
+          "total": 7,
+          "matched_total": 1,
+          "unscheduled_total": 1,
+          "next_cursor": null,
+          "groups": [],
+          "query_fingerprint": "34552c7ac70d0d2b27721d3e40bb438eae53327e4ae876bba0628494686d1636"
+        }
+      ],
+      "full_public_rows_equal": true,
+      "screenshot": "calendar-month-previous.png"
+    },
+    {
+      "name": "calendar_month_today",
+      "state": "PASS",
+      "window": {
+        "start_date": "2026-09-28",
+        "end_date": "2026-11-08"
+      },
+      "mode_or_zoom": "month",
+      "date_cell_count": 42,
+      "pages": [
+        {
+          "request_id": 70,
+          "request": {
+            "view_id": "01M3V5BN1T8EWW3M1RVJ08HYHG",
+            "expected_view_version": 1,
+            "expected_catalog_revision": 1,
+            "limit": 50,
+            "override_definition": {
+              "schema_version": 1,
+              "fields": [
+                "title",
+                "status",
+                "assignee",
+                "priority",
+                "tags",
+                "start_date",
+                "due_date"
+              ],
+              "filters": [],
+              "sort": [
+                {
+                  "field": "title",
+                  "direction": "asc"
+                }
+              ],
+              "group_by": null,
+              "calendar": {
+                "date_basis": "start_date",
+                "mode": "month"
+              }
+            },
+            "bucket": "scheduled",
+            "window": {
+              "start_date": "2026-09-28",
+              "end_date": "2026-11-08"
+            }
+          },
+          "status": 200,
+          "ids": ["01M3V5BMFJEH662F970TB53VWQ", "01M3V5BMRK3JXKNPHWPTBAKAB8"],
+          "titles": ["B 日期 f01bee34", "F 日期 f01bee34"],
+          "full_dto_equal": true,
+          "total": 7,
+          "matched_total": 2,
+          "unscheduled_total": 1,
+          "next_cursor": null,
+          "groups": [],
+          "query_fingerprint": "1c5a3bddc304e5c5560fa34761138372bcc5a2c273d378cc35723e3cf2f45d1c"
+        },
+        {
+          "request_id": 71,
+          "request": {
+            "view_id": "01M3V5BN1T8EWW3M1RVJ08HYHG",
+            "expected_view_version": 1,
+            "expected_catalog_revision": 1,
+            "limit": 50,
+            "override_definition": {
+              "schema_version": 1,
+              "fields": [
+                "title",
+                "status",
+                "assignee",
+                "priority",
+                "tags",
+                "start_date",
+                "due_date"
+              ],
+              "filters": [],
+              "sort": [
+                {
+                  "field": "title",
+                  "direction": "asc"
+                }
+              ],
+              "group_by": null,
+              "calendar": {
+                "date_basis": "start_date",
+                "mode": "month"
+              }
+            },
+            "bucket": "unscheduled",
+            "window": {
+              "start_date": "2026-09-28",
+              "end_date": "2026-11-08"
+            }
+          },
+          "status": 200,
+          "ids": ["01M3V5BMD6M1VC3YE7R99ME6JF"],
+          "titles": ["A 日期 f01bee34"],
+          "full_dto_equal": true,
+          "total": 7,
+          "matched_total": 1,
+          "unscheduled_total": 1,
+          "next_cursor": null,
+          "groups": [],
+          "query_fingerprint": "377af884c97cccfce9cd92b29e71152be1c9fcb4ee19ae9142bf890d66e167ab"
+        }
+      ],
+      "full_public_rows_equal": true,
+      "screenshot": "calendar-month-today.png"
+    }
+  ],
+  "browser_login": {
+    "username": "qa_owner",
+    "user_id": 2,
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "real_form_slider_button": true,
+    "no_auth_preload": true,
+    "authentication_audit_preserved": true,
+    "status": 200,
+    "screenshot": "owner-real-login-slider.png"
+  },
+  "fixture": {
+    "server_today": "2026-10-01",
+    "server_timezone": "Asia/Shanghai",
+    "todo_dates": [
+      {
+        "todo_id": "01M3V5BMD6M1VC3YE7R99ME6JF",
+        "title": "A 日期 f01bee34",
+        "start_date": null,
+        "due_date": null
+      },
+      {
+        "todo_id": "01M3V5BMFJEH662F970TB53VWQ",
+        "title": "B 日期 f01bee34",
+        "start_date": "2026-09-30",
+        "due_date": "2026-10-02"
+      },
+      {
+        "todo_id": "01M3V5BMJB6QBM9DF3MD0S5M14",
+        "title": "C 日期 f01bee34",
+        "start_date": "2026-09-17",
+        "due_date": null
+      },
+      {
+        "todo_id": "01M3V5BMMGD1F3163WKQVSGA8A",
+        "title": "D 日期 f01bee34",
+        "start_date": "2026-09-16",
+        "due_date": null
+      },
+      {
+        "todo_id": "01M3V5BMPYTM45EJZ333A5E530",
+        "title": "E 日期 f01bee34",
+        "start_date": "2026-11-13",
+        "due_date": "2026-11-13"
+      },
+      {
+        "todo_id": "01M3V5BMRK3JXKNPHWPTBAKAB8",
+        "title": "F 日期 f01bee34",
+        "start_date": "2026-10-05",
+        "due_date": "2026-10-05"
+      },
+      {
+        "todo_id": "01M3V5BMTW86ZKY1XN4JDMBP0R",
+        "title": "G 日期 f01bee34",
+        "start_date": "2026-08-31",
+        "due_date": null
+      }
+    ]
+  },
+  "query_audit": {
+    "query_count": 27,
+    "captured_completed_200_ids": [
+      45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62,
+      63, 66, 67, 68, 69, 70, 71
+    ],
+    "explicitly_cancelled_ids": [64, 65],
+    "uncaptured_ids": [],
+    "required_final_full_dto_page_ids": [
+      46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63,
+      66, 67, 68, 69, 70, 71
+    ],
+    "api_read_requests_after_baseline": 0
+  },
+  "required_completed_full_dto_pages": 24,
+  "all_observed_query_partition": {
+    "captured_completed_200": 25,
+    "explicitly_cancelled": 2,
+    "uncaptured": 0
+  },
+  "complete_public_application_rows": {
+    "table_count": 53,
+    "row_count": 43,
+    "all_steps_and_after_browser_close_equal": true,
+    "raw_rows_persisted": false,
+    "baseline_and_final_table_hashes": {
+      "_schema_version": {
+        "row_count": 1,
+        "sha256": "71d692a3f5d182200b09a12172658d2562c5ac72f43a761ef4211f3bb0f7cd9b"
+      },
+      "agents": {
+        "row_count": 1,
+        "sha256": "d9ad8375d777a22f4fe0eda1e1353ccc0413dd8bf9551a7c3a26189477f8ce0d"
+      },
+      "audit_log": {
+        "row_count": 7,
+        "sha256": "e16c02822ab400b798310862f8a8cd73887a7b3ed76c9fbe8111b41ab55402fc"
+      },
+      "care_push_records": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "channels": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "connector_oauth_states": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "connectors": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "cron_jobs": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "knowledge_bases": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "knowledge_documents": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "proactive_care_config": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "project_asset_nodes": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "project_asset_versions": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "project_events": {
+        "row_count": 10,
+        "sha256": "75f4c90237e597d55e46971ee6bbbd38ad8c9bcf7f943f5193c47abe23ad92ee"
+      },
+      "project_experts": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "project_invites": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "project_join_requests": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "project_members": {
+        "row_count": 1,
+        "sha256": "0c90bab8b3f3552ee2a85ee9dc0b53dc2ef4ee5eafa552a6d31fa3ff3d2b10a8"
+      },
+      "project_messages": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "project_spaces": {
+        "row_count": 1,
+        "sha256": "f756b292756e3d46baec3588a2d870bf1a8873de9f3cd9c594396d253ec01ff0"
+      },
+      "project_task_content_grants": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "project_task_contexts": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "project_task_links": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "project_task_shares": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "project_todo_catalog_state": {
+        "row_count": 1,
+        "sha256": "9d2d05d9d4480f62222e77a8f856569a87238a8955243c6211f3227f3ef5a6b6"
+      },
+      "project_todo_comment_image_usage": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "project_todo_comment_images": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "project_todo_comments": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "project_todo_priorities": {
+        "row_count": 4,
+        "sha256": "f76002d1c63d41c4750296b4a60967557cf1fbdac8789e82fe239332094aaf5b"
+      },
+      "project_todo_tag_links": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "project_todo_tags": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "project_todo_view_state": {
+        "row_count": 1,
+        "sha256": "4838209f794f5a196f5ba90f715d56ae90e1c431f3eeae6c8ee65125c1c8d810"
+      },
+      "project_todo_views": {
+        "row_count": 4,
+        "sha256": "29c0d7f53477aff46107a94405c157a9847030f634b01a4a8923387cf47fc19f"
+      },
+      "project_todos": {
+        "row_count": 7,
+        "sha256": "2518872904f0f54559a6203183dfbd33981eccbe5820784754fa7aeca9d4f3ed"
+      },
+      "providers": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "published_experts": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "secrets": {
+        "row_count": 1,
+        "sha256": "5c9d1eb7a6ab204c6b094f4bfd8c585c5ba307ac46b0ba5073e7f661388cefba"
+      },
+      "sessions": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "settings": {
+        "row_count": 2,
+        "sha256": "b5522ef6cef534e315bc1432139b07403de0b770cc725135c58836dc84ebb2d9"
+      },
+      "skill_packages": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "sso_login_states": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "sso_providers": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "storage_backends": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "thread_history_projection": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "thread_messages": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "threads": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "trajectory_events": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "usage_log": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "user_invites": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "user_policies": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "user_sso_identities": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "users": {
+        "row_count": 2,
+        "sha256": "0c0363ab4038a25f326d05b894475b0320a28a88204063532246b2739a4aef01"
+      },
+      "voice_providers": {
+        "row_count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      }
+    }
+  },
+  "navigation_nonquery_write_attempts": 0,
+  "setup_and_login_writes": "Real normal API fixture and authentication audit precede the baseline",
+  "screenshots": [
+    {
+      "name": "calendar-initial-week-start-date.png",
+      "width": 1440,
+      "height": 1000,
+      "sha256": "2c23f571d881e4925d50110ceb094cbaa1563ddd4569b76baba2040b8903e2d3"
+    },
+    {
+      "name": "calendar-month-previous.png",
+      "width": 1440,
+      "height": 1000,
+      "sha256": "b6a10fbf3da1a90125c1b5c13b9ac2b57e7d28b2c35e3bcbf675fee31ad923d5"
+    },
+    {
+      "name": "calendar-month-today.png",
+      "width": 1440,
+      "height": 1000,
+      "sha256": "f7a18954f03f613f7b7a5a9b950633b7505b235d5266b0b0c4bd787747063262"
+    },
+    {
+      "name": "calendar-week-next.png",
+      "width": 1440,
+      "height": 1000,
+      "sha256": "dc40d0914ced0738f8abd3a49d37ac4900267470a95cb8a2b2fe36120fc1c787"
+    },
+    {
+      "name": "calendar-week-to-month.png",
+      "width": 1440,
+      "height": 1000,
+      "sha256": "f7a18954f03f613f7b7a5a9b950633b7505b235d5266b0b0c4bd787747063262"
+    },
+    {
+      "name": "gantt-default-week-baseline.png",
+      "width": 1440,
+      "height": 1000,
+      "sha256": "db73ce923e45c20465a8a116809de30589f5947b35d7e877c63442f7f9d153f8"
+    },
+    {
+      "name": "gantt-dirty-before-calendar-discard.png",
+      "width": 1440,
+      "height": 1000,
+      "sha256": "8cb547d4df813030c9d3af387af50783b2559b31eb08d0ada30d3f0337dc5875"
+    },
+    {
+      "name": "gantt-next-57.png",
+      "width": 1440,
+      "height": 1000,
+      "sha256": "ac4ed123c8869025bd1d93c97ea75b6941da7fa5f73e4263cbb5d9c023df28a8"
+    },
+    {
+      "name": "gantt-previous-57.png",
+      "width": 1440,
+      "height": 1000,
+      "sha256": "8042e4cc643d6080a94f55d48cc39e9cf8f6748957918d87f439322285efac9c"
+    },
+    {
+      "name": "gantt-today-57.png",
+      "width": 1440,
+      "height": 1000,
+      "sha256": "81aeb2e0f20f6ea40d7e3ce25bdb74965d5b1d3cd88a85ddeb580029692bb8d5"
+    },
+    {
+      "name": "gantt-zoom-day.png",
+      "width": 1440,
+      "height": 1000,
+      "sha256": "43fb8fefcb2eccaf839d8acc1079cd7114408c140234a1fb89e62e49f874095c"
+    },
+    {
+      "name": "gantt-zoom-month.png",
+      "width": 1440,
+      "height": 1000,
+      "sha256": "6c666cd7da8a8e75b35d8ef0e9076e8d351d604bbdad228f3a18d41645250e1d"
+    },
+    {
+      "name": "gantt-zoom-week.png",
+      "width": 1440,
+      "height": 1000,
+      "sha256": "6f2e12e5fd38a06502e2279ebe705310e977b413c14a1132953798ca4e9a264c"
+    },
+    {
+      "name": "owner-real-login-slider.png",
+      "width": 1440,
+      "height": 1000,
+      "sha256": "da6a29395e89da4164fe6ad3420f6b25d84d4c8f70ad4f86d49aece640faf35f"
+    }
+  ],
+  "cleanup": {
+    "ports_closed": {
+      "api": true,
+      "web": true,
+      "pg": true
+    },
+    "jobs": {
+      "pg": {
+        "closed": true,
+        "active": 0,
+        "exit_code": 0
+      },
+      "api": {
+        "closed": true,
+        "active": 0,
+        "exit_code": 0
+      },
+      "vite": {
+        "closed": true,
+        "active": 0,
+        "exit_code": 2
+      },
+      "browser": {
+        "closed": true,
+        "active": 0,
+        "exit_code": 0
+      }
+    },
+    "api_normal_stop": true,
+    "pg_normal_stop": true,
+    "api_database_sessions_before_drop": 0,
+    "owned_database_dropped": true,
+    "api_pools": [
+      {
+        "close_count": 1,
+        "underlying_closed": true
+      }
+    ],
+    "pg_stop_exit": 0,
+    "pg_status_after": 3,
+    "browser": {
+      "context_closed": true,
+      "contexts_closed_count": 1,
+      "browser_closed": true,
+      "post_context_close_traffic_and_full_rows_verified": true
+    }
+  },
+  "execution_chain": {
+    "methods_manifest": "METHODS_V3.json",
+    "method_review": "METHOD_REVIEW_V3.json",
+    "method_review_md": "METHOD_REVIEW_V3.md",
+    "root_execution_binding": "ROOT_EXECUTION_BINDING_V3.json"
+  },
+  "actual_review_sha256": "5fb1c6e8e816828b5b0c98d7dca6abf24f7e01983174445b4ace1b53155fb881",
+  "method_v1": "NO_GO_NOT_RUN_PRESERVED",
+  "successful_method_version": "METHODS_V3.json",
+  "prior_failed_actual_runs": [
+    {
+      "run_id": "run-a868aa98244d40c39c9416620900eb1d",
+      "state": "FAILED_OR_INCONCLUSIVE",
+      "core_actions_started": 0,
+      "phases": [
+        {
+          "name": "fresh_actual_pg_api_fixture",
+          "state": "PASS"
+        },
+        {
+          "name": "owner_real_slider_login_and_initial_gantt_full_db_baseline",
+          "state": "FAIL"
+        }
+      ],
+      "run_result_sha256": "bf6a8dd8dadcf2f7f7ef2af89158874579fe502dbbfd43aedbd6fda2ec9883b9",
+      "journey_result_sha256": "832eb129b2b9cb72882ba070a27bcc1d0236bf855541489b585f813a3f8909a7",
+      "actual_child_sqlstate": "NOT_CAPTURED",
+      "static_qa_root_cause": "projects is not the schema table; project_spaces is required",
+      "all_owned_jobs_and_ports_closed": true
+    }
+  ],
+  "business_source_changed": false,
+  "tests_and_build_rerun_for_documents": false,
+  "existing_c1_c2_local_acceptance": "2026-09-28 C1 and 2026-09-29 C2 remain accepted; this is supplementary evidence",
+  "original_agent_routes": "Unchanged; historical provider failures are retained, this authorized Codex supplement is independently reviewed",
+  "remaining_gates": {
+    "native_workbuddy_parity": "NOT_RUN",
+    "whole_25": "NOT_COMPLETE",
+    "paid_provider": "NOT_RUN",
+    "real_account": "NOT_RUN",
+    "production": "NOT_RUN",
+    "physical_pg_wal_statistics": "NOT_CLAIMED",
+    "full_suite": "NOT_RERUN"
+  },
+  "whole_workbuddy_or_25_accepted": false
+}
