@@ -44,7 +44,10 @@ async def env(tmp_octop_home: Path) -> AsyncIterator[Any]:
         await seed_openai_provider(c, admin_auth)
         users = await ensure_users(c, admin_auth, "alice", "bob")
         aid = await create_agent(c, users["alice"])
-        yield c, srv, fake, users["alice"], users["bob"], aid
+        assert srv.app_runtime is not None
+        active_fake = srv.app_runtime.agent_registry.get_agent(aid)
+        assert isinstance(active_fake, FakeHarnessAgent)
+        yield c, srv, active_fake, users["alice"], users["bob"], aid
 
 
 async def _turn_then_rebind(
@@ -326,6 +329,8 @@ async def test_ws_user_turn_rejects_another_users_bound_session(env: Any) -> Non
     owner_key = ThreadRegistry.dashboard_key(agent_id=aid, user_id=owner_row.user_id)
     assert registry.get_bound_thread_id(owner_key) == owner_tid
     owner_request = fake.last_request
+    assert owner_request is not None
+    assert fake is srv.app_runtime.agent_registry.get_agent(aid)
 
     frames = await _consume_ws_turn(
         c, aid, bob_auth, text="other user turn", extra={"session_key": owner_key}
@@ -421,6 +426,8 @@ async def test_ws_user_turn_rejects_corrupt_own_key_other_agent_thread(env: Any)
     assert created.status_code == 201, created.text
     own_tid = str(created.json()["thread_id"])
     other_aid = await create_agent(c, alice_auth, name="other-agent")
+    other_fake = srv.app_runtime.agent_registry.get_agent(other_aid)
+    assert isinstance(other_fake, FakeHarnessAgent)
     other_created = await c.post(f"/api/agents/{other_aid}/threads", headers=alice_auth)
     assert other_created.status_code == 201, other_created.text
     other_tid = str(other_created.json()["thread_id"])
@@ -436,6 +443,7 @@ async def test_ws_user_turn_rejects_corrupt_own_key_other_agent_thread(env: Any)
     assert not any(frame.get("thread_id") == other_tid for frame in frames)
     assert frames[0]["type"] == "error"
     assert fake.last_request is None
+    assert other_fake.last_request is None
 
 
 async def test_dashboard_rebind_repairs_historical_foreign_session_owner(

@@ -1,0 +1,143 @@
+{
+  "schema": 1,
+  "scope": "PS05 active test-observer repair only",
+  "state": "PASS",
+  "source_base": "338aef305d9fb7b4f7d376d5ef5e8f235e5fe4e2",
+  "published_business_fix_sha": "3d30a36120b673b61371be5bf28781c0a886c5cb",
+  "changed_test_file": "tests/integration/test_chat_ws.py",
+  "changed_test_raw_sha256": "225b8fd2beea4f1c92e4e6b759375bf8a4a338c48fe24ab7453cd2e9972dbeae",
+  "business_source_changed": false,
+  "focused_tdd": {
+    "red": {
+      "tests": 1,
+      "failures": 1,
+      "errors": 0,
+      "skipped": 0,
+      "passed": 0
+    },
+    "red_exit_code": 1,
+    "green": {
+      "tests": 63,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "passed": 63
+    },
+    "green_exit_code": 0,
+    "green_source": "pre-format raw78e04df65fff5b9143bdb07b9b96138dc0c03e84ce63de34da6b3e2d9a702e99; normalized Git diff equals final candidate per SOURCE_REVIEW_V2"
+  },
+  "full_backend_non_live": {
+    "tests": 5648,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 319,
+    "passed": 5329
+  },
+  "backend_warnings": {
+    "count": 24,
+    "unhandled_thread_decode_warning_blocks": 4,
+    "assessment": "本次日志有20个弃用警告与4段真实 _readerthread UTF-8 UnicodeDecodeError。解码块出现在 browser install、VNC 和两个 junction 测试，未显示影响当前 PS05 oracle；26 chat_ws 与相关63项在 full XML 全为实际 PASS，来源只改测试观察对象。它们不阻断本次有界测试补强接受，但子进程输出捕获可能丢失或不完整，未诊断根因、未修复，不构成零警告或完整 Windows 接受。"
+  },
+  "quality_steps": [
+    {
+      "name": "backend-ruff",
+      "state": "PASS",
+      "exit_code": 0,
+      "owned_tree_active": 0,
+      "job_closed": true
+    },
+    {
+      "name": "backend-format",
+      "state": "PASS",
+      "exit_code": 0,
+      "owned_tree_active": 0,
+      "job_closed": true
+    },
+    {
+      "name": "backend-types",
+      "state": "PASS",
+      "exit_code": 0,
+      "owned_tree_active": 0,
+      "job_closed": true
+    },
+    {
+      "name": "backend-full",
+      "state": "PASS",
+      "exit_code": 0,
+      "owned_tree_active": 0,
+      "job_closed": true
+    },
+    {
+      "name": "frontend-types",
+      "state": "PASS",
+      "exit_code": 0,
+      "owned_tree_active": 0,
+      "job_closed": true
+    },
+    {
+      "name": "frontend-lint",
+      "state": "PASS",
+      "exit_code": 0,
+      "owned_tree_active": 0,
+      "job_closed": true
+    },
+    {
+      "name": "frontend-format-windows",
+      "state": "PASS",
+      "exit_code": 0,
+      "owned_tree_active": 0,
+      "job_closed": true
+    },
+    {
+      "name": "frontend-build",
+      "state": "PASS",
+      "exit_code": 0,
+      "owned_tree_active": 0,
+      "job_closed": true
+    }
+  ],
+  "independent_reviews": {
+    "source": "SOURCE_REVIEW_V2 GO",
+    "method": "METHOD_REVIEW_V3 GO",
+    "actual_quality": "QUALITY_REVIEW_V1 GO"
+  },
+  "owned_cleanup_probe": {
+    "state": "PASS",
+    "cases": 3,
+    "actual_expected_failure_paths": 2
+  },
+  "preserved_nonaccepted_attempts": [
+    "SOURCE_REVIEW_V1 NO_GO",
+    "METHOD_REVIEW_V1 NO_GO",
+    "METHOD_REVIEW_V2 NO_GO",
+    "quality_v2 initial format FAIL",
+    "quality_v2 later full STOPPED_NOT_ACCEPTED",
+    "first lifecycle probe strict process-count assertion FAIL"
+  ],
+  "historical_tcp_evidence": {
+    "state": "NOT_RERUN",
+    "source_head": "0a79200e20cfce73dfa97a44efec92b816915848",
+    "stages_passed": 15,
+    "database": "owned synthetic SQLite",
+    "model": "local fake"
+  },
+  "routes": "original AO routes unchanged; no new provider job; failed CLI jobs are not native successes",
+  "not_run": [
+    "make all unavailable",
+    "live tests",
+    "PostgreSQL real database",
+    "paid provider",
+    "new TCP journey",
+    "authenticated browser",
+    "GLM",
+    "WorkBuddy parity",
+    "frontend unit tests",
+    "default frontend CRLF-sensitive Prettier check"
+  ],
+  "limits": [
+    "Test-only fix; not complete PS05 task ACL or collaboration",
+    "Not WorkBuddy native/UI 1:1",
+    "Windows frontend format uses --end-of-line auto; not literal make all",
+    "Local credentials excluded by child allowlist, not a network-firewall guarantee"
+  ]
+}

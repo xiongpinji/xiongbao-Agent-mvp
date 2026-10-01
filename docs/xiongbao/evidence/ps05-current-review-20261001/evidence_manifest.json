@@ -1,0 +1,73 @@
+{
+  "schema": 1,
+  "source_base": "338aef305d9fb7b4f7d376d5ef5e8f235e5fe4e2",
+  "scope": "PS05 active test-observer repair only",
+  "published_bytes": {
+    "docs/xiongbao/PROJECT_TASK_SHARE_PS05_WS_ORACLE_REVIEW_20261001.md": "83884d01620b5112f198cd1762599a657f68ce614a0096185af09b61f5f1bd42",
+    "docs/xiongbao/evidence/ps05-current-review-20261001/summary.json": "a5b19eaabccd3727e2ce8459f21563069726ef18d417c4b68377bcd28b7b5ffa"
+  },
+  "candidate_source_raw_sha256": {
+    "tests/integration/test_chat_ws.py": "225b8fd2beea4f1c92e4e6b759375bf8a4a338c48fe24ab7453cd2e9972dbeae",
+    "src/octop/api/routers/chat/turn.py": "155595cb8615ced7d85dd23004203cf2ef3be94d7f8579ec3f9828b1268e575b",
+    "src/octop/infra/db/repos/sessions.py": "a5ef4bf4e834584a60bffd848f3512ca053100e38929b312ad7c127db79141cb",
+    "src/octop/infra/gateway/threads.py": "4c91f4c60fa823e5dbb23fe3e4670434067797b0ca53823adf00288434298e03"
+  },
+  "local_raw_evidence_sha256": {
+    "CURRENT_VERIFICATION_V1.json": "93543f470f1a70e5a2808fbac1e18e88c7e5b7a553eec235331bbc21c1d9be20",
+    "focused-v1.xml": "98f2dddf5436677391b9fae5cb5bd8667e7a3faad37c2d52363d8f5d7db7f330",
+    "red.xml": "994ef8a8afbd0469a8ddd2a4ab43071a5bec1e08abc87751a328bcb5fd703ff0",
+    "green.xml": "11dc0ea9b59db6f7ddd154d8d6ef40388e07bc54b60f25d99eb6de6fb99ffe59",
+    "quality-v2-d5613c6c64be4366be186a26dce4ba05/result.json": "19313854267b118ccd6a3f1796213493e13d1ab8da605e60d88b62c787e8719d",
+    "quality-v2-149531493101480eb28da6d4015981f7/result.json": "c5ce78b34a0c5de3d88e45f2d42b811b954881f9288c89f59842ca9407a7caf9",
+    "ROOT_STOPPED_V2.json": "403cd066ba9df26b1255acb480e79c88bf4f9cb96e539d6f240c5ff2eca0a5e7",
+    "lifecycle-probe-v2-71f787558d6d4bf9931fd8c57f47c30e/result.json": "c8c87aed9d941da82092a49a36ba9f5da323f354bad179ef411e34d0bfe1602b",
+    "lifecycle-probe-v2-47578388197f451a93f32fe238a758f3/result.json": "40c1f308a59abb3e7237d9d45507680f5f964167f61c242def5bbe115211b574",
+    "quality-v3-e869bc921dfe4a819dd1ebd030c55816/result.json": "0d340b5f754d459fd5505379c7698402c11ee429f7fac9382076bb861d5d341d",
+    "quality-v3-e869bc921dfe4a819dd1ebd030c55816/backend-full.xml": "86f2367566915329b2705a61a3518d40f0bf5eafb00119aa421afca83125463a",
+    "quality-v3-e869bc921dfe4a819dd1ebd030c55816/backend-ruff.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "quality-v3-e869bc921dfe4a819dd1ebd030c55816/backend-format.log": "06de2f3d76a1be5874dd10c03c53b85c18f475928fd64155defbfe3aa6aeb4f5",
+    "quality-v3-e869bc921dfe4a819dd1ebd030c55816/backend-types.log": "c22811471e98b3b7aacb39bd5e387f31fa56bac5878f2a7b708600e45cc6bc6c",
+    "quality-v3-e869bc921dfe4a819dd1ebd030c55816/backend-full.log": "e9f6f3c8399efc41e9b05b05f91e4a7bed95c9f85803df85fc86f81d4da9c5f1",
+    "quality-v3-e869bc921dfe4a819dd1ebd030c55816/frontend-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "quality-v3-e869bc921dfe4a819dd1ebd030c55816/frontend-lint.log": "94fd7be3df8218d7166ec3c9070de260ba96c84c2d852dab3f182b924a7b5838",
+    "quality-v3-e869bc921dfe4a819dd1ebd030c55816/frontend-format-windows.log": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20",
+    "quality-v3-e869bc921dfe4a819dd1ebd030c55816/frontend-build.log": "848db722b56e05c6d6a06075b3cc00b4fb7f9cc7cf0eb18e76162961c37bb31a"
+  },
+  "local_review_sha256": {
+    "SOURCE_REVIEW_V1.json": "cf0a3219b178234e58c579b483a6988d70d0d9ed87127924f820a105ae540d36",
+    "SOURCE_REVIEW_V1.md": "31dabe342305eac4412e76196e77d191c509ae421e8c88560342ea2e86252172",
+    "SOURCE_REVIEW_V2.json": "bad71a866788a2d9c0b24fa4e0f453c1dc9e461a3c870cd65cb31cdf7423a709",
+    "SOURCE_REVIEW_V2.md": "bb4c3a83f2da94f08aa46f42d420a687b3f96a2ed751d9d1b2a05e5389a4b01c",
+    "METHOD_REVIEW_V1.json": "62e59c819c9a99ee8137f6ed048fbeaec771e95d871b18237777d9561cd90926",
+    "METHOD_REVIEW_V1.md": "2d553afb51c47af51cd3ab543c87d5b2a33fd6bca9b5530e4fe49ab647faac64",
+    "METHOD_REVIEW_V2.json": "fa40cdf84841cc8ffe59f9db9a55403d6b6c1678525d6e2a30e09c05a52b502c",
+    "METHOD_REVIEW_V2.md": "8b828c6a534dd2eab796bcb715091199f103cca5cc817c3b14ef9b3e0dfd5318",
+    "METHOD_REVIEW_V3.json": "758895b22db33fe9bc88c20248ab4147eafb3607cf67e9db3224345c62cbaf9b",
+    "METHOD_REVIEW_V3.md": "4dcd9315c3210e282b59f700b39de962708b557723e813fa5cd171e0692c59d9",
+    "QUALITY_REVIEW_V1.json": "4ab7c45c5a154ecba18bb1efbcbd8dce9aa5dd55a87f98f87808d87b89df3107",
+    "QUALITY_REVIEW_V1.md": "567860ee8b8f4cb77ea1bd5b186194f281be66647ae4b54cbdc5dced667bfea2",
+    "PUBLICATION_METHOD_REVIEW_V1.json": "c29d53b068077679d9f7164812b15ef0be8e8ceadac0d99061f7c257a3c7c04f",
+    "PUBLICATION_METHOD_REVIEW_V1.md": "95ecfff50505714998edb53ad6852fe22fba03e057169b5f5ee3eb5093e34ef0",
+    "PUBLICATION_METHOD_REVIEW_V2.json": "e27158e3039d0eeb304c8408e97c48eef9118b7942bddc28c47b7437de361cda",
+    "PUBLICATION_METHOD_REVIEW_V2.md": "e035a0d1bd6e849cbc754ec07bd357905dba5288866fc4e294fecddf21d893a7",
+    "PUBLICATION_METHOD_REVIEW_V3.json": "4ce812dbe7bac86788882335c6c3e37c8181c77e71f1af19806f52b336adecdf",
+    "PUBLICATION_METHOD_REVIEW_V3.md": "80bfd58445fa5e93e1dcfde5226da38d046d762592058f1180da0e78568984e5"
+  },
+  "method_sha256": {
+    "quality_v2.py": "dcbea0fddb1ccba89ac4649c9b66de6d343544c8e655058f16ca91fd3853d0b4",
+    "quality_v3.py": "21af4f60e744628aef6f234a8a566985355817fab73266c07edaa1debe2094c3",
+    "safe_check.py": "c70a6b8d65d3a094fe7ba5d7af7445d3738d7ebbb6363efdbaaf11331d80e01e",
+    "owned_process.py": "b886d9ee47df183ccd13c97a9e64e02fd7990bc6fe311d75e46c14b09f351cd9",
+    "lifecycle_probe_v2.py": "69e226f5f26f4e6ed38cbbf46ee5b2fb0533a6b71ac50f73d2d5706fa40715a0",
+    "build_publication_v1.py": "53371fb4d7d35a5383fe203e95739fcc027ed03530551c3dee8c7dfaf10f79a3",
+    "build_publication_v2.py": "4636deac707d8ec30a5068451a13d3621adc08232abb8ce2c8eab0af22c96251",
+    "versions/method-review-v2/quality_v3.py": "cde8006c903f4b44888af11874afee0f9605b2bd0f96937e8d2402618ba09980",
+    "versions/method-review-v2/safe_check.py": "c70a6b8d65d3a094fe7ba5d7af7445d3738d7ebbb6363efdbaaf11331d80e01e",
+    "versions/method-review-v2/owned_process.py": "b886d9ee47df183ccd13c97a9e64e02fd7990bc6fe311d75e46c14b09f351cd9",
+    "versions/method-review-v2/lifecycle_probe_v2.py": "69e226f5f26f4e6ed38cbbf46ee5b2fb0533a6b71ac50f73d2d5706fa40715a0",
+    "versions/publication-method-v2/build_publication_v2.py": "94f67575141100472b8574319416fe76bcd2ccf32e431edc17b3c7d48821578a",
+    "versions/publication-method-v2/publish_guard_v2.py": "e8e3434e5addb49add6d6d282d783fbfc3663bcb0f1045c3ef4e313fc4308a20",
+    "versions/publication-method-v2/pre-commit": "3b13283b3c122453f977289b9ec8bcd464808e4ec7ea1e6d66ac049c51d9e205"
+  },
+  "raw_evidence_policy": "Retained locally; hashes and aggregate status only, no raw identity payload publication"
+}
