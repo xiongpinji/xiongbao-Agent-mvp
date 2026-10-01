@@ -1,0 +1,109 @@
+{
+  "state": "PASS_WITH_QUERY_CAPTURE_LIMIT",
+  "tested_source_head": "3bd48b982cdfed79d6e79308c3052e9138e81b32",
+  "scope": {
+    "accepted": "Approved PS04C C1/C2 local synthetic actual PostgreSQL, loopback HTTP, Chromium native HTML drag slice",
+    "evidence_state": "ACTUAL_RUN_REVIEWED",
+    "review_execution": "READ_ONLY_NO_TEST_BROWSER_SERVICE_PROVIDER_EXECUTION",
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "browser": "Headless Chrome 154.0.8037.58",
+    "contexts": 2,
+    "fixture_creation": "API fixture; UI creation NOT_CLAIMED",
+    "not_accepted": {
+      "sharing_settings": "NOT_RUN",
+      "dirty_choices": "NOT_RUN",
+      "zoom_matrix": "NOT_RUN",
+      "conflict_races": "NOT_RUN",
+      "service_restart": "NOT_RUN",
+      "required_viewport_layout": "PRIOR_BATCH_NOT_RETESTED",
+      "workbuddy_save": "NOT_RUN",
+      "visual_parity": "NOT_RUN",
+      "paid_provider": "NOT_RUN",
+      "real_account": "NOT_RUN",
+      "full_suite": "NOT_RUN"
+    }
+  },
+  "run": "run-e60201cc86ac4a18b670fc6b4bd37c98",
+  "method_version": "V3",
+  "independent_method_and_actual": "GO",
+  "open_findings": [],
+  "counts": {
+    "phases_total": 16,
+    "phases_pass": 16,
+    "positive_owner_actions": 7,
+    "owner_no_ops": 2,
+    "member_other_creator_unassigned_denials": 3,
+    "expected_patch_writes": 7,
+    "patch_status_200": 7,
+    "unexpected_browser_writes": 0,
+    "pg_update_events": 7,
+    "trusted_owner_drag_gestures": 9,
+    "trusted_member_pointer_only_gestures": 3,
+    "all_recorded_native_events": 219,
+    "png_files": 33,
+    "png_actual_width": 1440,
+    "png_actual_height": 1000,
+    "png_sha_and_bytes_match": 33,
+    "png_visually_inspected": 11,
+    "source_files": 3119,
+    "methods": 6
+  },
+  "query_capture_boundary": {
+    "query_requests": 50,
+    "captured_query_responses": 37,
+    "captured_query_responses_status_200": 37,
+    "query_requests_without_saved_response": 13,
+    "unsaved_response_disposition": "UNVERIFIED",
+    "all_50_requests_status_200_claimed": false,
+    "necessary_positive_refresh_closures": 7,
+    "necessary_captured_refresh_responses": 15,
+    "necessary_limit_50_data_pages": 14,
+    "necessary_limit_1_statistics_queries": 1,
+    "all_necessary_closures_have_same_full_dto": true,
+    "network_failure_zero_used_as_missing_response_evidence": false
+  },
+  "errors": {
+    "page": 0,
+    "network_failures": 0,
+    "external_requests": 0,
+    "observer": 0,
+    "api_denied_external_connections": 0
+  },
+  "cleanup": {
+    "child_exit_codes": {
+      "pg": 0,
+      "api": 0,
+      "vite": 2,
+      "browser": 0
+    },
+    "api_normal_stop": true,
+    "pg_normal_stop": true,
+    "vite_exit_2_is_owned_job_cleanup_not_normal_zero": true,
+    "pool_underlying_closed": true,
+    "pool_closes": 1,
+    "database_sessions_before_drop": 0,
+    "database_dropped": true,
+    "pg_stop_exit_code": 0,
+    "pg_status_after": 3,
+    "all_four_jobs_closed": true,
+    "all_four_job_active_processes": 0,
+    "all_api_web_pg_ports_closed": true,
+    "browser_contexts_created": 2,
+    "browser_contexts_closed": 2,
+    "browser_closed": true
+  },
+  "business_source_changed_in_this_document_batch": false,
+  "quality": "No rerun for unchanged business bytes; prior required-viewport source quality remains separately bound",
+  "not_accepted": [
+    "13 uncaptured query response outcomes",
+    "WorkBuddy native or visual 1:1",
+    "new 800/1280 drag verification",
+    "complete shared-settings or dirty workflow",
+    "CAS races or service restart",
+    "paid provider or real accounts",
+    "whole PS04 or 25 item completion"
+  ]
+}
