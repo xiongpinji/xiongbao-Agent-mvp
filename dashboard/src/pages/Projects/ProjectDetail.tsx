@@ -67,7 +67,7 @@ import ProjectActivity from "./ProjectActivity";
 import ProjectAssets from "./ProjectAssets";
 import ProjectExperts from "./ProjectExperts";
 import ProjectMembersPanel from "./ProjectMembersPanel";
-import ProjectPlan from "./ProjectPlan";
+import ProjectPlan, { type ProjectPlanAccessLoss } from "./ProjectPlan";
 import ProjectTasks from "./ProjectTasks";
 import { projectRoleTag } from "./index";
 
@@ -144,14 +144,9 @@ function useProjectLoader(projectId: string) {
   }, [projectId, key, reloadKey]);
 
   const reload = useCallback(() => setReloadKey((k) => k + 1), []);
-  const invalidateAccess = useCallback(
+  const invalidateLoadedProject = useCallback(
     (reportedProjectId: string, err: unknown) => {
-      if (
-        reportedProjectId !== projectId ||
-        key !== currentKey.current ||
-        !isNotFoundApiError(err)
-      )
-        return;
+      if (reportedProjectId !== projectId || key !== currentKey.current) return;
       revokedKey.current = key;
       requestSeq.current += 1;
       setProject(null);
@@ -161,6 +156,25 @@ function useProjectLoader(projectId: string) {
       setLoading(false);
     },
     [projectId, key],
+  );
+  const invalidateAccess = useCallback(
+    (reportedProjectId: string, err: unknown) => {
+      if (isNotFoundApiError(err))
+        invalidateLoadedProject(reportedProjectId, err);
+    },
+    [invalidateLoadedProject],
+  );
+  const invalidatePlanAccess = useCallback(
+    (loss: ProjectPlanAccessLoss) => {
+      if (
+        loss.account_id !== user?.id ||
+        loss.confirmed_by !== "project_get" ||
+        (loss.status !== 403 && loss.status !== 404)
+      )
+        return;
+      invalidateLoadedProject(loss.project_id, loss.error);
+    },
+    [user?.id, invalidateLoadedProject],
   );
   const applySavedProject = useCallback(
     (saved: ProjectRecord) => {
@@ -177,6 +191,8 @@ function useProjectLoader(projectId: string) {
     error,
     reload,
     invalidateAccess,
+    invalidatePlanAccess,
+    accessRevoked: revokedKey.current === key,
   };
 }
 
@@ -196,6 +212,8 @@ export default function ProjectDetail() {
     error,
     reload,
     invalidateAccess,
+    invalidatePlanAccess,
+    accessRevoked,
   } = useProjectLoader(id);
   const routeQuery = new URLSearchParams(location.search);
   const selectedTodoId = routeQuery.get("todo") || null;
@@ -316,7 +334,8 @@ export default function ProjectDetail() {
     setEditOpen(true);
   }, []);
 
-  const notFound = error != null && isNotFoundApiError(error);
+  const notFound =
+    accessRevoked || (error != null && isNotFoundApiError(error));
 
   if (loading) {
     return (
@@ -484,6 +503,7 @@ export default function ProjectDetail() {
           selectedTodoId={selectedTodoId}
           onOpenTodo={openTodo}
           onCloseTodo={closeTodo}
+          onProjectAccessLost={invalidatePlanAccess}
         />
       ),
     },

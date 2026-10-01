@@ -366,8 +366,20 @@ function cardFor(title: string): HTMLElement {
   return screen.getByRole("article", { name: title });
 }
 
-function renderPlan(role: "owner" | "member" = "owner") {
-  return render(<ProjectPlan projectId="p1" role={role} members={members} />);
+interface CandidatePlanAccessLoss {
+  project_id: string;
+  account_id: number;
+  confirmed_by: "project_get";
+  status: 403 | 404;
+  error: unknown;
+}
+
+function renderPlan(
+  role: "owner" | "member" = "owner",
+  onProjectAccessLost?: (loss: CandidatePlanAccessLoss) => void,
+) {
+  const props = { projectId: "p1", role, members, onProjectAccessLost };
+  return render(<ProjectPlan {...props} />);
 }
 
 function visibleDropdown(): HTMLElement {
@@ -1570,11 +1582,123 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
     ).toBeInTheDocument();
   });
 
+  it.each([403, 404] as const)(
+    "notifies parent only after mutation 404 is confirmed by project GET %i",
+    async (status) => {
+      const loss = vi.fn();
+      const error = new Error(
+        `${status} - {"error":{"code":"${
+          status === 404 ? "NOT_FOUND" : "FORBIDDEN"
+        }"}}`,
+      );
+      update.mockRejectedValue(
+        new Error('404 - {"error":{"code":"NOT_FOUND"}}'),
+      );
+      projectRead.mockRejectedValue(error);
+      renderPlan("owner", loss);
+      await screen.findByText("写周报");
+      await changeRowStatus("写周报", "done");
+      await waitFor(() => expect(loss).toHaveBeenCalledTimes(1));
+      expect(projectRead).toHaveBeenCalledWith("p1");
+      expect(loss).toHaveBeenCalledWith({
+        project_id: "p1",
+        account_id: 2,
+        confirmed_by: "project_get",
+        status,
+        error,
+      });
+      expect(screen.queryByText("写周报")).toBeNull();
+    },
+  );
+
+  it("notifies parent after Plan query loss receives a confirmed project GET 404", async () => {
+    const loss = vi.fn();
+    const error = new Error('404 - {"error":{"code":"NOT_FOUND"}}');
+    planRows.mockRejectedValue(error);
+    projectRead.mockRejectedValue(error);
+    renderPlan("owner", loss);
+    expect(await screen.findByText("项目不存在或你无权访问")).toBeVisible();
+    await waitFor(() => expect(loss).toHaveBeenCalledTimes(1));
+    expect(projectRead).toHaveBeenCalledWith("p1");
+    expect(loss).toHaveBeenCalledWith({
+      project_id: "p1",
+      account_id: 2,
+      confirmed_by: "project_get",
+      status: 404,
+      error,
+    });
+  });
+
+  const nonAccessProjectErrors = [
+    {
+      name: "500 text",
+      error:
+        'Request failed: 500 Internal Server Error - {"detail":"upstream not found"}',
+    },
+    {
+      name: "500 code",
+      error:
+        'Request failed: 500 Internal Server Error - {"error":{"code":"NOT_FOUND"}}',
+    },
+    {
+      name: "401 text",
+      error:
+        'Request failed: 401 Unauthorized - {"detail":"session not found"}',
+    },
+    { name: "network text", error: "NetworkError: project route not found" },
+    {
+      name: "422 text",
+      error:
+        'Request failed: 422 Unprocessable Content - {"detail":"key not found"}',
+    },
+  ];
+
+  it.each(nonAccessProjectErrors)(
+    "keeps non-access project GET errors from clearing the parent after catalog loss: $name",
+    async ({ error }) => {
+      const loss = vi.fn();
+      catalogGet.mockRejectedValue(
+        new Error('404 - {"error":{"code":"NOT_FOUND"}}'),
+      );
+      projectRead.mockRejectedValue(new Error(error));
+      renderPlan("owner", loss);
+      expect(await screen.findByText("项目不存在或你无权访问")).toBeVisible();
+      await waitFor(() => expect(projectRead).toHaveBeenCalledWith("p1"));
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(loss).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(nonAccessProjectErrors)(
+    "keeps non-access project GET errors from clearing the parent after mutation 404: $name",
+    async ({ error }) => {
+      const loss = vi.fn();
+      update.mockRejectedValue(
+        new Error('404 - {"error":{"code":"NOT_FOUND"}}'),
+      );
+      projectRead.mockRejectedValue(new Error(error));
+      renderPlan("owner", loss);
+      await screen.findByText("写周报");
+      await changeRowStatus("写周报", "done");
+      const dialog = screen.getByRole("dialog", { name: "修改状态" });
+      expect(await within(dialog).findByText("待办操作失败")).toBeVisible();
+      expect(
+        within(dialog).getByRole("combobox", { name: "状态" }),
+      ).toHaveValue("done");
+      expect(screen.getByRole("table", { name: "全部待办" })).toBeVisible();
+      expect(screen.queryByText("项目不存在或你无权访问")).toBeNull();
+      expect(loss).not.toHaveBeenCalled();
+    },
+  );
+
   it("keeps a 403 actionable as inline feedback and retains legal project content", async () => {
+    const loss = vi.fn();
     update.mockRejectedValue(
       new Error('403 - {"error":{"code":"FORBIDDEN","message":"forbidden"}}'),
     );
-    renderPlan("owner");
+    renderPlan("owner", loss);
     await screen.findByText("写周报");
     await changeRowStatus("写周报", "done");
     const dialog = screen.getByRole("dialog", { name: "修改状态" });
@@ -1591,6 +1715,7 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
         name: "查看待办：写周报",
       }),
     ).toBeVisible();
+    expect(loss).not.toHaveBeenCalled();
   });
 
   it("clears stale todo data on 404 and recovers on retry", async () => {
@@ -1630,11 +1755,12 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
   });
 
   it("preserves the legal project after a single todo mutation 404", async () => {
+    const loss = vi.fn();
     update.mockImplementation(async () => {
       planRows.mockResolvedValue(planRowsResponse([todoDoing, todoOther]));
       throw new Error('404 - {"error":{"code":"NOT_FOUND"}}');
     });
-    renderPlan("owner");
+    renderPlan("owner", loss);
     await screen.findByText("写周报");
     await changeRowStatus("写周报", "done");
     await waitFor(() => expect(projectRead).toHaveBeenCalledWith("p1"));
@@ -1645,6 +1771,7 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
     expect(
       screen.getAllByText("待办不存在或你无权访问").length,
     ).toBeGreaterThan(0);
+    expect(loss).not.toHaveBeenCalled();
   });
 
   it("preserves the legal project after a todo delete 404", async () => {
@@ -1727,6 +1854,7 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
   });
 
   it("ignores delayed project recheck 404 after an account switch", async () => {
+    const loss = vi.fn();
     let rejectRead!: (error: Error) => void;
     projectRead.mockImplementationOnce(
       () =>
@@ -1735,7 +1863,7 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
         }),
     );
     update.mockRejectedValue(new Error('404 - {"error":{"code":"NOT_FOUND"}}'));
-    const { rerender } = renderPlan("owner");
+    const { rerender } = renderPlan("owner", loss);
     await screen.findByText("写周报");
     await changeRowStatus("写周报", "done");
     await waitFor(() => expect(projectRead).toHaveBeenCalledWith("p1"));
@@ -1743,13 +1871,23 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
       planRowsResponse([{ ...todoDoing, title: "新账号待办" }]),
     );
     currentUserId.value = 99;
-    rerender(<ProjectPlan projectId="p1" role="owner" members={members} />);
+    rerender(
+      <ProjectPlan
+        {...{
+          projectId: "p1",
+          role: "owner" as const,
+          members,
+          onProjectAccessLost: loss,
+        }}
+      />,
+    );
     expect(await screen.findByText("新账号待办")).toBeVisible();
     await act(async () => {
       rejectRead(new Error('404 - {"error":{"code":"NOT_FOUND"}}'));
     });
     expect(screen.getByText("新账号待办")).toBeVisible();
     expect(screen.queryByText("项目不存在或你无权访问")).toBeNull();
+    expect(loss).not.toHaveBeenCalled();
   });
 
   it("hides manager-only bulk and assignment controls from a regular member", async () => {

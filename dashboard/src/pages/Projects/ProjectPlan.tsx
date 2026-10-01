@@ -49,6 +49,13 @@ const STATUS_FALLBACKS: Record<ProjectTodoStatus, string> = {
   in_progress: "进行中",
   done: "已完成",
 };
+export interface ProjectPlanAccessLoss {
+  project_id: string;
+  account_id: number;
+  confirmed_by: "project_get";
+  status: 403 | 404;
+  error: unknown;
+}
 interface Props {
   projectId: string;
   role: ProjectRole;
@@ -56,6 +63,7 @@ interface Props {
   selectedTodoId?: string | null;
   onOpenTodo?: (todoId: string) => void;
   onCloseTodo?: () => void;
+  onProjectAccessLost?: (loss: ProjectPlanAccessLoss) => void;
 }
 function httpStatus(error: unknown): number | null {
   const raw = error instanceof Error ? error.message : String(error ?? "");
@@ -447,6 +455,7 @@ function ProjectPlanContent({
   selectedTodoId,
   onOpenTodo,
   onCloseTodo,
+  onProjectAccessLost,
 }: Props) {
   const { t } = useTranslation();
   const currentUserId = useCurrentUser()?.id ?? null;
@@ -455,6 +464,8 @@ function ProjectPlanContent({
   permissions.current = { role, currentUserId };
   const views = useRef<ProjectPlanViewsHandle>(null);
   const active = useRef(true);
+  const accessConfirmSeq = useRef(0);
+  const parentLossPublished = useRef(false);
   const [loadedTodos, setLoadedTodos] = useState<ProjectTodo[]>([]);
   const loaded = useRef<ProjectTodo[]>([]);
   const [accessLost, setAccessLost] = useState(false);
@@ -499,13 +510,18 @@ function ProjectPlanContent({
   const catalogRef = useRef(catalogState);
   catalogRef.current = catalogState;
   const catalog = catalogState.catalog;
-  const latestCallbacks = useRef({ onCloseTodo, onOpenTodo });
-  latestCallbacks.current = { onCloseTodo, onOpenTodo };
+  const latestCallbacks = useRef({
+    onCloseTodo,
+    onOpenTodo,
+    onProjectAccessLost,
+  });
+  latestCallbacks.current = { onCloseTodo, onOpenTodo, onProjectAccessLost };
 
   useEffect(() => {
     active.current = true;
     return () => {
       active.current = false;
+      accessConfirmSeq.current += 1;
       editorSeq.current += 1;
     };
   }, []);
@@ -560,7 +576,44 @@ function ProjectPlanContent({
     detailRef.current = null;
     suppressedDeepLink.current = selectedTodoId ?? null;
   };
-  lostCallback.current = clearPrivate;
+  const publishConfirmedLoss = (error: unknown, accountId: number) => {
+    if (
+      !active.current ||
+      permissions.current.currentUserId !== accountId ||
+      parentLossPublished.current
+    )
+      return;
+    const status = httpStatus(error);
+    if (status !== 403 && status !== 404) return;
+    const notify = latestCallbacks.current.onProjectAccessLost;
+    if (!notify) return;
+    parentLossPublished.current = true;
+    notify({
+      project_id: projectId,
+      account_id: accountId,
+      confirmed_by: "project_get",
+      status,
+      error,
+    });
+  };
+  lostCallback.current = () => {
+    const accountId = permissions.current.currentUserId;
+    const seq = ++accessConfirmSeq.current;
+    clearPrivate();
+    if (
+      !active.current ||
+      accountId === null ||
+      parentLossPublished.current ||
+      !latestCallbacks.current.onProjectAccessLost
+    )
+      return;
+    // Child reads clear their own cache immediately. Only a fresh project read
+    // confirms that the parent cache must also be discarded.
+    void projectsApi.get(projectId).catch((error: unknown) => {
+      if (seq === accessConfirmSeq.current)
+        publishConfirmedLoss(error, accountId);
+    });
+  };
   const notifyLost = useCallback(() => lostCallback.current(), []);
 
   const closeDetail = (snapshot = detailRef.current) => {
@@ -730,11 +783,12 @@ function ProjectPlanContent({
             status: "stale",
             messageKey: "projects.planViews.integration.staleOperation",
           };
-        if (
-          isNotFoundApiError(projectError) ||
-          httpStatus(projectError) === 403
-        ) {
+        const projectStatus = httpStatus(projectError);
+        if (projectStatus === 403 || projectStatus === 404) {
+          accessConfirmSeq.current += 1;
           clearPrivate();
+          if (scope.accountId !== null)
+            publishConfirmedLoss(projectError, scope.accountId);
           return { status: "forbidden", messageKey: "projects.plan.notFound" };
         }
         return { status: "failed", messageKey: "projects.plan.actionFailed" };
@@ -1228,7 +1282,7 @@ function ProjectPlanContent({
       const fresh = views.current?.captureOperation("editor-compare-error");
       if (!fresh || !current(fresh) || !sameFrame(original.scope, fresh))
         return;
-      if (isNotFoundApiError(error)) clearPrivate();
+      if (isNotFoundApiError(error)) notifyLost();
       else
         setEditorError(todoErrorMessage(error, t("projects.plan.loadFailed")));
     } finally {
@@ -1317,6 +1371,7 @@ function ProjectPlanContent({
           description={t("projects.plan.notFoundHint")}
           actionLabel={t("common.retry")}
           onAction={() => {
+            accessConfirmSeq.current += 1;
             setAccessLost(false);
             void catalogState.reload();
           }}

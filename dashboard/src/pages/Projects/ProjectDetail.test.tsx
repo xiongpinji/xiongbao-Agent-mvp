@@ -48,6 +48,23 @@ const { memberPanelProps } = vi.hoisted(() => ({
   },
 }));
 
+interface CandidatePlanAccessLoss {
+  project_id: string;
+  account_id: number;
+  confirmed_by: "project_get";
+  status: 403 | 404;
+  error: unknown;
+}
+
+const { planProps } = vi.hoisted(() => ({
+  planProps: {
+    current: null as null | {
+      projectId: string;
+      onProjectAccessLost?: (loss: CandidatePlanAccessLoss) => void;
+    },
+  },
+}));
+
 const { activityProps } = vi.hoisted(() => ({
   activityProps: {
     current: null as null | {
@@ -159,22 +176,25 @@ vi.mock("./ProjectActivity", () => ({
   },
 }));
 vi.mock("./ProjectPlan", () => ({
-  default: ({
-    selectedTodoId,
-    onOpenTodo,
-    onCloseTodo,
-  }: {
+  default: (props: {
+    projectId: string;
     selectedTodoId?: string | null;
     onOpenTodo?: (id: string) => void;
     onCloseTodo?: () => void;
-  }) => (
-    <div>
-      plan-stub
-      <output data-testid="selected-todo">{selectedTodoId ?? ""}</output>
-      <button onClick={() => onOpenTodo?.("t1")}>plan-open-todo</button>
-      <button onClick={() => onCloseTodo?.()}>plan-close-todo</button>
-    </div>
-  ),
+    onProjectAccessLost?: (loss: CandidatePlanAccessLoss) => void;
+  }) => {
+    planProps.current = props;
+    return (
+      <div>
+        plan-stub
+        <output data-testid="selected-todo">
+          {props.selectedTodoId ?? ""}
+        </output>
+        <button onClick={() => props.onOpenTodo?.("t1")}>plan-open-todo</button>
+        <button onClick={() => props.onCloseTodo?.()}>plan-close-todo</button>
+      </div>
+    );
+  },
 }));
 vi.mock("./ProjectTasks", () => ({
   default: (props: {
@@ -316,6 +336,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   account.id = 1;
   activityProps.current = null;
+  planProps.current = null;
   memberPanelProps.current = null;
   modalProps.current = null;
   get.mockResolvedValue({
@@ -326,6 +347,196 @@ beforeEach(() => {
   members.mockResolvedValue([{ user_id: 1, username: "alice", role: "owner" }]);
   list.mockResolvedValue(listResponse([folderDesign, fileSpec]));
   usage.mockResolvedValue({ file_count: 2, total_bytes: 2048 });
+});
+
+describe("ProjectDetail confirmed Plan project loss", () => {
+  it.each([403, 404] as const)(
+    "clears cached parent content after confirmed Plan project GET %i",
+    async (status) => {
+      const user = userEvent.setup();
+      get.mockResolvedValue({
+        ...summary,
+        name: "C2_PRIVATE_PROJECT_CANARY",
+        description: "C2_PRIVATE_DESCRIPTION_CANARY",
+        instructions: "C2_PRIVATE_INSTRUCTIONS_CANARY",
+        instructions_sha256: "c2-private-sha",
+        member_count: 2,
+      });
+      members.mockResolvedValue([
+        { user_id: 1, username: "alice", role: "owner" },
+        { user_id: 2, username: "private-member", role: "member" },
+      ]);
+      const { container } = renderDetail("project-1");
+      await screen.findByText("activity-stub");
+      await user.click(screen.getByRole("tab", { name: "计划" }));
+      await screen.findByText("plan-stub");
+      expect(screen.getByText("C2_PRIVATE_INSTRUCTIONS_CANARY")).toBeVisible();
+      await user.click(screen.getByRole("button", { name: "查看详情" }));
+      expect(screen.getByText("C2_PRIVATE_DESCRIPTION_CANARY")).toBeVisible();
+      expect(screen.getByText("2 名成员")).toBeVisible();
+      await user.click(screen.getByRole("button", { name: "编辑项目资料" }));
+      const lateSave = modalProps.current?.onSaved;
+      expect(screen.getByRole("dialog", { name: "编辑项目" })).toBeVisible();
+      const error = new Error(
+        `${status} - {"error":{"code":"${
+          status === 404 ? "NOT_FOUND" : "FORBIDDEN"
+        }"}}`,
+      );
+      await act(
+        async () =>
+          planProps.current?.onProjectAccessLost?.({
+            project_id: "project-1",
+            account_id: 1,
+            confirmed_by: "project_get",
+            status,
+            error,
+          }),
+      );
+      expect(await screen.findByText("项目不存在或你无权访问")).toBeVisible();
+      for (const text of [
+        "C2_PRIVATE_PROJECT_CANARY",
+        "C2_PRIVATE_DESCRIPTION_CANARY",
+        "C2_PRIVATE_INSTRUCTIONS_CANARY",
+        "2 名成员",
+        "members-stub",
+        "plan-stub",
+      ])
+        expect(container.textContent).not.toContain(text);
+      expect(screen.queryByRole("dialog", { name: "编辑项目" })).toBeNull();
+      expect(screen.queryByRole("tab", { name: "任务" })).toBeNull();
+      await act(
+        async () =>
+          lateSave?.({ ...summary, name: "C2_PRIVATE_LATE_SAVE_CANARY" }),
+      );
+      expect(container.textContent).not.toContain(
+        "C2_PRIVATE_LATE_SAVE_CANARY",
+      );
+    },
+  );
+
+  it("keeps confirmed Plan loss after an earlier parent reload resolves late", async () => {
+    const user = userEvent.setup();
+    let resolveProject!: (value: unknown) => void;
+    let resolveMembers!: (value: unknown) => void;
+    get.mockResolvedValueOnce({
+      ...summary,
+      instructions: "初始指令",
+      instructions_sha256: "initial",
+    });
+    get.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveProject = resolve;
+        }),
+    );
+    members.mockResolvedValueOnce([
+      { user_id: 1, username: "alice", role: "owner" },
+    ]);
+    members.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveMembers = resolve;
+        }),
+    );
+    const { container } = renderDetail("project-1");
+    await screen.findByText("activity-stub");
+    await user.click(screen.getByRole("tab", { name: "计划" }));
+    await screen.findByText("plan-stub");
+    const notify = planProps.current?.onProjectAccessLost;
+    await act(async () => memberPanelProps.current?.onChanged?.());
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+    await act(
+      async () =>
+        notify?.({
+          project_id: "project-1",
+          account_id: 1,
+          confirmed_by: "project_get",
+          status: 404,
+          error: new Error('404 - {"error":{"code":"NOT_FOUND"}}'),
+        }),
+    );
+    expect(await screen.findByText("项目不存在或你无权访问")).toBeVisible();
+    await act(async () => {
+      resolveProject({
+        ...summary,
+        name: "C2_PRIVATE_LATE_RELOAD_CANARY",
+        instructions: "C2_PRIVATE_LATE_INSTRUCTIONS_CANARY",
+        instructions_sha256: "late",
+      });
+      resolveMembers([
+        {
+          user_id: 2,
+          username: "C2_PRIVATE_LATE_MEMBER_CANARY",
+          role: "member",
+        },
+      ]);
+      await Promise.resolve();
+    });
+    expect(screen.getByText("项目不存在或你无权访问")).toBeVisible();
+    for (const text of [
+      "C2_PRIVATE_LATE_RELOAD_CANARY",
+      "C2_PRIVATE_LATE_INSTRUCTIONS_CANARY",
+      "C2_PRIVATE_LATE_MEMBER_CANARY",
+    ])
+      expect(container.textContent).not.toContain(text);
+  });
+
+  it.each(["account", "project"] as const)(
+    "ignores a prior Plan callback after a different %s frame loads",
+    async (change) => {
+      const user = userEvent.setup();
+      get.mockImplementation((projectId: string) =>
+        Promise.resolve({
+          ...summary,
+          project_id: projectId,
+          name:
+            account.id === 9
+              ? "新账号项目"
+              : projectId === "project-2"
+              ? "新项目"
+              : "旧项目",
+          instructions: "当前合法指令",
+          instructions_sha256: "current",
+        }),
+      );
+      const tree = () => (
+        <MemoryRouter initialEntries={["/projects/project-1?tab=plan"]}>
+          <Link to="/projects/project-2?tab=plan">switch-c2-project</Link>
+          <Routes>
+            <Route path="/projects/:projectId" element={<ProjectDetail />} />
+          </Routes>
+        </MemoryRouter>
+      );
+      const { rerender } = render(tree());
+      await screen.findByRole("heading", { name: "旧项目" });
+      await screen.findByText("plan-stub");
+      const oldCallback = planProps.current?.onProjectAccessLost;
+      if (change === "account") {
+        account.id = 9;
+        rerender(tree());
+      } else
+        await user.click(
+          screen.getByRole("link", { name: "switch-c2-project" }),
+        );
+      const newName = change === "account" ? "新账号项目" : "新项目";
+      expect(
+        await screen.findByRole("heading", { name: newName }),
+      ).toBeVisible();
+      await act(
+        async () =>
+          oldCallback?.({
+            project_id: "project-1",
+            account_id: 1,
+            confirmed_by: "project_get",
+            status: 404,
+            error: new Error('404 - {"error":{"code":"NOT_FOUND"}}'),
+          }),
+      );
+      expect(screen.getByRole("heading", { name: newName })).toBeVisible();
+      expect(screen.getByText("当前合法指令")).toBeVisible();
+      expect(screen.queryByText("项目不存在或你无权访问")).toBeNull();
+    },
+  );
 });
 
 describe("ProjectDetail assets tab mount", () => {
