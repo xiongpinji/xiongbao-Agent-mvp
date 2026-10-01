@@ -1,0 +1,105 @@
+{
+  "state": "LOCAL_COMPONENT_ACCEPTED",
+  "scope": "PS04C_C2_CATALOG_HTTP_STATUS_AND_LIFETIME",
+  "date": "2026-10-01",
+  "source_base": "98d9832657d7c654f53959e7f52d771a6207a631",
+  "source_file_sha256": {
+    "dashboard/src/pages/Projects/useTodoCatalog.ts": "1e2a3614d713e6c63d56294fdbb26c4012e890b6fe545f8240abfbf0406f3c4d",
+    "dashboard/src/pages/Projects/useTodoCatalog.test.tsx": "fe25502c25dfabbb471064b6200cde97135b3c3f34f525644ae4a1a4b6310b52",
+    "dashboard/src/pages/Projects/ProjectPlan.test.tsx": "8aa364bcf0937c9da89e3dedd0a94acc5cd3431a055ce685e8dc3aab802b2fa2",
+    "dashboard/src/pages/Projects/plan/ProjectPlanViews.test.tsx": "2db22d0abe56201d15d16a34fa7c89bf84b3ffa95e15ebd928db6f695b8b2855"
+  },
+  "red": {
+    "date_draft": {
+      "failed": 3,
+      "passed": 1
+    },
+    "catalog_hook": {
+      "failed": 9,
+      "passed": 9
+    },
+    "original_hook_unchanged": true
+  },
+  "green": {
+    "date_draft_targeted": 4,
+    "catalog_hook": 18,
+    "plan_views": 47,
+    "related_files": 37,
+    "related_tests": 737
+  },
+  "new_cases": 33,
+  "source_review": "GO",
+  "source_review_findings": [],
+  "checks": [
+    {
+      "name": "draft-green",
+      "state": "PASS",
+      "exit_code": 0,
+      "active_children": 0,
+      "job_closed": true
+    },
+    {
+      "name": "related-tests",
+      "state": "PASS",
+      "exit_code": 0,
+      "active_children": 0,
+      "job_closed": true
+    },
+    {
+      "name": "types",
+      "state": "PASS",
+      "exit_code": 0,
+      "active_children": 0,
+      "job_closed": true
+    },
+    {
+      "name": "source-format",
+      "state": "PASS",
+      "exit_code": 0,
+      "active_children": 0,
+      "job_closed": true
+    },
+    {
+      "name": "source-eslint",
+      "state": "PASS",
+      "exit_code": 0,
+      "active_children": 0,
+      "job_closed": true
+    },
+    {
+      "name": "full-eslint",
+      "state": "PASS",
+      "exit_code": 0,
+      "active_children": 0,
+      "job_closed": true
+    },
+    {
+      "name": "full-format-windows",
+      "state": "PASS",
+      "exit_code": 0,
+      "active_children": 0,
+      "job_closed": true
+    },
+    {
+      "name": "build",
+      "state": "PASS",
+      "exit_code": 0,
+      "active_children": 0,
+      "job_closed": true
+    }
+  ],
+  "stable_source_files": 3120,
+  "build_output": "owned QA directory; not packaged or published",
+  "not_run": [
+    "current backend suite",
+    "authenticated browser after this fix",
+    "actual HTTP/PG after this fix",
+    "GLM",
+    "paid provider",
+    "WorkBuddy native comparison",
+    "production or installer"
+  ],
+  "whole_ps04": "INCOMPLETE",
+  "whole_25": "INCOMPLETE",
+  "prior_c1_c2_local_acceptance": "UNCHANGED"
+}

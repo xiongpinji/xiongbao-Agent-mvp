@@ -9,7 +9,7 @@ import {
   projectTodoCatalogApi,
   type ProjectTodoCatalog,
 } from "../../api/modules/projectTodoCatalog";
-import { isNotFoundApiError } from "../../utils/apiError";
+import { planHttpStatus } from "./plan/useProjectPlanQuery";
 const snapshotKey = (
   key: string,
   revision: number | undefined,
@@ -91,15 +91,16 @@ export function useTodoCatalog(
         return false;
       setState((previous) => ({
         key,
-        data: isNotFoundApiError(error)
-          ? null
-          : previous.key === key
-          ? previous.data
-          : null,
+        data:
+          planHttpStatus(error) === 404
+            ? null
+            : previous.key === key
+            ? previous.data
+            : null,
         loading: false,
         error,
       }));
-      if (isNotFoundApiError(error)) onLost.current();
+      if (planHttpStatus(error) === 404) onLost.current();
       return false;
     }
   }, [key, projectId]);

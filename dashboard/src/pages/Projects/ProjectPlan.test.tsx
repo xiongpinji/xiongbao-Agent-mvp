@@ -753,34 +753,67 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
     );
   });
 
-  it("blocks date resubmission without server metadata and preserves entered dates across failed explicit comparison", async () => {
-    const user = userEvent.setup();
-    renderPlan();
-    await screen.findByText("写周报");
-    await user.click(screen.getByRole("button", { name: "新建待办" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "标题" }), {
-      target: { value: "日期草稿" },
-    });
-    fireEvent.change(screen.getByLabelText("截止日期"), {
-      target: { value: "2026-09-28" },
-    });
-    create.mockRejectedValue(
-      new Error(
-        '422 - {"error":{"code":"VALIDATION_ERROR","details":{"reason":"invalid_dates"}}}',
-      ),
-    );
-    await user.click(screen.getByRole("button", { name: /^创\s*建$/ }));
-    await screen.findByRole("button", { name: "刷新后比较" });
-    catalogGet.mockRejectedValue(new Error("503"));
-    await user.click(screen.getByRole("button", { name: "刷新后比较" }));
-    expect(
-      await screen.findByText("服务器日期加载失败，重试后才能编辑日期。"),
-    ).toBeVisible();
-    expect(screen.getByLabelText("截止日期")).toHaveValue("2026-09-28");
-    expect(screen.getByLabelText("截止日期")).toBeDisabled();
-    expect(screen.getByRole("button", { name: /^创\s*建$/ })).toBeDisabled();
-    expect(create).toHaveBeenCalledTimes(1);
-  });
+  it.each([
+    { label: "unavailable catalog", message: "503" },
+    {
+      label: "500 with not-found text",
+      message:
+        'Request failed: 500 Internal Server Error - {"detail":"upstream not found"}',
+    },
+    {
+      label: "422 with a not-found error code",
+      message:
+        'Request failed: 422 Unprocessable Entity - {"error":{"code":"NOT_FOUND","message":"tag not found"}}',
+    },
+    {
+      label: "503 with a 404 diagnostic",
+      message:
+        'Request failed: 503 Service Unavailable - {"detail":"upstream returned 404"}',
+    },
+  ])(
+    "preserves date drafts after a catalog refresh failure: $label",
+    async ({ message }) => {
+      const user = userEvent.setup();
+      const accessLost = vi.fn();
+      renderPlan("owner", accessLost);
+      await screen.findByText("写周报");
+      await user.click(screen.getByRole("button", { name: "新建待办" }));
+      fireEvent.change(screen.getByRole("textbox", { name: "标题" }), {
+        target: { value: "日期草稿" },
+      });
+      fireEvent.change(screen.getByRole("textbox", { name: "描述" }), {
+        target: { value: "尚未提交的工作安排" },
+      });
+      fireEvent.change(screen.getByLabelText("截止日期"), {
+        target: { value: "2026-09-28" },
+      });
+      create.mockRejectedValue(
+        new Error(
+          '422 - {"error":{"code":"VALIDATION_ERROR","details":{"reason":"invalid_dates"}}}',
+        ),
+      );
+      await user.click(screen.getByRole("button", { name: /^创\s*建$/ }));
+      await screen.findByRole("button", { name: "刷新后比较" });
+      catalogGet.mockRejectedValue(new Error(message));
+      await user.click(screen.getByRole("button", { name: "刷新后比较" }));
+      expect(
+        await screen.findByText("服务器日期加载失败，重试后才能编辑日期。"),
+      ).toBeVisible();
+      expect(screen.getByRole("dialog", { name: "新建待办" })).toBeVisible();
+      expect(screen.getByRole("textbox", { name: "标题" })).toHaveValue(
+        "日期草稿",
+      );
+      expect(screen.getByRole("textbox", { name: "描述" })).toHaveValue(
+        "尚未提交的工作安排",
+      );
+      expect(screen.getByLabelText("截止日期")).toHaveValue("2026-09-28");
+      expect(screen.getByLabelText("截止日期")).toBeDisabled();
+      expect(screen.getByRole("button", { name: /^创\s*建$/ })).toBeDisabled();
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(projectRead).not.toHaveBeenCalled();
+      expect(accessLost).not.toHaveBeenCalled();
+    },
+  );
 
   it("preserves the editor and legal project content when an option 422 says not found", async () => {
     const user = userEvent.setup();

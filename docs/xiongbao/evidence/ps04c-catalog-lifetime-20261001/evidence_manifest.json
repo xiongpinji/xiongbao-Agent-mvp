@@ -1,0 +1,36 @@
+{
+  "source_base": "98d9832657d7c654f53959e7f52d771a6207a631",
+  "source_file_sha256": {
+    "dashboard/src/pages/Projects/useTodoCatalog.ts": "1e2a3614d713e6c63d56294fdbb26c4012e890b6fe545f8240abfbf0406f3c4d",
+    "dashboard/src/pages/Projects/useTodoCatalog.test.tsx": "fe25502c25dfabbb471064b6200cde97135b3c3f34f525644ae4a1a4b6310b52",
+    "dashboard/src/pages/Projects/ProjectPlan.test.tsx": "8aa364bcf0937c9da89e3dedd0a94acc5cd3431a055ce685e8dc3aab802b2fa2",
+    "dashboard/src/pages/Projects/plan/ProjectPlanViews.test.tsx": "2db22d0abe56201d15d16a34fa7c89bf84b3ffa95e15ebd928db6f695b8b2855"
+  },
+  "summary_sha256": "90304762a8ac3f58d222e83d90b68ef38bbefcaea69c7528cc66a80361ff0d5a",
+  "local_evidence_sha256": {
+    "hook-final-checks-3a96a81e2a4d4e7488ff4b9c511773bf.json": "0ce6aa29de85fbbb7fe2cae7f932fba1763339e83da2256e8d2014f376a29499",
+    "hook-final-format-3a96a81e2a4d4e7488ff4b9c511773bf.log": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20",
+    "hook-final-green-3a96a81e2a4d4e7488ff4b9c511773bf.log": "648fd8441e6c07ca595ec7deb7d08408fc366aee749693d387ffb50b5089cd4b",
+    "hook-red-b2e015af25e94eae919b8e2697213e96.json": "d14e364f76475e1b3968c70c16623acb3ba28eddccb313df0224bf8128878f4e",
+    "hook-red-b2e015af25e94eae919b8e2697213e96.log": "fd7488c5129b94c0f65a62b3d23af27dca068acabd2ff3da6456e1fd6ea64cff",
+    "owned_process.py": "b886d9ee47df183ccd13c97a9e64e02fd7990bc6fe311d75e46c14b09f351cd9",
+    "planviews-pending-save-v1-eslint.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "planviews-pending-save-v1-prettier.log": "f20510a9da4717c51c4cffee6d0dd88d6c9a723d0a83711d01216f5b48961283",
+    "planviews-pending-save-v1-vitest.log": "cae32fdb325bf887d5116d5b34da05b785d32c218661e3696139a9e8d21f0119",
+    "quality-af432b91df9a4cc1970a8193e65f077e\\build.log": "2f63d1fa2e81d24060a9d981222933a3a420c9055354f97953fb64d7f3382e83",
+    "quality-af432b91df9a4cc1970a8193e65f077e\\draft-green.log": "8eb70ea58910688dc449d7061afba9087eee1f1ff8f3fc991e155b6517dd681b",
+    "quality-af432b91df9a4cc1970a8193e65f077e\\full-eslint.log": "94fd7be3df8218d7166ec3c9070de260ba96c84c2d852dab3f182b924a7b5838",
+    "quality-af432b91df9a4cc1970a8193e65f077e\\full-format-windows.log": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20",
+    "quality-af432b91df9a4cc1970a8193e65f077e\\related-tests.log": "f3ec6917d3dcecb7a5c904627da71eee6742d100a1e003bafa4814e552fa74dc",
+    "quality-af432b91df9a4cc1970a8193e65f077e\\result.json": "1e49a255fa8ef24373371ae19c6af6925c0c3f2aea3057ec14a3ddb0d2a4abc4",
+    "quality-af432b91df9a4cc1970a8193e65f077e\\source-eslint.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "quality-af432b91df9a4cc1970a8193e65f077e\\source-format.log": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20",
+    "quality-af432b91df9a4cc1970a8193e65f077e\\types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "quality_v1.py": "76434f03d42d6c94826a14086d5583785412aa2079ff8d841ba68753da3dd846",
+    "review-source-v1.json": "ad5693bb4013ca7f7bc958e7b52e54b2507853eafc105d3a814c0beff25b0c03",
+    "review-source-v1.md": "f80ab2d2b7405f35c3d85dc24af1c8beb69caf626c96dcaa86c945a4c3c4dfe7",
+    "root-date-draft-red-v1.json": "117c111bb96729ebac16809ce791413b9df205c817779548d4529eccb57fe2e7",
+    "root-date-draft-red-v1.log": "776e3edf5ff882548cdb99a513a47b44cf3db683df9ee3de9f1526645c9b822a"
+  },
+  "scope": "Local component/source and frontend quality evidence; raw logs remain in the owned local QA directory"
+}

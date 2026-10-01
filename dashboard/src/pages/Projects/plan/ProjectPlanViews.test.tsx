@@ -181,6 +181,7 @@ import {
 import type {
   PlanQueryRequest,
   PlanView,
+  PlanViewMutationResponse,
 } from "../../../api/modules/projectPlanViews";
 
 const view1 = makePlanView({ view_id: "v1", name: "Table shared" });
@@ -457,6 +458,190 @@ describe("shared shell query configuration and C1 bridges", () => {
     ).toMatchObject({ status: "stale" });
     expect(initial.onProposeTodoPatch).not.toHaveBeenCalled();
   });
+  it.each(
+    [
+      { context: "project", projectId: "p2", accountId: 1 },
+      { context: "account", projectId: "p1", accountId: 2 },
+    ].flatMap((context) =>
+      [false, true].flatMap((returnToA) =>
+        [200, 409, 404].map((status) => ({ ...context, returnToA, status })),
+      ),
+    ),
+  )(
+    "isolates pending shared definition PATCH $status across $context change (return to A=$returnToA)",
+    async ({ projectId, accountId, returnToA, status }) => {
+      const pending = deferred<PlanViewMutationResponse>();
+      mocks.update.mockReturnValueOnce(pending.promise);
+      let recordLabel = "A";
+      mocks.query.mockImplementation(
+        (project: string, body: PlanQueryRequest) =>
+          Promise.resolve(
+            makePlanQueryResponse({
+              view_id: body.view_id,
+              view_version: body.expected_view_version,
+              catalog_revision: body.expected_catalog_revision,
+              items: [
+                makePlanTodo({
+                  project_id: project,
+                  title: `${recordLabel} record`,
+                  catalog_revision: body.expected_catalog_revision,
+                }),
+              ],
+            }),
+          ),
+      );
+      const initial = props();
+      const { rerender } = render(<ProjectPlanViews {...initial} />);
+      await screen.findByText("A record");
+      fireEvent.click(screen.getByRole("button", { name: "视图设置" }));
+      fireEvent.click(screen.getByText("Apply fields"));
+      await waitFor(() =>
+        expect(
+          mocks.query.mock.calls.at(-1)![1].override_definition?.fields,
+        ).toEqual(["title", "status"]),
+      );
+      const originalSettings = mocks.ui.settings!;
+      let save!: ReturnType<PlanViewSettingsProps["onSave"]>;
+      act(() => {
+        save = originalSettings.onSave({
+          baseline: originalSettings.baseline,
+          definition: originalSettings.definition,
+        });
+      });
+      expect(mocks.update.mock.calls[0].slice(0, 3)).toEqual([
+        "p1",
+        "v1",
+        {
+          expected_version: 1,
+          expected_catalog_revision: 1,
+          definition: originalSettings.definition,
+        },
+      ]);
+
+      const loadContext = async (
+        nextProps: ProjectPlanViewsProps,
+        label: string,
+        version: number,
+      ) => {
+        recordLabel = label;
+        const selected = makePlanView({
+          project_id: nextProps.projectId,
+          view_id: "v1",
+          name: `${label} shared view`,
+          version,
+          definition: {
+            ...makePlanDefinition(),
+            fields: ["title", "priority"],
+          },
+        });
+        const alternate = makePlanView({
+          ...selected,
+          view_id: "v2",
+          name: `${label} alternate view`,
+          position: 1,
+        });
+        const views = [selected, alternate];
+        mocks.list.mockResolvedValue({
+          ...list(views, version),
+          project_id: nextProps.projectId,
+        });
+        rerender(<ProjectPlanViews {...nextProps} />);
+        await screen.findByText(`${label} record`);
+        expect(screen.queryByText("A record")).not.toBeInTheDocument();
+        fireEvent.click(screen.getByRole("button", { name: "视图设置" }));
+        const draft = {
+          ...selected.definition,
+          fields: ["title", "tags", "due_date"] as const,
+        };
+        act(() => mocks.ui.settings!.onTemporaryChange(draft));
+        await waitFor(() =>
+          expect(mocks.query.mock.calls.at(-1)!.slice(0, 2)).toEqual([
+            nextProps.projectId,
+            expect.objectContaining({
+              view_id: selected.view_id,
+              expected_view_version: version,
+              expected_catalog_revision: nextProps.catalog!.revision,
+              override_definition: draft,
+            }),
+          ]),
+        );
+        return { views, draft, selected, nextProps, label };
+      };
+      const nextProps = props({
+        projectId,
+        accountId,
+        members: [{ user_id: accountId, username: "B owner", role: "owner" }],
+        catalog: makePlanCatalog({ project_id: projectId, revision: 3 }),
+      });
+      let currentContext = await loadContext(nextProps, "B", 3);
+      if (returnToA) {
+        currentContext = await loadContext(
+          { ...initial, catalog: makePlanCatalog({ revision: 4 }) },
+          "Returned A",
+          4,
+        );
+        expect(screen.queryByText("B record")).not.toBeInTheDocument();
+      }
+      const queryCount = mocks.query.mock.calls.length;
+      const listCount = mocks.list.mock.calls.length;
+      const currentBaseline = mocks.ui.settings!.baseline;
+      await act(async () => {
+        if (status === 200) {
+          pending.resolve({
+            item: {
+              ...view1,
+              name: "Late A saved view",
+              version: 50,
+              definition: originalSettings.definition,
+            },
+            revision: 50,
+            default_view_id: "v1",
+          });
+        } else {
+          pending.reject(
+            apiError(
+              status,
+              status === 409 ? "view_version_conflict" : undefined,
+            ),
+          );
+        }
+        expect(await save).toMatchObject({ state: "stale" });
+      });
+
+      expect(
+        screen.getByText(`${currentContext.label} record`),
+      ).toBeInTheDocument();
+      expect(screen.getByTestId("fields")).toHaveTextContent(
+        "title,tags,due_date",
+      );
+      expect(
+        screen.getByRole("button", {
+          name: `${currentContext.label} shared view`,
+        }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", {
+          name: `${currentContext.label} alternate view`,
+        }),
+      ).toBeInTheDocument();
+      expect(screen.queryByText("Late A saved view")).not.toBeInTheDocument();
+      expect(mocks.ui.renderer!.view).toEqual(currentContext.selected);
+      expect(mocks.ui.renderer!.definition).toEqual(currentContext.draft);
+      expect(mocks.ui.manager!.views).toEqual(currentContext.views);
+      expect(mocks.ui.settings!.baseline).toEqual(currentBaseline);
+      expect(mocks.ui.settings!.conflictLocked).toBe(false);
+      expect(mocks.ui.settings!.busy).toBe(false);
+      expect(mocks.ui.settings!.errorKey).toBeNull();
+      expect(mocks.ui.manager!.errorKey).toBeNull();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(mocks.query).toHaveBeenCalledTimes(queryCount);
+      expect(mocks.list).toHaveBeenCalledTimes(listCount);
+      expect(mocks.update).toHaveBeenCalledTimes(1);
+      expect(mocks.getProject).not.toHaveBeenCalled();
+      expect(initial.onProjectAccessLost).not.toHaveBeenCalled();
+      expect(nextProps.onProjectAccessLost).not.toHaveBeenCalled();
+    },
+  );
   it("same-view advance locks immutable dirty baseline; explicit compare confirmation preserves draft and upgrades V/R", async () => {
     const ref = createRef<ProjectPlanViewsHandle>();
     let acceptedProps = props();
