@@ -1,0 +1,224 @@
+{
+  "state": "PASS_BOUND_BROWSER_BATCH",
+  "date": "2026-10-02",
+  "source_head": "afe35c0b666142062b1b1593087148f9c46ca03d",
+  "scope": "PS04C_TODO_DETAIL_TODO_GET_LATE_BROWSER_SQLITE",
+  "method_version": 4,
+  "runtime_run_id": "run-eb2cbf629016412189fff1456b3a2701",
+  "core_cases": 4,
+  "phases": 6,
+  "cases": [
+    {
+      "name": "detail_todo_200_A_B",
+      "state": "PASS",
+      "old_request_id": 27,
+      "current_project": "B",
+      "old_browser_status": 200,
+      "backend_forward_count": 1,
+      "actual_requestfinished": true,
+      "complete_body_original_response_finished_null": true,
+      "old_HTTP_after_current_two_drafts": true,
+      "old_companion_comment_count": 1,
+      "current_comment_count": 1,
+      "full_current_state_retained": true,
+      "explicit_fixture_comment201": false,
+      "full_twelve_group_zero_delta_stages": {
+        "committed": "PASS",
+        "before-release": "PASS",
+        "after-release": "PASS",
+        "final": "PASS"
+      },
+      "no_side_effect_toasts": true
+    },
+    {
+      "name": "detail_todo_200_A_B_newA",
+      "state": "PASS",
+      "old_request_id": 67,
+      "current_project": "A",
+      "old_browser_status": 200,
+      "backend_forward_count": 1,
+      "actual_requestfinished": true,
+      "complete_body_original_response_finished_null": true,
+      "old_HTTP_after_current_two_drafts": true,
+      "old_companion_comment_count": 1,
+      "current_comment_count": 2,
+      "full_current_state_retained": true,
+      "explicit_fixture_comment201": true,
+      "full_twelve_group_zero_delta_stages": {
+        "committed": "PASS",
+        "before-release": "PASS",
+        "after-release": "PASS",
+        "final": "PASS"
+      },
+      "no_side_effect_toasts": true
+    },
+    {
+      "name": "detail_todo_controlled_404_A_B",
+      "state": "PASS",
+      "old_request_id": 118,
+      "current_project": "B",
+      "old_browser_status": 404,
+      "backend_forward_count": 0,
+      "actual_requestfinished": true,
+      "complete_body_original_response_finished_null": true,
+      "old_HTTP_after_current_two_drafts": true,
+      "old_companion_comment_count": 2,
+      "current_comment_count": 1,
+      "full_current_state_retained": true,
+      "explicit_fixture_comment201": false,
+      "full_twelve_group_zero_delta_stages": {
+        "committed": "PASS",
+        "before-release": "PASS",
+        "after-release": "PASS",
+        "final": "PASS"
+      },
+      "no_side_effect_toasts": true
+    },
+    {
+      "name": "detail_todo_controlled_404_A_B_newA",
+      "state": "PASS",
+      "old_request_id": 169,
+      "current_project": "A",
+      "old_browser_status": 404,
+      "backend_forward_count": 0,
+      "actual_requestfinished": true,
+      "complete_body_original_response_finished_null": true,
+      "old_HTTP_after_current_two_drafts": true,
+      "old_companion_comment_count": 2,
+      "current_comment_count": 2,
+      "full_current_state_retained": true,
+      "explicit_fixture_comment201": false,
+      "full_twelve_group_zero_delta_stages": {
+        "committed": "PASS",
+        "before-release": "PASS",
+        "after-release": "PASS",
+        "final": "PASS"
+      },
+      "no_side_effect_toasts": true
+    }
+  ],
+  "browser_api_requests": 192,
+  "transport_events": 384,
+  "actual_transport_terminals": {
+    "http_response": 192
+  },
+  "direct_api_requests": 226,
+  "real200_forward_count": 2,
+  "controlled404_forward_count": 0,
+  "full_GET_zero_delta_audits": 16,
+  "full_project_groups": [
+    "catalog_state",
+    "comment_image_usage",
+    "comment_images",
+    "comments",
+    "priorities",
+    "project_todos",
+    "tag_links",
+    "tags",
+    "todo_events",
+    "view_events",
+    "view_state",
+    "views"
+  ],
+  "explicit_ABA_comment_fixture201": 1,
+  "fixture_delta": {
+    "new_comment_rows": 1,
+    "new_comment_event_rows": 1,
+    "compact_UTF8_normalized_body_images_empty_fingerprint": true,
+    "all_preexisting_A_and_B_twelve_groups_restored_in_evidence": true,
+    "database_rollback": false
+  },
+  "genuine_missing_todo_preprobe": {
+    "status": 404,
+    "code": "NOT_FOUND",
+    "details": {},
+    "full_twelve_group_zero_delta": true
+  },
+  "ABA_old_comment_count": 1,
+  "ABA_new_A_comment_count": 2,
+  "count_only_oracle": false,
+  "closed_immutable_SQLite_full_twelve_groups_equal": true,
+  "comment_image_inventory_equal": true,
+  "owned_cleanup_verified": true,
+  "source_files_verified": 3632,
+  "product_source_changed": false,
+  "png_count": 8,
+  "aria_count": 8,
+  "safe_UI_diagnostic_receipts": 2062,
+  "historical_actual_runs": [
+    {
+      "method_version": 1,
+      "state": "FAIL",
+      "run_id": "run-40315addb4594799be0d0f5563e7c299",
+      "passed_core_cases": 0,
+      "precise_initial_assertion_not_recoverable": true,
+      "product_bug_proven": false
+    },
+    {
+      "method_version": 2,
+      "state": "FAIL",
+      "run_id": "run-4567aeb07df64d6492ededddca859ce4",
+      "passed_core_cases": 0,
+      "early_login_network_failure": true,
+      "unique_network_root_cause_proven": false,
+      "product_bug_proven": false
+    },
+    {
+      "method_version": 3,
+      "state": "FAIL",
+      "run_id": "run-99be994697d3459fa10033d99796b595",
+      "passed_core_cases": 0,
+      "uppercase_QA_label_defect_proven": true,
+      "product_bug_proven": false
+    }
+  ],
+  "nested_preparation_FAIL_preserved": true,
+  "root_readonly_parser_R1": {
+    "state": "FAIL_BEFORE_CLOSED_SQL",
+    "actual_browser_state": "PASS",
+    "reason": "Seven fixed localFailureGuard site names differ from lowercase-only uiReceipt names.",
+    "original_preserved": true,
+    "R2_readonly_parser_passed": true,
+    "browser_replayed": false
+  },
+  "pure_QA_oracle": {
+    "count": 59,
+    "legal_positive_count": 4,
+    "negative_count": 55,
+    "historical_GREEN_exit": 0,
+    "historical_expected_RED_exit": 1,
+    "not_rerun_in_V4": true,
+    "boundary": "Historical private in-memory fixture oracle; not business/browser/database regression"
+  },
+  "errors": {
+    "page_errors": 0,
+    "observer_errors": 0,
+    "route_errors": 0,
+    "external_requests": 0,
+    "illegal_writes": 0,
+    "network_failures": 0
+  },
+  "publication_gate": "Fresh independent actual and exact-three publication GO required before commit",
+  "whole_goal_complete": false,
+  "not_run": [
+    "PostgreSQL",
+    "full backend/frontend suites",
+    "production bundle",
+    "GLM",
+    "old-source browser RED",
+    "same-shell account hot-switch",
+    "list edit account-switch late-response cases",
+    "initial detail comments GET/second-stage project GET/date/renderer/comparison/field-PATCH late cases",
+    "second-stage project recheck late-response cases",
+    "complete 39-template representative matrix",
+    "aborted HTTP late delivery",
+    "native WorkBuddy parity",
+    "paid provider",
+    "real account",
+    "production deployment",
+    "whole 25 completion",
+    "natural deletion or permission revocation",
+    "original implementation CLI route success",
+    "fresh pure-QA oracle suite"
+  ]
+}
