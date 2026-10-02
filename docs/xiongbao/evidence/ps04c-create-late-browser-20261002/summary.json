@@ -1,0 +1,209 @@
+{
+  "state": "PASS_BOUND_BROWSER_BATCH",
+  "date": "2026-10-02",
+  "scope": "PS04C_TODO_CREATE_LATE_BROWSER_SQLITE",
+  "source_head": "b0608d868e953f6289a3918f44b8051afa8f5386",
+  "runtime_run_id": "run-e7b37233a8724bf5b1c4e4088c1f38ec",
+  "method_version": 2,
+  "core_cases": 4,
+  "phases": 6,
+  "cases": [
+    {
+      "name": "create_201_A_B",
+      "state": "PASS",
+      "old_request_id": 26,
+      "kind": "create_201",
+      "target_project": "B",
+      "old_browser_status": 201,
+      "backend_forward_count": 1,
+      "actual_requestfinished": true,
+      "complete_body_and_original_response_finished_null": true,
+      "old_HTTP_after_new_scope_draft": true,
+      "draft_metadata_storage_query_UI_retained": true,
+      "no_side_effect_toasts": true,
+      "staged_full_row_audits": {
+        "committed": "PASS",
+        "before-release": "PASS",
+        "after-release": "PASS",
+        "final": "PASS"
+      },
+      "allowed_per_case_delta": {
+        "todos": 1,
+        "created_events": 1,
+        "tag_links": 0,
+        "todo_id": "private_synthetic_ID"
+      },
+      "all_preexisting_A_rows_and_B_groups_unchanged": true,
+      "ABA_genuine_current_row_readback_before_old_release": false
+    },
+    {
+      "name": "create_201_A_B_newA",
+      "state": "PASS",
+      "old_request_id": 61,
+      "kind": "create_201",
+      "target_project": "A",
+      "old_browser_status": 201,
+      "backend_forward_count": 1,
+      "actual_requestfinished": true,
+      "complete_body_and_original_response_finished_null": true,
+      "old_HTTP_after_new_scope_draft": true,
+      "draft_metadata_storage_query_UI_retained": true,
+      "no_side_effect_toasts": true,
+      "staged_full_row_audits": {
+        "committed": "PASS",
+        "before-release": "PASS",
+        "after-release": "PASS",
+        "final": "PASS"
+      },
+      "allowed_per_case_delta": {
+        "todos": 1,
+        "created_events": 1,
+        "tag_links": 0,
+        "todo_id": "private_synthetic_ID"
+      },
+      "all_preexisting_A_rows_and_B_groups_unchanged": true,
+      "ABA_genuine_current_row_readback_before_old_release": true
+    },
+    {
+      "name": "create_controlled_409_A_B",
+      "state": "PASS",
+      "old_request_id": 104,
+      "kind": "no_write_409",
+      "target_project": "B",
+      "old_browser_status": 409,
+      "backend_forward_count": 0,
+      "actual_requestfinished": true,
+      "complete_body_and_original_response_finished_null": true,
+      "old_HTTP_after_new_scope_draft": true,
+      "draft_metadata_storage_query_UI_retained": true,
+      "no_side_effect_toasts": true,
+      "staged_full_row_audits": {
+        "committed": "PASS",
+        "before-release": "PASS",
+        "after-release": "PASS",
+        "final": "PASS"
+      },
+      "allowed_per_case_delta": {
+        "todos": 0,
+        "created_events": 0,
+        "tag_links": 0
+      },
+      "all_preexisting_A_rows_and_B_groups_unchanged": true,
+      "ABA_genuine_current_row_readback_before_old_release": false
+    },
+    {
+      "name": "create_controlled_409_A_B_newA",
+      "state": "PASS",
+      "old_request_id": 138,
+      "kind": "no_write_409",
+      "target_project": "A",
+      "old_browser_status": 409,
+      "backend_forward_count": 0,
+      "actual_requestfinished": true,
+      "complete_body_and_original_response_finished_null": true,
+      "old_HTTP_after_new_scope_draft": true,
+      "draft_metadata_storage_query_UI_retained": true,
+      "no_side_effect_toasts": true,
+      "staged_full_row_audits": {
+        "committed": "PASS",
+        "before-release": "PASS",
+        "after-release": "PASS",
+        "final": "PASS"
+      },
+      "allowed_per_case_delta": {
+        "todos": 0,
+        "created_events": 0,
+        "tag_links": 0
+      },
+      "all_preexisting_A_rows_and_B_groups_unchanged": true,
+      "ABA_genuine_current_row_readback_before_old_release": false
+    }
+  ],
+  "browser_api_requests": 154,
+  "actual_transport_terminals": {
+    "http_response": 154
+  },
+  "real_create_201_cases": 2,
+  "real_create_forward_count": 2,
+  "controlled_409_cases": 2,
+  "controlled_409_forward_count": 0,
+  "genuine_prebaseline_error_probe": {
+    "status": 409,
+    "code": "INVITE_INVALID",
+    "reason": "catalog_revision_conflict",
+    "complete_two_project_nine_group_zero_delta": true
+  },
+  "full_plan_groups": [
+    "catalog_state",
+    "priorities",
+    "project_todos",
+    "tag_links",
+    "tags",
+    "todo_events",
+    "view_events",
+    "view_state",
+    "views"
+  ],
+  "event_group_scope": "todo_events contains every non-view project_event; view_events contains project.todo_view_updated; union covers every project event",
+  "full_delta_audits": 16,
+  "complete_cumulative_projection_restores_original_A_and_B": true,
+  "final_assisting_counts": {
+    "A_todos": 3,
+    "A_created_events": 3,
+    "B_todos": 1,
+    "B_created_events": 1,
+    "count_only_oracle": false
+  },
+  "closed_SQLite_full_snapshot_equal": true,
+  "owned_cleanup_verified": true,
+  "product_source_changed": false,
+  "positive_octop_busy_witness_cases": 4,
+  "safe_UI_diagnostic_receipts": 888,
+  "source_files_verified": 3632,
+  "png_count": 8,
+  "aria_count": 8,
+  "pure_QA_oracle_tests": {
+    "count": 23,
+    "state": "PASS",
+    "scope": "Pure in-memory allowed-delta acceptance and unauthorized-delta rejection; not browser tests"
+  },
+  "errors": {
+    "page_errors": 0,
+    "observer_errors": 0,
+    "route_errors": 0,
+    "external_requests": 0,
+    "illegal_writes": 0,
+    "network_failures": 0
+  },
+  "method_gates": "Independent static spec and quality GO bound to fixed eight method raw bytes; actual independent final review required before publication",
+  "whole_goal_complete": false,
+  "not_run": [
+    "PostgreSQL",
+    "full backend/frontend suites",
+    "production bundle",
+    "GLM",
+    "old-source browser RED",
+    "same-shell account hot-switch",
+    "create account-switch late-response cases",
+    "list edit/detail/date late-response cases",
+    "second-stage project recheck late-response cases",
+    "complete 39-template representative matrix",
+    "aborted HTTP late delivery",
+    "native WorkBuddy parity",
+    "paid provider",
+    "real account",
+    "production deployment",
+    "whole 25 completion"
+  ],
+  "previous_actual_failure": {
+    "method_version": 1,
+    "run_id": "run-22543cf6d4b84b4db6fd4b3123f52136",
+    "state": "FAIL",
+    "cases_passed": 0,
+    "browser_API_requests": 25,
+    "browser_todo_POSTs": 0,
+    "exact_assertion_operand_captured": false,
+    "product_defect_proven": false,
+    "preserved_private_diagnosis_sha256": "c6d9f66d0ddf70c7faff13aab4b681daf2efb4a8e6f9e6915af00983c188cb3f"
+  }
+}
