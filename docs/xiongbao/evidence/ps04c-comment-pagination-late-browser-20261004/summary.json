@@ -1,0 +1,50 @@
+{
+  "scope": "PS04C_COMMENT_PAGINATION_LATE_BROWSER_SQLITE",
+  "source_head": "187c70a30c4f6ab0edba240157fd22daf07774f7",
+  "actual_state": "PASS",
+  "run": "run-7a00e7270f0f4e23b07dad5cb9078494",
+  "browser": "155.0",
+  "playwright": "1.63.0",
+  "cases": [
+    {
+      "name": "paging_200_A_B",
+      "state": "PASS",
+      "audit_points": 5,
+      "final_comment_count": 1
+    },
+    {
+      "name": "paging_200_A_B_newA",
+      "state": "PASS",
+      "audit_points": 5,
+      "final_comment_count": 21
+    },
+    {
+      "name": "paging_controlled404_A_B",
+      "state": "PASS",
+      "audit_points": 5,
+      "final_comment_count": 1
+    },
+    {
+      "name": "paging_controlled404_A_B_newA",
+      "state": "PASS",
+      "audit_points": 5,
+      "final_comment_count": 21
+    }
+  ],
+  "browser_api_requests": 184,
+  "all_requests_complete": true,
+  "domain_groups": 14,
+  "closed_db_unchanged": true,
+  "owned_resources_closed": true,
+  "protected_inputs_unchanged": 3633,
+  "component_tests": 8,
+  "frontend_tests": 1977,
+  "backend_passed": 5329,
+  "backend_skipped": 319,
+  "backend_warnings": 25,
+  "frontend_eslint_warnings": 67,
+  "default_make_all": "UNAVAILABLE",
+  "default_frontend_format": "FAIL_1073_FILES",
+  "commit_push_state": "NOT_PUBLISHED",
+  "whole_product_acceptance": false
+}
