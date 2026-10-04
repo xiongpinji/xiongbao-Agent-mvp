@@ -169,6 +169,12 @@ export interface ProjectAssetFolderBody {
   name: string;
 }
 
+/** 045: omission keeps the existing parent; explicit null moves to root. */
+export interface ProjectAssetUpdateBody {
+  name?: string;
+  parent_id?: string | null;
+}
+
 export interface ProjectAssetUploadParams {
   parentId?: string | null;
   file: File;
@@ -195,6 +201,11 @@ const versionBase = (projectId: string, nodeId: string, versionId: string) =>
 const trashBase = (projectId: string) => `${assetsBase(projectId)}/trash`;
 
 export const projectAssetsApi = {
+  update: (projectId: string, nodeId: string, patch: ProjectAssetUpdateBody) =>
+    request<ProjectAssetNode>(nodeBase(projectId, nodeId), {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
   list: (projectId: string, params: ProjectAssetListParams = {}) => {
     const query = new URLSearchParams();
     if (params.parentId) query.set("parent_id", params.parentId);

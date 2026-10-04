@@ -1,6 +1,11 @@
-import { render, screen, within } from "@testing-library/react";
+import { useState } from "react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { App } from "antd";
+import { MemoryRouter } from "react-router-dom";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearAuthToken, setAuthToken } from "../../../api/request";
+import type { DockTab } from "../hooks/useChatDockPanel";
 import ChatDockPanel from "./ChatDockPanel";
 
 const captured = vi.hoisted(() => ({
@@ -8,8 +13,34 @@ const captured = vi.hoisted(() => ({
     agentId?: string;
     open?: boolean;
     embedded?: boolean;
+    privateTask?: boolean;
   }>,
   fileList: [] as Array<{ agentId?: string; filePaths?: string[] }>,
+  renderRealDrawer: false,
+}));
+
+vi.mock("../../../context/AgentContext", () => ({
+  useAgent: () => ({
+    agents: [],
+    getChatAgentById: (id: string) =>
+      id === "private-runtime"
+        ? { agent_id: id, internal: true, state: "running" }
+        : null,
+  }),
+}));
+
+vi.mock("../../../api/config", () => ({
+  getApiUrl: (path: string) => `/api${path}`,
+}));
+
+vi.mock("../../../i18n", () => ({ default: { language: "zh" } }));
+
+vi.mock("../../../hooks/useServerTimezone", () => ({
+  useServerTimezone: () => "Asia/Shanghai",
+}));
+
+vi.mock("../../Agent/Workspace/components/FileViewer", () => ({
+  default: () => null,
 }));
 
 vi.mock("../../../hooks/useCurrentUser", () => ({
@@ -39,16 +70,24 @@ vi.mock("../../../components/BrowserWorkspace/ChatDockPanelShell", () => ({
   ),
 }));
 
-vi.mock("../../Agent/Workspace/components/WorkspaceDrawer", () => ({
-  default: (props: {
-    agentId?: string;
-    open?: boolean;
-    embedded?: boolean;
-  }) => {
-    captured.workspaceDrawer.push(props);
-    return <div data-testid="workspace-drawer" />;
+vi.mock(
+  "../../Agent/Workspace/components/WorkspaceDrawer",
+  async (importOriginal) => {
+    const { default: RealWorkspaceDrawer } = await importOriginal<
+      typeof import("../../Agent/Workspace/components/WorkspaceDrawer")
+    >();
+    return {
+      default: (props: React.ComponentProps<typeof RealWorkspaceDrawer>) => {
+        captured.workspaceDrawer.push(props);
+        return captured.renderRealDrawer ? (
+          <RealWorkspaceDrawer {...props} />
+        ) : (
+          <div data-testid="workspace-drawer" />
+        );
+      },
+    };
   },
-}));
+);
 
 vi.mock("./ChatDockFileList", () => ({
   default: ({
@@ -116,6 +155,69 @@ describe("ChatDockPanel workspace files vs detected files", () => {
   beforeEach(() => {
     captured.workspaceDrawer.length = 0;
     captured.fileList.length = 0;
+    captured.renderRealDrawer = false;
+  });
+
+  afterEach(() => {
+    clearAuthToken();
+    vi.unstubAllGlobals();
+  });
+
+  it("forwards the private marker when a dock menu click opens the real workspace tree", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify([{ path: "private-note.txt", is_dir: false }]),
+        {
+          headers: { "content-type": "application/json" },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    setAuthToken("dock-test-token");
+    captured.renderRealDrawer = true;
+
+    function DockHarness() {
+      const [openTabs, setOpenTabs] = useState<DockTab[]>([]);
+      return (
+        <ChatDockPanel
+          {...baseProps}
+          agentId="private-runtime"
+          privateTask
+          openTabs={openTabs}
+          activeTabId={openTabs.length ? "workspace" : null}
+          addTab={{
+            onOpenWorkspace: () =>
+              setOpenTabs([{ id: "workspace", kind: "workspace" }]),
+          }}
+        />
+      );
+    }
+
+    render(
+      <MemoryRouter>
+        <App>
+          <DockHarness />
+        </App>
+      </MemoryRouter>,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "添加面板" }));
+    await user.click(await screen.findByText("工作空间文件"));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/agents/private-runtime/workspace/tree?path=/&from_workspace=true",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer dock-test-token",
+        }),
+      }),
+    );
+    expect(lastWorkspaceDrawerProps()?.privateTask).toBe(true);
+    expect(
+      (await screen.findAllByText("private-note.txt")).length,
+    ).toBeGreaterThan(0);
   });
 
   it("names the + menu entries 产物 / 工作空间文件 / 已发现文件, not 文件变更", async () => {
@@ -182,6 +284,7 @@ describe("ChatDockPanel workspace files vs detected files", () => {
     expect(lastWorkspaceDrawerProps()?.agentId).toBe("agent-b");
     expect(lastWorkspaceDrawerProps()?.embedded).toBe(true);
     expect(lastWorkspaceDrawerProps()?.open).toBe(true);
+    expect(Boolean(lastWorkspaceDrawerProps()?.privateTask)).toBe(false);
 
     rerender(
       <ChatDockPanel
