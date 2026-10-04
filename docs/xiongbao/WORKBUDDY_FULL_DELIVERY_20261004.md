@@ -60,7 +60,7 @@
 
 步骤均为“固定合同与行为 RED → 最小实现 GREEN → Root 独立定向/相邻回归 → 固定候选独立只读审查 → 必要真实 TCP/多身份浏览器/PG/Windows探针 → 普通质量门禁 → feature 分支推送/PR→develop → 更新台账”。相关迁移含 fresh/upgrade/idempotency/备份和 SQLite/PG 差异；权限含撤权及并发；UI 含错误/草稿/迟到/finally/焦点和两个视口。
 
-AGENTS.md 的默认 ship bar 是 `make all` 及前端 `npx tsc -b`/构建；实际 hook 目前为 make precommit 加 dashboard build，两者均需如实记录。前片缺 make/CRLF 例外不是本计划全量放行依据。完整回归采用当前字节，任何 source 变化不能挪用旧全量结论。本轮已完成的 GitHub CI 只证明 PR #1 的固定 SHA，不证明后续实现。
+AGENTS.md 的默认 ship bar 是 `make all` 及前端 `npx tsc -b`/构建；实际 hook 目前为 make precommit 加 dashboard build，两者均需如实记录。前片缺 make/CRLF 例外不是本计划全量放行依据。完整回归采用当前字节，任何 source 变化不能挪用旧全量结论。GitHub CI 结论分别绑定各 PR 和提交 SHA，不证明未提交的后续实现。
 
 单元、组件、离线合成链路、当前登录浏览器、PostgreSQL、原生 WorkBuddy 视觉、真实账号/模型和目标环境各是独立证据。每个运行要有来源 SHA、失败记录、资源归属与关闭回执；未知提交结果不自动重试付费任务。
 
@@ -73,3 +73,11 @@ AGENTS.md 的默认 ship bar 是 `make all` 及前端 `npx tsc -b`/构建；实�
 W01A 045-F 和 W01B 030UI 已完成有界前端实现、固定候选独立审查，分别有 110 项及 Root 重跑 23 项相关测试通过。普通 `make all`（5329 passed、319 skipped）、前端全量（251 文件/2008 测试）、类型、lint、格式与构建均通过。W01A 合成 owner/admin 浏览器已实际执行文件/文件夹改名移动、冲突保持、根目录选择和 PDF/版本保留；测试运行总 exit 2 的被拦截专家市场请求及各资源关闭、数据不变性分别保留，不能混写为浏览器总通过。详情见 [第一波验收记录](WORKBUDDY_WAVE01_20261004_REPORT.md)。这些证据没有核销 member/撤权实机、PostgreSQL、原生 WorkBuddy 同状态视觉和整体交付。
 
 W02 D1 严格存储能力和 W04 046 M0 仍 NO-GO，继续最小能力工程和复验，不激活功能。W05 已完成只读合同接缝盘点；W09 已安排独立准备既有 pin/rename 持久化失败回滚的有界合同，避免重做已存在的分页。
+
+# 2026-10-04 第二波当前记录
+
+第一波 `414b3319` 已推送同一功能分支并进入 [PR #2](https://github.com/xiongpinji/xiongbao-Agent-mvp/pull/2)，固定 SHA 的 Linux/Windows Hosted CI 均成功；Windows 5,333 项通过、315 项跳过，Live 33 项全部跳过。它不证明第二波候选或真实供应商调用。
+
+W05 已完成个人 MCP 调用上下文、模型描述及工具复核、服务端入口与过程内暂停恢复的有界实现和独立审查；W09 已完成四处会话改名/置顶失败回滚和迟到响应保护，合成账号浏览器观察已保留。浏览器总运行 exit 2 的观察器日志失败与实际 UI、资源关闭证据分别记录，不能把整次运行称为通过。折叠导航可访问名称与当前页语义完成有界修复。详情与本批质量门禁见 [第二波验收记录](WORKBUDDY_WAVE02_20261004_REPORT.md)。
+
+待办附件的 display/catalog 双水位、v2 游标、严格表格模型和完整 D1 迁移已进入技术任务编译；原第三版批准与统一承接授权继续有效，严格存储与 046 M0 仍 NO_GO，D2 前置顺序保持。标题检索后继包单独固定完整候选查询、权限和字面匹配规则；状态/日期/归档以及其余全量项目继续待完成。此记录不是整体 1:1 或最终交付验收。

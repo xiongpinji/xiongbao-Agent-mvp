@@ -11,6 +11,7 @@ from harness_gateway.models import MessageEvent
 
 from octop.i18n.domains.slash import tr
 from octop.infra.agents.security.hitl_session import HitlSessionPolicyStore
+from octop.infra.connectors.mcp_actor_scope import current_mcp_actor_scope, personal_mcp_denied
 from octop.infra.gateway.hitl.format import (
     extract_questions,
     format_ask_card,
@@ -129,6 +130,8 @@ class HitlChannelCoordinator:
         *,
         ctx: HitlStreamContext,
     ) -> HitlPendingRecord:
+        scope = current_mcp_actor_scope()
+        receipt = scope.receipt if scope is not None else None
         return self._store.register(
             thread_id=ctx.thread_id,
             agent_id=ctx.agent_id,
@@ -137,7 +140,41 @@ class HitlChannelCoordinator:
             channel_type=ctx.channel_type,
             action_requests=parse_action_requests(raw_request),
             review_configs=parse_review_configs(raw_request),
+            personal_mcp_receipt=receipt if receipt is not None and receipt.descriptors else None,
         )
+
+    def personal_resume_kwargs(
+        self,
+        record: HitlPendingRecord | None,
+        *,
+        ctx: HitlStreamContext,
+        decisions: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        if record is None or record.personal_mcp_receipt is None:
+            return {}
+        receipt = record.personal_mcp_receipt
+        actor = receipt.actor
+        if (
+            record.user_id != ctx.user_id
+            or record.agent_id != ctx.agent_id
+            or record.thread_id != ctx.thread_id
+            or record.session_key != ctx.session_key
+            or record.channel_type != ctx.channel_type
+            or actor.user_id != ctx.user_id
+            or actor.agent_id != ctx.agent_id
+            or actor.thread_id != ctx.thread_id
+            or actor.session_key != ctx.session_key
+            or actor.source != ctx.channel_type
+        ):
+            raise personal_mcp_denied("personal_mcp_pending_binding", locale=actor.locale)
+        rejected = any(decision.get("type") == "reject" for decision in decisions)
+        if not self._store.claim_personal_resume(record, "rejected" if rejected else "approved"):
+            raise personal_mcp_denied("personal_mcp_pending_expired", locale=actor.locale)
+        return {
+            "trusted_actor": actor,
+            "personal_mcp_receipt": receipt,
+            "personal_mcp_receipt_expires_at": record.created_at + self._store.ttl_seconds,
+        }
 
     @staticmethod
     def build_decisions(
@@ -308,7 +345,8 @@ class HitlChannelCoordinator:
         state = projection_state if projection_state is not None else StreamProjectionState()
         # Resolve before streaming: a follow-up question registered mid-stream
         # must not be clobbered by a late mark_resolved on the old record.
-        self._store.mark_resolved(record.pending_id, "approved")
+        if record.personal_mcp_receipt is None:
+            self._store.mark_resolved(record.pending_id, "approved")
         try:
             async for ev in project_resume_stream(
                 agent_manager,
@@ -321,6 +359,7 @@ class HitlChannelCoordinator:
                 projection_state=state,
                 hitl_coordinator=self,
                 hitl_ctx=hitl_ctx,
+                pending=record,
             ):
                 yield ev
         except Exception as exc:
@@ -402,6 +441,7 @@ class HitlChannelCoordinator:
                 projection_state=projection_state,
                 hitl_coordinator=self,
                 hitl_ctx=hitl_ctx,
+                pending=record,
             ):
                 if record is not None and not ack_sent:
                     ack = (

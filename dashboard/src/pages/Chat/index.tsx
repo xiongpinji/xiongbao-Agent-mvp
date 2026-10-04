@@ -1248,13 +1248,14 @@ function ChatPageInner() {
     return name;
   }, [activeSession, t]);
 
-  const refuseInternalTaskManagement = () => {
+  const refuseInternalTaskManagement = async () => {
     antMessage.warning(
       t(
         "chat.internalTask.manageRestricted",
         "此任务只允许继续既有对话；如需永久删除，请前往项目任务列表使用“删除整任务”。",
       ),
     );
+    return { status: "ignored", reason: "restricted" } as const;
   };
 
   const chatSidebarPanel = (

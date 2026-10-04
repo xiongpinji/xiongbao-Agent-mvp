@@ -139,7 +139,27 @@ class CronDeliveryService:
         usage = UsageTracker()
         parts: list[str] = []
         interaction_required = False
-        async for chunk in self._agent_manager.stream(command.agent_id, request):
+        trusted_actor = (
+            self._agent_manager.personal_mcp_actor(
+                command.agent_id,
+                user_id=session.user_id,
+                thread_id=session.thread_id,
+                session_key=session.session_key,
+                source=session.channel_type,
+                servers=request.get("mcp_servers"),
+                locale=str(
+                    resolve_user_locale(
+                        user_repo=self._repos.user_repo,
+                        user_id=session.user_id,
+                        channel_type=session.channel_type,
+                    )
+                ),
+            )
+            if request.get("mcp_servers")
+            else None
+        )
+        stream_kwargs = {"trusted_actor": trusted_actor} if trusted_actor is not None else {}
+        async for chunk in self._agent_manager.stream(command.agent_id, request, **stream_kwargs):
             tracker.observe(chunk)
             usage.observe(chunk)
             if chunk.get("type") in ("token", "delta"):

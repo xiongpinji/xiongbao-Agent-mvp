@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import { useTranslation } from "react-i18next";
 import { octopThreadsApi } from "../../../api/modules/octopThreads";
 import type { HitlSessionPolicy } from "../../../api/types/hitl";
 import * as chatStore from "./chatStore";
 import { onSessionEvent } from "./chatStore";
 import { formatThreadTitle } from "../utils/threadTitle";
 import { parseHitlSessionPolicy } from "../utils/hitlSessionPolicy";
+import { showApiError } from "../../../utils/showApiToast";
 
 export interface Session {
   id: string;
@@ -120,6 +122,136 @@ export const SESSION_PAGE_SIZE = 10;
 let _storeAgentId: string | null = null;
 const _loadedLimitByAgent = new Map<string, number>();
 const _listeners = new Set<() => void>();
+let _storeGeneration = 0;
+let _initialFetchGeneration = -1;
+let _readSequence = 0;
+let _publishedRead = 0;
+let _loadingMoreRead = 0;
+
+export type SessionMutationResult =
+  | { status: "saved"; value: string | boolean }
+  | { status: "failed" }
+  | { status: "ignored"; reason: "busy" | "invalid" | "stale" | "restricted" };
+type SessionField = "name" | "pinned";
+let _sessionRevision = 0;
+const _sessionWrites = new Map<string, { revision: number; token?: object }>();
+const _deletedSessionIds = new Set<string>();
+
+function sessionWriteKey(agentId: string, id: string, field: SessionField) {
+  return JSON.stringify([agentId, id, field]);
+}
+
+export function sessionMutationPending(
+  agentId: string,
+  id: string,
+  field: SessionField,
+) {
+  return Boolean(
+    _sessionWrites.get(sessionWriteKey(agentId, id, field))?.token,
+  );
+}
+
+export function forgetDeletedSession(id: string) {
+  _deletedSessionIds.add(id);
+}
+
+export function captureSessionRevision() {
+  return _sessionRevision;
+}
+
+/** Preserve only fields edited during a read (or still awaiting persistence). */
+export function mergeSessionMetadata(
+  agentId: string,
+  incoming: Session[],
+  current: Session[],
+  revision: number,
+  fieldIsCurrent: (id: string, field: SessionField) => boolean = () => true,
+) {
+  const byId = new Map(current.map((session) => [session.id, session]));
+  return sortSessions(
+    incoming
+      .filter((session) => !_deletedSessionIds.has(session.id))
+      .map((session) => {
+        const existing = byId.get(session.id);
+        if (!existing) return session;
+        const next = { ...session };
+        const nameWrite = _sessionWrites.get(
+          sessionWriteKey(agentId, session.id, "name"),
+        );
+        const pinWrite = _sessionWrites.get(
+          sessionWriteKey(agentId, session.id, "pinned"),
+        );
+        if (
+          fieldIsCurrent(session.id, "name") &&
+          nameWrite &&
+          (nameWrite.token || nameWrite.revision > revision)
+        )
+          next.name = existing.name;
+        if (
+          fieldIsCurrent(session.id, "pinned") &&
+          pinWrite &&
+          (pinWrite.token || pinWrite.revision > revision)
+        )
+          next.pinned = existing.pinned;
+        return next;
+      }),
+  );
+}
+
+/** All three metadata entry points share a field lane until the real request settles. */
+export async function persistSessionMetadata(options: {
+  agentId: string | null;
+  id: string;
+  field: SessionField;
+  value: string | boolean;
+  previous?: string | boolean;
+  isCurrent: () => boolean;
+  apply?: (value: string | boolean) => void;
+  onError: (error: unknown) => void;
+}): Promise<SessionMutationResult> {
+  const { agentId, id, field, value, previous, isCurrent, apply, onError } =
+    options;
+  if (!agentId || !id || id === "__pending__" || _deletedSessionIds.has(id))
+    return { status: "ignored", reason: "invalid" };
+  if (!isCurrent()) return { status: "ignored", reason: "stale" };
+  const key = sessionWriteKey(agentId, id, field);
+  if (_sessionWrites.get(key)?.token)
+    return { status: "ignored", reason: "busy" };
+  if (value === previous) return { status: "ignored", reason: "invalid" };
+  const token = {};
+  _sessionWrites.set(key, { revision: ++_sessionRevision, token });
+  const current = () =>
+    _sessionWrites.get(key)?.token === token &&
+    !_deletedSessionIds.has(id) &&
+    isCurrent();
+  apply?.(value);
+  try {
+    const response =
+      field === "name"
+        ? await octopThreadsApi.rename(agentId, id, value as string)
+        : await octopThreadsApi.patch(agentId, id, {
+            pinned: value as boolean,
+          });
+    if (!current()) return { status: "ignored", reason: "stale" };
+    const saved =
+      field === "name"
+        ? formatThreadTitle(response.title) || "New Chat"
+        : typeof response.pinned === "boolean"
+        ? response.pinned
+        : value;
+    apply?.(saved);
+    return { status: "saved", value: saved };
+  } catch (error) {
+    if (!current()) return { status: "ignored", reason: "stale" };
+    if (previous !== undefined) apply?.(previous);
+    onError(error);
+    return { status: "failed" };
+  } finally {
+    if (_sessionWrites.get(key)?.token === token) {
+      _sessionWrites.set(key, { revision: ++_sessionRevision });
+    }
+  }
+}
 
 /** Thread ids mid-create; stale-thread redirect must ignore these until listed. */
 const _pendingThreadIds = new Set<string>();
@@ -263,7 +395,10 @@ function setModuleLoading(value: boolean) {
 
 function subscribeSessionStore(cb: () => void) {
   _listeners.add(cb);
-  return () => _listeners.delete(cb);
+  return () => {
+    _listeners.delete(cb);
+    if (_listeners.size === 0) syncStoreToAgent(null);
+  };
 }
 
 let _snapshot = {
@@ -311,11 +446,35 @@ function visibleSessionsForAgent(
 async function fetchSessionsPage(
   agentId: string,
   limit: number,
-): Promise<{ sessions: Session[]; hasMore: boolean }> {
+): Promise<{
+  sessions: Session[];
+  hasMore: boolean;
+  read: { revision: number; generation: number; sequence: number };
+}> {
+  const read = {
+    revision: captureSessionRevision(),
+    generation: _storeGeneration,
+    sequence: ++_readSequence,
+  };
   const rows = await octopThreadsApi.list(agentId, limit + 1);
   const hasMore = rows.length > limit;
   const sessions = sortSessions(rows.slice(0, limit).map(toSession));
-  return { sessions, hasMore };
+  return { sessions, hasMore, read };
+}
+
+function currentSessionRead(
+  read: { generation: number; sequence: number },
+  expansionLimit?: number,
+) {
+  return (
+    read.generation === _storeGeneration &&
+    (read.sequence >= _publishedRead ||
+      Boolean(
+        _storeAgentId &&
+          expansionLimit &&
+          expansionLimit > getLoadedLimit(_storeAgentId),
+      ))
+  );
 }
 
 function applySessionPage(
@@ -323,12 +482,24 @@ function applySessionPage(
   hasMore: boolean,
   limit: number,
   agentId: string,
+  read: { revision: number; sequence: number },
   activeThreadId?: string,
 ) {
+  if (read.sequence < _publishedRead) {
+    const current = new Map(_sessions.map((session) => [session.id, session]));
+    allSessions = allSessions.map(
+      (session) => current.get(session.id) ?? session,
+    );
+  }
+  _publishedRead = Math.max(_publishedRead, read.sequence);
   _loadedLimitByAgent.set(agentId, limit);
   _hasMore = hasMore;
   setModuleSessions(
-    visibleSessionsForAgent(allSessions, agentId, activeThreadId),
+    visibleSessionsForAgent(
+      mergeSessionMetadata(agentId, allSessions, _sessions, read.revision),
+      agentId,
+      activeThreadId,
+    ),
   );
 }
 
@@ -350,6 +521,7 @@ function setModuleLoadingMore(value: boolean) {
  */
 function syncStoreToAgent(agentId: string | null) {
   if (_storeAgentId === agentId) return;
+  _storeGeneration++;
   _storeAgentId = agentId;
   _sessions = [];
   _loading = agentId != null;
@@ -365,6 +537,14 @@ function syncStoreToAgent(agentId: string | null) {
 
 /** Reset module session store between vitest cases. */
 export function resetSessionStoreForTests() {
+  _storeGeneration++;
+  _initialFetchGeneration = -1;
+  _readSequence = 0;
+  _publishedRead = 0;
+  _loadingMoreRead = 0;
+  _sessionRevision = 0;
+  _sessionWrites.clear();
+  _deletedSessionIds.clear();
   _storeAgentId = null;
   _sessions = [];
   _loading = true;
@@ -385,7 +565,23 @@ export function useSessions(
   options: UseSessionsOptions = {},
 ) {
   const internal = options.internal === true;
+  const { t } = useTranslation();
   syncStoreToAgent(agentId);
+  const ownerRef = useRef({
+    agentId,
+    generation: _storeGeneration,
+    live: true,
+  });
+  if (ownerRef.current.agentId !== agentId)
+    ownerRef.current = { agentId, generation: _storeGeneration, live: true };
+  const owner = ownerRef.current;
+  const isCurrentOwner = useCallback(
+    () =>
+      owner.live &&
+      owner.generation === _storeGeneration &&
+      _storeAgentId === agentId,
+    [owner, agentId],
+  );
   const { sessions, loading, hasMore, loadingMore } = useSyncExternalStore(
     subscribeSessionStore,
     getSessionSnapshot,
@@ -393,6 +589,7 @@ export function useSessions(
 
   const fetchSessions = useCallback(
     async (activeThreadId?: string) => {
+      if (!isCurrentOwner()) return _sessions;
       if (!agentId) {
         setModuleSessions([]);
         setModuleLoading(false);
@@ -400,76 +597,92 @@ export function useSessions(
       }
       try {
         const limit = getLoadedLimit(agentId);
-        const { sessions: valid, hasMore: more } = await fetchSessionsPage(
-          agentId,
-          limit,
-        );
-        if (_storeAgentId !== agentId) return _sessions;
-        applySessionPage(valid, more, limit, agentId, activeThreadId);
-        return visibleSessionsForAgent(valid, agentId, activeThreadId);
+        const {
+          sessions: valid,
+          hasMore: more,
+          read,
+        } = await fetchSessionsPage(agentId, limit);
+        if (!isCurrentOwner() || !currentSessionRead(read)) return _sessions;
+        applySessionPage(valid, more, limit, agentId, read, activeThreadId);
+        return _sessions;
       } catch {
         return _sessions;
       } finally {
-        if (_storeAgentId === agentId) {
+        if (isCurrentOwner()) {
           setModuleLoading(false);
         }
       }
     },
-    [agentId],
+    [agentId, isCurrentOwner],
   );
 
   const loadMoreSessions = useCallback(
     async (activeThreadId?: string) => {
-      if (!agentId || _loadingMore || !_hasMore) return;
+      if (!agentId || !isCurrentOwner() || _loadingMore || !_hasMore) return;
+      const loadingToken = ++_loadingMoreRead;
       setModuleLoadingMore(true);
       try {
         const nextLimit = getLoadedLimit(agentId) + SESSION_PAGE_SIZE;
-        const { sessions: valid, hasMore: more } = await fetchSessionsPage(
-          agentId,
-          nextLimit,
-        );
-        if (_storeAgentId !== agentId) return;
-        applySessionPage(valid, more, nextLimit, agentId, activeThreadId);
+        const {
+          sessions: valid,
+          hasMore: more,
+          read,
+        } = await fetchSessionsPage(agentId, nextLimit);
+        if (!isCurrentOwner() || !currentSessionRead(read, nextLimit)) return;
+        applySessionPage(valid, more, nextLimit, agentId, read, activeThreadId);
       } catch {
         /* ignore */
       } finally {
-        setModuleLoadingMore(false);
+        if (isCurrentOwner() && loadingToken === _loadingMoreRead)
+          setModuleLoadingMore(false);
       }
     },
-    [agentId],
+    [agentId, isCurrentOwner],
   );
 
   const fetchAllSessions = useCallback(
     async (activeThreadId?: string) => {
-      if (!agentId) return;
+      if (!agentId || !isCurrentOwner()) return;
       try {
-        const { sessions: valid, hasMore: more } = await fetchSessionsPage(
+        const {
+          sessions: valid,
+          hasMore: more,
+          read,
+        } = await fetchSessionsPage(agentId, 50);
+        if (!isCurrentOwner() || !currentSessionRead(read)) return;
+        applySessionPage(
+          valid,
+          more,
+          valid.length,
           agentId,
-          50,
+          read,
+          activeThreadId,
         );
-        if (_storeAgentId !== agentId) return;
-        applySessionPage(valid, more, valid.length, agentId, activeThreadId);
       } catch {
         /* ignore */
       }
     },
-    [agentId],
+    [agentId, isCurrentOwner],
   );
 
   const ensureThreadInList = useCallback(
     async (threadId: string): Promise<ThreadProbeResult> => {
       if (!agentId || !threadId) return "missing";
+      if (!isCurrentOwner()) return "unknown";
       if (_sessions.some((s) => s.id === threadId)) return "found";
       try {
         const limit = getLoadedLimit(agentId);
         const probeLimit = Math.max(limit + 1, 50);
-        const { sessions: valid, hasMore: more } = await fetchSessionsPage(
-          agentId,
-          probeLimit,
-        );
+        const {
+          sessions: valid,
+          hasMore: more,
+          read,
+        } = await fetchSessionsPage(agentId, probeLimit);
         // Agent switched while the probe was in flight — do not rewrite URL.
-        if (_storeAgentId !== agentId) return "unknown";
-        const found = valid.some((s) => s.id === threadId);
+        if (!isCurrentOwner() || !currentSessionRead(read)) return "unknown";
+        const found = valid.some(
+          (s) => s.id === threadId && !_deletedSessionIds.has(s.id),
+        );
         // An internal runtime has no "create a new thread" fallback, so a list
         // gap must never be treated as a deleted thread.
         if (!found) return internal ? "unknown" : "missing";
@@ -478,6 +691,7 @@ export function useSessions(
           more || valid.length > limit,
           limit,
           agentId,
+          read,
           threadId,
         );
         return "found";
@@ -486,37 +700,54 @@ export function useSessions(
         return "unknown";
       }
     },
-    [agentId, internal],
+    [agentId, internal, isCurrentOwner],
   );
 
   // Fetch only: agent switches are synced in-render via syncStoreToAgent.
   useEffect(() => {
-    if (!agentId) return;
+    syncStoreToAgent(agentId);
+    owner.live = true;
+    owner.generation = _storeGeneration;
+    if (!agentId || _initialFetchGeneration === _storeGeneration)
+      return () => {
+        owner.live = false;
+      };
+    _initialFetchGeneration = _storeGeneration;
     resetSessionPagination(agentId);
     setModuleLoading(true);
     void (async () => {
       const requestedAgent = agentId;
+      const requestedGeneration = _storeGeneration;
       try {
-        const { sessions: valid, hasMore: more } = await fetchSessionsPage(
-          requestedAgent,
-          SESSION_PAGE_SIZE,
-        );
-        if (_storeAgentId !== requestedAgent) return;
-        applySessionPage(valid, more, SESSION_PAGE_SIZE, requestedAgent);
+        const {
+          sessions: valid,
+          hasMore: more,
+          read,
+        } = await fetchSessionsPage(requestedAgent, SESSION_PAGE_SIZE);
+        if (_storeAgentId !== requestedAgent || !currentSessionRead(read))
+          return;
+        applySessionPage(valid, more, SESSION_PAGE_SIZE, requestedAgent, read);
       } catch {
         /* ignore */
       } finally {
-        if (_storeAgentId === requestedAgent) {
+        if (
+          _storeAgentId === requestedAgent &&
+          _storeGeneration === requestedGeneration
+        ) {
           setModuleLoading(false);
         }
       }
     })();
-  }, [agentId]);
+    return () => {
+      owner.live = false;
+    };
+  }, [agentId, owner, isCurrentOwner]);
 
   useEffect(() => {
     return onSessionEvent((event) => {
       if (event.kind !== "sessionDeleted") return;
       const { sessionId } = event;
+      forgetDeletedSession(sessionId);
       setModuleSessions((prev) => prev.filter((s) => s.id !== sessionId));
     });
   }, []);
@@ -590,29 +821,52 @@ export function useSessions(
   );
 
   const pinSession = useCallback(
-    (id: string, pinned: boolean) => {
-      setModuleSessions((prev) =>
-        sortSessions(prev.map((s) => (s.id === id ? { ...s, pinned } : s))),
-      );
-      if (agentId) {
-        void octopThreadsApi.patch(agentId, id, { pinned }).catch(() => {});
-      }
+    async (id: string, pinned: boolean): Promise<SessionMutationResult> => {
+      const existing = _sessions.find((s) => s.id === id);
+      if (!existing) return { status: "ignored", reason: "invalid" };
+      return persistSessionMetadata({
+        agentId,
+        id,
+        field: "pinned",
+        value: pinned,
+        previous: Boolean(existing.pinned),
+        isCurrent: () => isCurrentOwner() && _sessions.some((s) => s.id === id),
+        apply: (value) =>
+          setModuleSessions((prev) =>
+            sortSessions(
+              prev.map((s) =>
+                s.id === id ? { ...s, pinned: value as boolean } : s,
+              ),
+            ),
+          ),
+        onError: (error) => showApiError(error, t("common.saveFailed"), t),
+      });
     },
-    [agentId],
+    [agentId, isCurrentOwner, t],
   );
 
   const renameSession = useCallback(
-    (id: string, name: string) => {
+    async (id: string, name: string): Promise<SessionMutationResult> => {
       const next = formatThreadTitle(name) || name.trim();
-      if (!next) return;
-      setModuleSessions((prev) =>
-        prev.map((s) => (s.id === id ? { ...s, name: next } : s)),
-      );
-      if (agentId) {
-        void octopThreadsApi.rename(agentId, id, next).catch(() => {});
-      }
+      const existing = _sessions.find((s) => s.id === id);
+      if (!next || !existing) return { status: "ignored", reason: "invalid" };
+      return persistSessionMetadata({
+        agentId,
+        id,
+        field: "name",
+        value: next,
+        previous: existing.name,
+        isCurrent: () => isCurrentOwner() && _sessions.some((s) => s.id === id),
+        apply: (value) =>
+          setModuleSessions((prev) =>
+            prev.map((s) =>
+              s.id === id ? { ...s, name: value as string } : s,
+            ),
+          ),
+        onError: (error) => showApiError(error, t("common.saveFailed"), t),
+      });
     },
-    [agentId],
+    [agentId, isCurrentOwner, t],
   );
 
   const syncSession = useCallback(

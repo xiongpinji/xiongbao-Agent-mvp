@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { RefObject } from "react";
 import SessionList from "./SessionList";
 import MinimalAgentSessionNav from "./MinimalAgentSessionNav";
-import type { Session } from "../hooks/useSessions";
+import type { Session, SessionMutationResult } from "../hooks/useSessions";
 import type { OctopAgent } from "../../../context/AgentContext";
 import RailEdgeControl from "../../../components/RailEdgeControl";
 import styles from "../index.module.less";
@@ -30,8 +30,8 @@ interface ChatSidebarPanelProps {
   /** Start a fresh chat from an expert row (classic + minimal). */
   onNewChatWithAgent: (agentId: string) => void;
   onDeleteSession: (id: string) => void;
-  onRenameSession: (id: string, name: string) => void;
-  onPinSession: (id: string, pinned: boolean) => void;
+  onRenameSession: (id: string, name: string) => Promise<SessionMutationResult>;
+  onPinSession: (id: string, pinned: boolean) => Promise<SessionMutationResult>;
   onForkSession: (id: string, agentId?: string | null) => void;
   forkDisabled?: boolean;
   forkDisabledHint?: string;

@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { message as antMessage } from "@/utils/antdMessage";
 import { useTranslation } from "react-i18next";
@@ -8,6 +8,10 @@ import { apiErrorMessage } from "../utils/apiError";
 import MinimalAgentSessionNav from "../pages/Chat/components/MinimalAgentSessionNav";
 import { emitSessionEvent } from "../pages/Chat/hooks/chatStore";
 import { formatThreadTitle } from "../pages/Chat/utils/threadTitle";
+import {
+  persistSessionMetadata,
+  type SessionMutationResult,
+} from "../pages/Chat/hooks/useSessions";
 
 function parseChatPath(pathname: string): {
   agentId: string | null;
@@ -34,6 +38,16 @@ export default function MinimalRecordsHost() {
     [location.pathname],
   );
   const resolvedAgentId = pathAgentId ?? activeAgentId;
+  const ownerRef = useRef({ agentId: resolvedAgentId, live: true });
+  if (ownerRef.current.agentId !== resolvedAgentId)
+    ownerRef.current = { agentId: resolvedAgentId, live: true };
+  const owner = ownerRef.current;
+  useEffect(() => {
+    owner.live = true;
+    return () => {
+      owner.live = false;
+    };
+  }, [owner]);
 
   // Match the chat page sidebar: only "enabled" (running) experts show in
   // the records pane. A disabled expert (including one stored in
@@ -86,25 +100,34 @@ export default function MinimalRecordsHost() {
   );
 
   const handleRenameActive = useCallback(
-    (sessionId: string, name: string) => {
-      if (!resolvedAgentId) return;
+    async (sessionId: string, name: string): Promise<SessionMutationResult> => {
       const next = formatThreadTitle(name) || name.trim();
-      if (!next) return;
-      void octopThreadsApi
-        .rename(resolvedAgentId, sessionId, next)
-        .catch(() => {});
+      if (!next) return { status: "ignored", reason: "invalid" };
+      return persistSessionMetadata({
+        agentId: resolvedAgentId,
+        id: sessionId,
+        field: "name",
+        value: next,
+        isCurrent: () => owner.live && ownerRef.current === owner,
+        onError: (error) =>
+          antMessage.error(apiErrorMessage(error, t("common.saveFailed"), t)),
+      });
     },
-    [resolvedAgentId],
+    [resolvedAgentId, owner, t],
   );
 
   const handlePinActive = useCallback(
-    (sessionId: string, pinned: boolean) => {
-      if (!resolvedAgentId) return;
-      void octopThreadsApi
-        .patch(resolvedAgentId, sessionId, { pinned })
-        .catch(() => {});
-    },
-    [resolvedAgentId],
+    (sessionId: string, pinned: boolean): Promise<SessionMutationResult> =>
+      persistSessionMetadata({
+        agentId: resolvedAgentId,
+        id: sessionId,
+        field: "pinned",
+        value: pinned,
+        isCurrent: () => owner.live && ownerRef.current === owner,
+        onError: (error) =>
+          antMessage.error(apiErrorMessage(error, t("common.saveFailed"), t)),
+      }),
+    [resolvedAgentId, owner, t],
   );
 
   const handleFork = useCallback(

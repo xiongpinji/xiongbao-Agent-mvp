@@ -139,7 +139,7 @@ async def test_get_or_load_misses_on_fingerprint_change() -> None:
 
 
 @pytest.mark.asyncio
-async def test_prepare_chat_mcp_injects_custom_from_cache() -> None:
+async def test_prepare_chat_mcp_preloads_custom_cache_without_global_injection() -> None:
     from octop.infra.agents.manager import AgentManager
 
     mgr = object.__new__(AgentManager)
@@ -188,11 +188,10 @@ async def test_prepare_chat_mcp_injects_custom_from_cache() -> None:
     assert failed == []
     assert failed2 == []
     assert aload.await_count == 1
-    assert agent.append_mcp_tools.call_count == 1
+    agent.append_mcp_tools.assert_not_called()
     mgr.reload_connectors.assert_not_awaited()
-    assert agent.config.mcp_server_configs["deepwiki"]["transport"] == "streamable_http"
-    injected = agent.append_mcp_tools.call_args.args[0]
-    assert isinstance(injected[0], StructuredTool)
+    assert agent.config.mcp_server_configs["deepwiki"] == {}
+    assert {key[0] for key in mgr._mcp_tool_cache} == {7}
 
 
 @pytest.mark.asyncio
