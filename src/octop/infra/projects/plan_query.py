@@ -21,6 +21,7 @@ from octop.infra.projects.plan_definition import (
     DateText,
     GanttDefinition,
     GroupBy,
+    LegacyQueryCursor,
     PlanDefinition,
     QueryCursor,
     encode_cursor,
@@ -146,7 +147,7 @@ class ProjectPlanQueryService:
         project_id: str,
         user_id: int,
         request: PlanQueryRequest,
-        cursor: QueryCursor | None,
+        cursor: QueryCursor | LegacyQueryCursor | None,
     ) -> dict[str, Any]:
         repo = self._services.project_plan_query_repo
         hint = repo.bootstrap_in_connection(conn, project_id, user_id, request.view_id)
@@ -189,6 +190,8 @@ class ProjectPlanQueryService:
         )
         if snapshot is None or snapshot.view is None or snapshot.view.archived_at is not None:
             raise OctopError(ErrorCode.NOT_FOUND, "project view not found")
+        if isinstance(cursor, LegacyQueryCursor):
+            raise query_error("query_changed", status=409)
         if (
             snapshot.view.version != request.expected_view_version
             or snapshot.catalog_revision != request.expected_catalog_revision
@@ -285,7 +288,9 @@ class ProjectPlanQueryService:
                 view_type=snapshot.view.view_type,
                 window=window,
                 bucket=request.bucket,
-                anchor=None if cursor is None else (cursor.last_todo_id, cursor.last_version),
+                anchor=None
+                if cursor is None
+                else (cursor.last_todo_id, cursor.last_display_revision),
             )
         except QueryAnchorChanged:
             raise query_error("query_changed", status=409) from None
@@ -299,10 +304,10 @@ class ProjectPlanQueryService:
             last = page.rows[-1]
             next_cursor = encode_cursor(
                 {
-                    "v": 1,
+                    "v": 2,
                     "query_fingerprint": fingerprint,
                     "last_todo_id": last.todo_id,
-                    "last_version": last.version,
+                    "last_display_revision": last.display_revision,
                 },
                 max_version=repo.max_integer,
             )

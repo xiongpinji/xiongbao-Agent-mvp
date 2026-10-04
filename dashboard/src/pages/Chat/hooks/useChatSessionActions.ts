@@ -1,11 +1,12 @@
 import { useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import type { ChatNavigationOwner } from "./useChatNavigation";
 import { octopThreadsApi } from "../../../api/modules/octopThreads";
 import * as chatStore from "./chatStore";
 import { EMPTY_CHAT_SESSION_KEY } from "../constants";
 import { pickPreferredSession, toSession, type Session } from "./useSessions";
 
 interface UseChatSessionActionsParams {
+  navigationOwner: ChatNavigationOwner;
   resolvedAgentId: string | null | undefined;
   activeThreadId: string | null;
   sessions: Session[];
@@ -21,6 +22,7 @@ interface UseChatSessionActionsParams {
 }
 
 export function useChatSessionActions({
+  navigationOwner,
   resolvedAgentId,
   activeThreadId,
   sessions,
@@ -34,15 +36,26 @@ export function useChatSessionActions({
   resetNavForAgentSwitch,
   markInitialNavDone,
 }: UseChatSessionActionsParams) {
-  const navigate = useNavigate();
+  const { begin, current, navigate, release } = navigationOwner;
 
   const handleNewChat = useCallback(() => {
     setSelectedModel(null);
     setHasBrowserTool(false);
     const agent = resolvedAgentId;
     if (!agent) return;
-    navigate(`/chat/${agent}`);
-  }, [navigate, resolvedAgentId, setSelectedModel, setHasBrowserTool]);
+    const token = begin("explicit");
+    markInitialNavDone(agent);
+    navigate(token, `/chat/${agent}`);
+    release(token);
+  }, [
+    navigate,
+    begin,
+    release,
+    markInitialNavDone,
+    resolvedAgentId,
+    setSelectedModel,
+    setHasBrowserTool,
+  ]);
 
   /**
    * New chat with an arbitrary expert. Unlike {@link navigateToAgent} this stays
@@ -51,6 +64,7 @@ export function useChatSessionActions({
   const handleNewChatWithAgent = useCallback(
     (agentId: string) => {
       if (!agentId) return;
+      const token = begin("explicit");
       setSelectedModel(null);
       setHasBrowserTool(false);
       if (agentId !== resolvedAgentId) {
@@ -58,12 +72,15 @@ export function useChatSessionActions({
         setActiveAgent(agentId);
       }
       markInitialNavDone(agentId);
-      navigate(`/chat/${agentId}`);
+      navigate(token, `/chat/${agentId}`);
       chatStore.clearMessages(EMPTY_CHAT_SESSION_KEY);
       if (isMobile) setSidebarOpen(false);
+      release(token);
     },
     [
       navigate,
+      begin,
+      release,
       resolvedAgentId,
       isMobile,
       setActiveAgent,
@@ -79,15 +96,19 @@ export function useChatSessionActions({
     (id: string) => {
       const agent = resolvedAgentId;
       if (!agent) return;
+      const token = begin("explicit");
       if (id === activeThreadId) return;
       setSelectedModel(null);
       void octopThreadsApi.rebind(agent, id).catch(() => {});
-      navigate(`/chat/${agent}/${id}`);
+      navigate(token, `/chat/${agent}/${id}`);
       if (isMobile) setSidebarOpen(false);
+      release(token);
     },
     [
       activeThreadId,
       navigate,
+      begin,
+      release,
       isMobile,
       resolvedAgentId,
       setSidebarOpen,
@@ -98,8 +119,9 @@ export function useChatSessionActions({
   const navigateToAgent = useCallback(
     (agentId: string) => {
       if (!agentId) return;
+      const token = begin("preferred");
       resetNavForAgentSwitch();
-      navigate(`/chat/${agentId}`, { replace: true });
+      navigate(token, `/chat/${agentId}`, { replace: true });
       setActiveAgent(agentId);
       // We land on the new-chat view, so only that session is stale here.
       // Clearing the thread we are leaving would drop an in-flight turn.
@@ -109,22 +131,30 @@ export function useChatSessionActions({
       void (async () => {
         try {
           const rows = await octopThreadsApi.list(agentId);
+          if (!current(token)) return;
           const preferred = pickPreferredSession(rows.map(toSession));
           if (preferred) {
             markInitialNavDone(agentId);
             void octopThreadsApi.rebind(agentId, preferred.id).catch(() => {});
-            navigate(`/chat/${agentId}/${preferred.id}`, { replace: true });
+            navigate(token, `/chat/${agentId}/${preferred.id}`, {
+              replace: true,
+            });
           } else {
             markInitialNavDone(agentId);
           }
         } catch {
           /* initialNav effect picks thread once sessions load */
+        } finally {
+          release(token);
         }
       })();
     },
     [
       setActiveAgent,
       navigate,
+      begin,
+      current,
+      release,
       isMobile,
       setSidebarOpen,
       resetNavForAgentSwitch,
@@ -134,25 +164,33 @@ export function useChatSessionActions({
 
   const handleDeleteSession = useCallback(
     async (id: string) => {
+      const token = begin("explicit");
       const deleted = await deleteSession(id);
-      if (!deleted) return;
+      if (!deleted || !current(token)) {
+        release(token);
+        return;
+      }
       const agent = resolvedAgentId;
       if (id === activeThreadId && agent) {
         const remaining = sessions.filter((s) => s.id !== id);
         const preferred = pickPreferredSession(remaining);
         if (preferred) {
-          navigate(`/chat/${agent}/${preferred.id}`, { replace: true });
+          navigate(token, `/chat/${agent}/${preferred.id}`, { replace: true });
         } else {
-          navigate(`/chat/${agent}`, { replace: true });
+          navigate(token, `/chat/${agent}`, { replace: true });
           clearMessages();
         }
       }
+      release(token);
     },
     [
       activeThreadId,
       sessions,
       deleteSession,
       navigate,
+      begin,
+      current,
+      release,
       clearMessages,
       resolvedAgentId,
     ],

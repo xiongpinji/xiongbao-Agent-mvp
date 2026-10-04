@@ -97,6 +97,20 @@ def _seed_archive_rows(pool: DatabasePool, layout: PathLayout) -> tuple[str, str
                     *((normalize_project_plan_key("原待办"),) if current_keys else ()),
                 ),
             )
+        if conn.execute("SELECT version FROM _schema_version").fetchone()[0] >= 37:
+            conn.execute(
+                "INSERT INTO project_todo_display_state(project_id,todo_id,revision,updated_at) "
+                "SELECT project_id,todo_id,1,updated_at FROM project_todos"
+            )
+            conn.execute(
+                "INSERT INTO project_todo_attachment_state(project_id,todo_id,revision,updated_at) "
+                "SELECT project_id,todo_id,1,updated_at FROM project_todos"
+            )
+            conn.execute(
+                "INSERT INTO project_todo_attachment_usage(project_id,used_bytes,updated_at) "
+                "VALUES (?,0,11)",
+                (project_id,),
+            )
         if current_keys:
             seed_todo_catalog(conn, project_id, 11)
             seed_todo_views(conn, project_id, 11)

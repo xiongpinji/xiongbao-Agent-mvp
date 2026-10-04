@@ -58,9 +58,12 @@ class ProjectTodoRow:
     priority_id: str | None
     tag_ids: list[str]
     catalog_revision: int
+    display_revision: int
 
     @classmethod
-    def from_row(cls, row: DbRow, *, tag_ids: list[str], catalog_revision: int) -> ProjectTodoRow:
+    def from_row(
+        cls, row: DbRow, *, tag_ids: list[str], catalog_revision: int, display_revision: int
+    ) -> ProjectTodoRow:
         return cls(
             todo_id=str(row["todo_id"]),
             project_id=str(row["project_id"]),
@@ -81,6 +84,7 @@ class ProjectTodoRow:
             priority_id=None if row["priority_id"] is None else str(row["priority_id"]),
             tag_ids=tag_ids,
             catalog_revision=catalog_revision,
+            display_revision=locks.checked_display_revision(display_revision),
         )
 
 
@@ -174,15 +178,19 @@ class ProjectTodoRepo:
         ).fetchone()
         return self._row_with_refs(conn, row, catalog_revision) if row is not None else None
 
-    @staticmethod
-    def _row_with_refs(conn: Any, row: DbRow, revision: int) -> ProjectTodoRow:
+    def _row_with_refs(self, conn: Any, row: DbRow, revision: int) -> ProjectTodoRow:
         tags = conn.execute(
             "SELECT tag_id FROM project_todo_tag_links WHERE project_id = ? AND todo_id = ? "
             "ORDER BY tag_id",
             (row["project_id"], row["todo_id"]),
         ).fetchall()
         return ProjectTodoRow.from_row(
-            row, tag_ids=[str(tag["tag_id"]) for tag in tags], catalog_revision=revision
+            row,
+            tag_ids=[str(tag["tag_id"]) for tag in tags],
+            catalog_revision=revision,
+            display_revision=locks.display_revision(
+                self._db, conn, str(row["project_id"]), str(row["todo_id"]), write=False
+            ),
         )
 
     def _read_revision(self, conn: Any, project_id: str, user_id: int | None) -> int | None:
@@ -348,6 +356,13 @@ class ProjectTodoRepo:
             + "ORDER BY updated_at DESC, todo_id DESC "
             + "LIMIT ? OFFSET ?"
         )
+        sql = (
+            "SELECT page.*, display.revision AS display_revision FROM ("
+            + sql
+            + ") AS page LEFT JOIN project_todo_display_state AS display "
+            "ON display.project_id=page.project_id AND display.todo_id=page.todo_id "
+            "ORDER BY page.updated_at DESC,page.todo_id DESC"
+        )
         with self._db.transaction() as conn:
             revision = self._read_revision(conn, project_id, user_id)
             if revision is None:
@@ -366,7 +381,10 @@ class ProjectTodoRepo:
                 tag_ids_by_todo[str(link["todo_id"])].append(str(link["tag_id"]))
             return [
                 ProjectTodoRow.from_row(
-                    row, tag_ids=tag_ids_by_todo[str(row["todo_id"])], catalog_revision=revision
+                    row,
+                    tag_ids=tag_ids_by_todo[str(row["todo_id"])],
+                    catalog_revision=revision,
+                    display_revision=locks.checked_display_revision(row["display_revision"]),
                 )
                 for row in rows
             ]
@@ -443,6 +461,13 @@ class ProjectTodoRepo:
                         normalize_project_plan_key(title),
                     ),
                 )
+                for state in ("project_todo_display_state", "project_todo_attachment_state"):
+                    conn.execute(
+                        "INSERT INTO "
+                        + state
+                        + "(project_id,todo_id,revision,updated_at) VALUES (?,?,1,?)",
+                        (project_id, todo_id, stamp),
+                    )
                 self._replace_tags(conn, project_id, todo_id, requested_tags)
                 payload = json.dumps(
                     {
@@ -575,6 +600,7 @@ class ProjectTodoRepo:
                 )
                 if getattr(updated, "rowcount", 1) != 1:
                     raise _TodoConflict(self._diagnose(conn, project_id, todo_id))
+                locks.bump_display(conn, project_id, todo_id, stamp)
                 if tags_changed:
                     self._replace_tags(conn, project_id, todo_id, requested_tags)
                 payload = json.dumps(
@@ -645,6 +671,7 @@ class ProjectTodoRepo:
                 )
                 if getattr(deleted, "rowcount", 1) != 1:
                     raise _TodoConflict(self._diagnose(conn, project_id, todo_id))
+                locks.bump_display(conn, project_id, todo_id, stamp)
                 payload = json.dumps(
                     {
                         "fields": ["deleted_at"],
@@ -752,6 +779,7 @@ class ProjectTodoRepo:
                         raise _TodoConflict(
                             self._diagnose(conn, project_id, item_todo_id), item_todo_id
                         )
+                    locks.bump_display(conn, project_id, item_todo_id, stamp)
                     payload = json.dumps(
                         {
                             "fields": event_fields,

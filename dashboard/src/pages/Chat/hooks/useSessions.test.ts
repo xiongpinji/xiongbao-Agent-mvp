@@ -6,12 +6,15 @@ import {
   toSession,
   useSessions,
   syncSessionArtifacts,
+  syncSessionConversationMode,
+  syncSessionHitlPolicy,
   type Session,
 } from "./useSessions";
 import { emitSessionEvent } from "./chatStore";
 import { createInstance, type TFunction } from "i18next";
 
 const listMock = vi.fn();
+const metadataMock = vi.fn();
 const { createMock, patchMock, renameMock, errorMock, translationState } =
   vi.hoisted(() => ({
     createMock: vi.fn(),
@@ -30,6 +33,7 @@ vi.mock("../../../utils/antdMessage", () => ({
 vi.mock("../../../api/modules/octopThreads", () => ({
   octopThreadsApi: {
     list: (...args: unknown[]) => listMock(...args),
+    metadata: (...args: unknown[]) => metadataMock(...args),
     create: (...args: unknown[]) => createMock(...args),
     delete: vi.fn(),
     patch: (...args: unknown[]) => patchMock(...args),
@@ -103,11 +107,515 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+describe("classic server title search", () => {
+  beforeEach(() => {
+    resetSessionStoreForTests();
+    listMock
+      .mockReset()
+      .mockImplementation(async (_agent, limit, q) =>
+        q
+          ? [threadRow("thread-56", { title: "Straße" })]
+          : Array.from({ length: 21 }, (_, i) =>
+              threadRow(`normal-${i}`),
+            ).slice(0, limit),
+      );
+    metadataMock.mockReset();
+    renameMock.mockReset();
+    patchMock.mockReset();
+    errorMock.mockReset();
+  });
+  afterEach(() => resetSessionStoreForTests());
+
+  it("searches beyond the normal prefix without replacing its window", async () => {
+    const { result } = renderHook(() =>
+      useSessions("a", { searchEnabled: true }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const ids = result.current.sessions.map((s) => s.id);
+    act(() => result.current.setSearchQuery("STRASSE"));
+    await waitFor(() =>
+      expect(result.current.search.sessions[0]?.id).toBe("thread-56"),
+    );
+    expect(listMock).toHaveBeenLastCalledWith("a", 11, "STRASSE");
+    expect(result.current.sessions.map((s) => s.id)).toEqual(ids);
+    act(() => result.current.setSearchQuery(""));
+    expect(result.current.sessions.map((s) => s.id)).toEqual(ids);
+    expect(result.current.search.sessions).toEqual([]);
+  });
+
+  it("reads missing-window metadata once and keeps its selected anchor through refresh", async () => {
+    metadataMock.mockResolvedValue(threadRow("thread-56", { title: "Beyond" }));
+    const { result } = renderHook(() => useSessions("a"));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await act(async () => {
+      expect(await result.current.ensureThreadInList("thread-56")).toBe(
+        "found",
+      );
+      await result.current.fetchSessions("thread-56");
+    });
+    expect(metadataMock).toHaveBeenCalledExactlyOnceWith("a", "thread-56");
+    expect(result.current.sessions).toHaveLength(10);
+    expect(result.current.sessions.some((s) => s.id === "thread-56")).toBe(
+      true,
+    );
+    expect(result.current.hasMore).toBe(true);
+  });
+
+  it("keeps the current selected anchor when an older normal refresh requested another active row", async () => {
+    metadataMock.mockResolvedValue(
+      threadRow("thread-56", { title: "Selected beyond" }),
+    );
+    const { result, rerender } = renderHook(
+      ({ selected }) =>
+        useSessions("a", {
+          searchEnabled: true,
+          selectedThreadId: selected,
+        }),
+      { initialProps: { selected: "normal-0" } },
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const oldRefresh = deferred<ReturnType<typeof threadRow>[]>();
+    listMock.mockReturnValueOnce(oldRefresh.promise);
+    let pending: unknown;
+    act(() => {
+      pending = result.current.fetchSessions("normal-0");
+    });
+    rerender({ selected: "thread-56" });
+    await act(async () => {
+      expect(await result.current.ensureThreadInList("thread-56")).toBe(
+        "found",
+      );
+    });
+    await act(async () => {
+      oldRefresh.resolve(
+        Array.from({ length: 11 }, (_, i) => threadRow(`normal-${i}`)),
+      );
+      await pending;
+    });
+    act(() => result.current.setSearchQuery(""));
+    expect(result.current.sessions).toHaveLength(10);
+    expect(
+      result.current.sessions.find((row) => row.id === "thread-56")?.name,
+    ).toBe("Selected beyond");
+    expect(result.current.hasMore).toBe(true);
+  });
+
+  it("retains current history metadata in the selected anchor through finite normal refresh", async () => {
+    metadataMock.mockResolvedValue({
+      ...threadRow("thread-56"),
+      artifacts: ["old.txt"],
+    });
+    const { result } = renderHook(() =>
+      useSessions("a", { selectedThreadId: "thread-56" }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await act(async () => {
+      await result.current.ensureThreadInList("thread-56");
+    });
+    act(() => {
+      syncSessionArtifacts("thread-56", ["new.txt"]);
+      syncSessionConversationMode("thread-56", "plan", "plan.md");
+      syncSessionHitlPolicy("thread-56", { mode: "allow_all" });
+    });
+    await act(async () => {
+      await result.current.fetchSessions();
+    });
+    expect(
+      result.current.sessions.find((row) => row.id === "thread-56"),
+    ).toMatchObject({
+      artifacts: ["new.txt"],
+      conversationMode: "plan",
+      pendingPlanPath: "plan.md",
+      hitlPolicy: { mode: "allow_all" },
+    });
+    expect(result.current.sessions).toHaveLength(10);
+    expect(result.current.hasMore).toBe(true);
+  });
+
+  it("distinguishes a failed first read and retries the same prefix", async () => {
+    listMock.mockImplementation(async (_agent, _limit, q) => {
+      if (q) throw new Error("offline");
+      return [];
+    });
+    const { result } = renderHook(() =>
+      useSessions("a", { searchEnabled: true }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => result.current.setSearchQuery("q"));
+    await waitFor(() =>
+      expect(result.current.search.error).toBeInstanceOf(Error),
+    );
+    expect(result.current.search.sessions).toEqual([]);
+    listMock.mockResolvedValue([]);
+    await act(async () => result.current.retrySearch());
+    expect(listMock).toHaveBeenLastCalledWith("a", 11, "q");
+    expect(result.current.search.error).toBeNull();
+  });
+
+  it("retains successful rows and retries a failed expansion without incrementing twice", async () => {
+    const rows = Array.from({ length: 21 }, (_, i) =>
+      threadRow(`matched-${i}`),
+    );
+    listMock.mockImplementation(async (_agent, limit, q) =>
+      q ? rows.slice(0, limit) : [],
+    );
+    const { result } = renderHook(() =>
+      useSessions("a", { searchEnabled: true }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => result.current.setSearchQuery("q"));
+    await waitFor(() =>
+      expect(result.current.search.sessions).toHaveLength(10),
+    );
+    const expansion = deferred<typeof rows>();
+    listMock.mockReturnValueOnce(expansion.promise);
+    act(() => {
+      result.current.loadMoreSearch();
+      result.current.loadMoreSearch();
+    });
+    await act(async () => expansion.reject(new Error("more offline")));
+    expect(result.current.search.sessions).toHaveLength(10);
+    expect(result.current.search.hasMore).toBe(true);
+    await act(async () => result.current.retrySearch());
+    expect(listMock).toHaveBeenLastCalledWith("a", 21, "q");
+    expect(result.current.search.sessions).toHaveLength(20);
+    await act(async () => result.current.loadMoreSearch());
+    expect(result.current.search.sessions).toHaveLength(21);
+    expect(result.current.search.hasMore).toBe(false);
+  });
+
+  it("does not accept old A responses or their finally across query A B A", async () => {
+    const first = deferred<ReturnType<typeof threadRow>[]>();
+    const third = deferred<ReturnType<typeof threadRow>[]>();
+    const { result } = renderHook(() =>
+      useSessions("a", { searchEnabled: true }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    listMock.mockReturnValueOnce(first.promise);
+    act(() => result.current.setSearchQuery("A"));
+    act(() => result.current.setSearchQuery("B"));
+    listMock.mockReturnValueOnce(third.promise);
+    act(() => result.current.setSearchQuery("A"));
+    await act(async () => first.reject(new Error("obsolete")));
+    expect(result.current.search.loading).toBe(true);
+    expect(result.current.search.error).toBeNull();
+    await act(async () => third.resolve([threadRow("latest")]));
+    expect(result.current.search.sessions[0].id).toBe("latest");
+  });
+
+  it("protects canonical search-only fields after eviction from an older normal read", async () => {
+    const { result } = renderHook(() =>
+      useSessions("a", { searchEnabled: true }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => result.current.setSearchQuery("STRASSE"));
+    await waitFor(() =>
+      expect(result.current.search.sessions[0]?.id).toBe("thread-56"),
+    );
+    const normal = deferred<ReturnType<typeof threadRow>[]>();
+    listMock.mockReturnValueOnce(normal.promise);
+    let pending: unknown;
+    act(() => {
+      pending = result.current.fetchSessions();
+    });
+    renameMock.mockResolvedValue({
+      thread_id: "thread-56",
+      title: "Canonical",
+    });
+    await act(async () => result.current.renameSession("thread-56", "Client"));
+    act(() => result.current.setSearchQuery(""));
+    await act(async () => {
+      normal.resolve([threadRow("thread-56", { title: "Old" })]);
+      await pending;
+    });
+    expect(result.current.sessions[0].name).toBe("Canonical");
+    listMock.mockResolvedValue([
+      threadRow("thread-56", { title: "External newer" }),
+    ]);
+    await act(async () => result.current.fetchSessions());
+    expect(result.current.sessions[0].name).toBe("External newer");
+  });
+
+  it("keeps the real field lane after query clear and protects a pending metadata read", async () => {
+    const { result } = renderHook(() =>
+      useSessions("a", { searchEnabled: true }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => result.current.setSearchQuery("q"));
+    await waitFor(() => expect(result.current.search.sessions).toHaveLength(1));
+    const read = deferred<ReturnType<typeof threadRow>>();
+    metadataMock.mockReturnValue(read.promise);
+    let probe: unknown;
+    act(() => {
+      probe = result.current.ensureThreadInList("thread-56");
+    });
+    const save = deferred<{ thread_id: string; title: string }>();
+    renameMock.mockReturnValue(save.promise);
+    let pending: unknown;
+    act(() => {
+      pending = result.current.renameSession("thread-56", "Client");
+    });
+    act(() => result.current.setSearchQuery(""));
+    await act(async () => {
+      save.resolve({ thread_id: "thread-56", title: "Server canonical" });
+      await pending;
+      read.resolve(threadRow("thread-56", { title: "Old" }));
+      await probe;
+    });
+    expect(
+      result.current.sessions.find((s) => s.id === "thread-56")?.name,
+    ).toBe("Server canonical");
+    expect(renameMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("invalidates in-flight expansion on save and uses that same requested prefix", async () => {
+    const rows = Array.from({ length: 21 }, (_, i) =>
+      threadRow(i === 0 ? "thread-56" : `s-${i}`, { title: "Old" }),
+    );
+    listMock.mockImplementation(async (_agent, limit, q) =>
+      q ? rows.slice(0, limit) : [],
+    );
+    const { result } = renderHook(() =>
+      useSessions("a", { searchEnabled: true }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => result.current.setSearchQuery("q"));
+    await waitFor(() =>
+      expect(result.current.search.sessions).toHaveLength(10),
+    );
+    const oldMore = deferred<typeof rows>();
+    listMock.mockReturnValueOnce(oldMore.promise);
+    act(() => result.current.loadMoreSearch());
+    renameMock.mockResolvedValue({ thread_id: "thread-56", title: "Gone" });
+    const newRead = deferred<typeof rows>();
+    listMock.mockReturnValueOnce(newRead.promise);
+    await act(async () => result.current.renameSession("thread-56", "Gone"));
+    expect(listMock).toHaveBeenLastCalledWith("a", 21, "q");
+    await act(async () => oldMore.resolve(rows));
+    expect(result.current.search.loading).toBe(true);
+    await act(async () => newRead.resolve([]));
+    expect(result.current.search.sessions).toEqual([]);
+    expect(result.current.search.loading).toBe(false);
+  });
+
+  it("requires a newer read after a second save and preserves successful fields on refresh failure", async () => {
+    const { result } = renderHook(() =>
+      useSessions("a", { searchEnabled: true }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => result.current.setSearchQuery("q"));
+    await waitFor(() => expect(result.current.search.sessions).toHaveLength(1));
+    renameMock.mockResolvedValue({ thread_id: "thread-56", title: "Saved" });
+    patchMock.mockResolvedValue({ thread_id: "thread-56", pinned: true });
+    const beforeSecond = deferred<ReturnType<typeof threadRow>[]>();
+    const afterSecond = deferred<ReturnType<typeof threadRow>[]>();
+    listMock
+      .mockReturnValueOnce(beforeSecond.promise)
+      .mockReturnValueOnce(afterSecond.promise);
+    await act(async () => result.current.renameSession("thread-56", "Saved"));
+    await act(async () => result.current.pinSession("thread-56", true));
+    await act(async () => beforeSecond.resolve([]));
+    expect(result.current.search.loading).toBe(true);
+    await act(async () => afterSecond.reject(new Error("refresh unavailable")));
+    expect(result.current.search.sessions[0]).toMatchObject({
+      name: "Saved",
+      pinned: true,
+    });
+    expect(result.current.search.error).toBeInstanceOf(Error);
+    expect(errorMock).not.toHaveBeenCalled();
+  });
+
+  it("coalesces same-tick saves into one new authoritative search read", async () => {
+    const { result } = renderHook(() =>
+      useSessions("a", { searchEnabled: true }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => result.current.setSearchQuery("q"));
+    await waitFor(() => expect(result.current.search.sessions).toHaveLength(1));
+    renameMock.mockResolvedValue({ thread_id: "thread-56", title: "Saved" });
+    patchMock.mockResolvedValue({ thread_id: "thread-56", pinned: true });
+    listMock.mockResolvedValue([
+      { ...threadRow("thread-56", { title: "Saved" }), pinned: true },
+    ]);
+    const before = listMock.mock.calls.length;
+    await act(async () => {
+      await Promise.all([
+        result.current.renameSession("thread-56", "Saved"),
+        result.current.pinSession("thread-56", true),
+      ]);
+    });
+    expect(listMock.mock.calls.length - before).toBe(1);
+    expect(result.current.search.sessions[0]).toMatchObject({
+      name: "Saved",
+      pinned: true,
+    });
+  });
+
+  it("keeps a same-field lane busy after eviction until the real save settles", async () => {
+    const { result } = renderHook(() =>
+      useSessions("a", { searchEnabled: true }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => result.current.setSearchQuery("q"));
+    await waitFor(() => expect(result.current.search.sessions).toHaveLength(1));
+    const response = deferred<{ thread_id: string; title: string }>();
+    renameMock.mockReturnValue(response.promise);
+    let pending: unknown;
+    act(() => {
+      pending = result.current.renameSession("thread-56", "First");
+    });
+    act(() => result.current.setSearchQuery(""));
+    act(() => result.current.setSearchQuery("again"));
+    await waitFor(() => expect(result.current.search.sessions).toHaveLength(1));
+    await act(async () =>
+      expect(await result.current.renameSession("thread-56", "Second")).toEqual(
+        { status: "ignored", reason: "busy" },
+      ),
+    );
+    await act(async () => {
+      response.resolve({ thread_id: "thread-56", title: "Canonical" });
+      await pending;
+    });
+    expect(renameMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("cleans query and anchor across expert ABA and ignores an old read's error/finally", async () => {
+    const oldRead = deferred<ReturnType<typeof threadRow>[]>();
+    const { result, rerender } = renderHook(
+      ({ agent }) => useSessions(agent, { searchEnabled: true }),
+      { initialProps: { agent: "a" } },
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    listMock.mockReturnValueOnce(oldRead.promise);
+    act(() => result.current.setSearchQuery("old"));
+    rerender({ agent: "b" });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    rerender({ agent: "a" });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => result.current.setSearchQuery("new"));
+    await waitFor(() => expect(result.current.search.sessions).toHaveLength(1));
+    await act(async () => oldRead.reject(new Error("old failure")));
+    expect(result.current.search.query).toBe("new");
+    expect(result.current.search.error).toBeNull();
+    expect(result.current.search.loading).toBe(false);
+  });
+
+  it("retains an old lifetime's busy lane without freezing fresh lifetime server fields", async () => {
+    listMock.mockResolvedValue([threadRow("row", { title: "Original" })]);
+    const { result, rerender } = renderHook(({ agent }) => useSessions(agent), {
+      initialProps: { agent: "a" },
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const save = deferred<{ thread_id: string; title: string }>();
+    renameMock.mockReturnValue(save.promise);
+    let pending: unknown;
+    act(() => {
+      pending = result.current.renameSession("row", "Old optimistic");
+    });
+    rerender({ agent: "b" });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    rerender({ agent: "a" });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    listMock.mockResolvedValue([
+      threadRow("row", { title: "New lifetime external" }),
+    ]);
+    await act(async () => {
+      await result.current.fetchSessions();
+    });
+    expect(result.current.sessions[0].name).toBe("New lifetime external");
+    await act(async () => {
+      expect(await result.current.renameSession("row", "Other")).toEqual({
+        status: "ignored",
+        reason: "busy",
+      });
+      save.resolve({ thread_id: "row", title: "Old canonical" });
+      await pending;
+    });
+    expect(result.current.sessions[0].name).toBe("New lifetime external");
+  });
+
+  it("does not reconstruct an anchor after a newer selection or deletion", async () => {
+    const metadata = deferred<ReturnType<typeof threadRow>>();
+    metadataMock.mockReturnValue(metadata.promise);
+    const { result, rerender } = renderHook(
+      ({ selected }) => useSessions("a", { selectedThreadId: selected }),
+      { initialProps: { selected: "thread-56" } },
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    let pending: unknown;
+    act(() => {
+      pending = result.current.ensureThreadInList("thread-56");
+    });
+    rerender({ selected: "normal-0" });
+    await act(async () => {
+      metadata.resolve(threadRow("thread-56"));
+      await pending;
+    });
+    expect(await pending).toBe("unknown");
+    expect(result.current.sessions.some((s) => s.id === "thread-56")).toBe(
+      false,
+    );
+  });
+
+  it("does not treat a mismatched metadata DTO as found", async () => {
+    metadataMock.mockResolvedValue(threadRow("another-id"));
+    const { result } = renderHook(() => useSessions("a"));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await act(async () =>
+      expect(await result.current.ensureThreadInList("target")).toBe("unknown"),
+    );
+    expect(result.current.sessions.some((s) => s.id === "target")).toBe(false);
+  });
+
+  it("does not revive a thread confirmed missing by metadata from an older normal read", async () => {
+    metadataMock.mockRejectedValue(new Error("Request failed: 404 Not Found"));
+    const { result } = renderHook(() =>
+      useSessions("a", { selectedThreadId: "thread-56" }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const old = deferred<ReturnType<typeof threadRow>[]>();
+    listMock.mockReturnValueOnce(old.promise);
+    let pending: unknown;
+    act(() => {
+      pending = result.current.fetchSessions();
+    });
+    await act(async () => {
+      expect(await result.current.ensureThreadInList("thread-56")).toBe(
+        "missing",
+      );
+    });
+    await act(async () => {
+      old.resolve([threadRow("thread-56")]);
+      await pending;
+    });
+    expect(result.current.sessions).toEqual([]);
+  });
+
+  it.each(["403", "401", "500"])(
+    "keeps a %s metadata failure unknown",
+    async (status) => {
+      metadataMock.mockRejectedValue(
+        new Error(`Request failed: ${status} rejected`),
+      );
+      const { result } = renderHook(() => useSessions("a"));
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      await act(async () =>
+        expect(await result.current.ensureThreadInList("missing")).toBe(
+          "unknown",
+        ),
+      );
+    },
+  );
+});
+
 describe("session metadata persistence", () => {
   beforeEach(() => {
     resetSessionStoreForTests();
     translationState.t = undefined;
     listMock.mockReset();
+    metadataMock
+      .mockReset()
+      .mockRejectedValue(new Error("Request failed: 404 Not Found"));
     patchMock.mockReset();
     renameMock.mockReset();
     errorMock.mockReset();
@@ -342,7 +850,13 @@ describe("session metadata persistence", () => {
       }));
       listMock.mockResolvedValueOnce(rows.slice(0, 11));
       const read = deferred<typeof rows>();
-      listMock.mockReturnValueOnce(read.promise);
+      if (operation === "ensureThreadInList")
+        metadataMock.mockReturnValueOnce(
+          read.promise.then((result) =>
+            result.find((row) => row.thread_id === "thread-15"),
+          ),
+        );
+      else listMock.mockReturnValueOnce(read.promise);
       renameMock.mockResolvedValue({ thread_id: "old", title: "New" });
       const { result } = await ready();
       let pending: unknown;
@@ -646,6 +1160,7 @@ describe("useSessions agent switch", () => {
     resetSessionStoreForTests();
     listMock.mockReset();
     createMock.mockReset();
+    metadataMock.mockReset();
   });
 
   afterEach(() => {
@@ -685,6 +1200,7 @@ describe("useSessions agent switch", () => {
     listMock
       .mockResolvedValueOnce([]) // initial fetch for agent
       .mockRejectedValueOnce(new Error("network down")); // probe
+    metadataMock.mockRejectedValue(new Error("network down"));
 
     const { result } = renderHook(() => useSessions("agent-new"));
 
@@ -701,6 +1217,7 @@ describe("useSessions agent switch", () => {
 
   it("ensureThreadInList returns missing when probe confirms absence", async () => {
     listMock.mockResolvedValue([]);
+    metadataMock.mockRejectedValue(new Error("Request failed: 404 Not Found"));
 
     const { result } = renderHook(() => useSessions("agent-new"));
 

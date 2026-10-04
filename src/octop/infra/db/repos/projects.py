@@ -387,6 +387,10 @@ class ProjectRepo:
                 "VALUES (?, ?, 'owner', ?)",
                 (project_id, creator_user_id, ts),
             )
+            conn.execute(
+                "INSERT INTO project_todo_attachment_usage(project_id,used_bytes,updated_at) VALUES (?,0,?)",
+                (project_id, ts),
+            )
             seed_todo_catalog(conn, project_id, ts)
             seed_todo_views(conn, project_id, ts)
             conn.execute(
@@ -1115,6 +1119,7 @@ class ProjectRepo:
                     "version = version + 1, updated_at = ? WHERE project_id = ? AND todo_id = ?",
                     (ts, project_id, str(todo["todo_id"])),
                 )
+                project_plan_locks.bump_display(conn, project_id, str(todo["todo_id"]), ts)
                 todo_payload = json.dumps(
                     {
                         "fields": ["assignee_user_id"],

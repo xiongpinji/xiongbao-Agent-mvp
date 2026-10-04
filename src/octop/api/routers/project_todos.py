@@ -31,6 +31,7 @@ from octop.infra.projects.todo_comments import (
 )
 from octop.infra.projects.todos import (
     BULK_MAX_ITEMS,
+    DISPLAY_REVISION_MAX,
     ProjectTodoService,
     TodoView,
     validate_todo_description,
@@ -71,6 +72,7 @@ def _todo_payload(view: TodoView) -> dict[str, Any]:
         "creator_user_id": view.creator_user_id,
         "assignee_user_id": view.assignee_user_id,
         "version": view.version,
+        "display_revision": view.display_revision,
         "created_at": view.created_at,
         "updated_at": view.updated_at,
         "start_date": view.start_date,
@@ -201,6 +203,7 @@ class TodoResponse(BaseModel):
     creator_user_id: int
     assignee_user_id: int | None
     version: int
+    display_revision: Annotated[int, Field(strict=True, ge=1, le=DISPLAY_REVISION_MAX)]
     created_at: int
     updated_at: int
     start_date: str | None

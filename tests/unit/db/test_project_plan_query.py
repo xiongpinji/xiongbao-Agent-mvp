@@ -480,7 +480,7 @@ def test_full_expanding_title_keys_seek_without_putting_keys_into_cursor(query_c
         if cursor is None:
             break
         decoded = json.loads(base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)))
-        assert set(decoded) == {"v", "query_fingerprint", "last_todo_id", "last_version"}
+        assert set(decoded) == {"v", "query_fingerprint", "last_todo_id", "last_display_revision"}
         assert len(cursor) <= 2048 and not cursor.endswith("=")
     assert ids == [query_case["rows"][name].todo_id for name in ordered_names]
 
@@ -526,6 +526,10 @@ def test_current_anchor_must_still_match_every_query_scope(query_case, change):
                 "bucket": "start_date=NULL,due_date=NULL",
             }[change]
             conn.execute("UPDATE project_todos SET " + assignment + " WHERE todo_id=?", (anchor,))
+            conn.execute(
+                "UPDATE project_todo_display_state SET revision=revision+1 WHERE todo_id=?",
+                (anchor,),
+            )
     with pytest.raises(OctopError) as caught:
         query(query_case, cursor=first["next_cursor"], **kwargs)
     assert caught.value.status == 409 and caught.value.details == {"reason": "query_changed"}
@@ -634,6 +638,7 @@ def test_page_materializes_full_c1_dto_and_tags_once_without_any_persistent_chan
             "priority_id",
             "tag_ids",
             "catalog_revision",
+            "display_revision",
         }
         assert item["tag_ids"] == sorted(item["tag_ids"])
         assert item["catalog_revision"] == query_case["revision"]

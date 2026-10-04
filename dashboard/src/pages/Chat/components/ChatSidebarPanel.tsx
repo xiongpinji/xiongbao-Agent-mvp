@@ -3,7 +3,11 @@ import { useTranslation } from "react-i18next";
 import type { RefObject } from "react";
 import SessionList from "./SessionList";
 import MinimalAgentSessionNav from "./MinimalAgentSessionNav";
-import type { Session, SessionMutationResult } from "../hooks/useSessions";
+import type {
+  Session,
+  SessionMutationResult,
+  SessionSearch,
+} from "../hooks/useSessions";
 import type { OctopAgent } from "../../../context/AgentContext";
 import RailEdgeControl from "../../../components/RailEdgeControl";
 import styles from "../index.module.less";
@@ -24,7 +28,10 @@ interface ChatSidebarPanelProps {
   sessionsHasMore: boolean;
   sessionsLoadingMore: boolean;
   onLoadMoreSessions: () => void;
-  onFetchAllSessions: () => void;
+  search: SessionSearch;
+  onSearchChange: (query: string) => void;
+  onLoadMoreSearch: () => void;
+  onRetrySearch: () => void;
   onSelectSession: (sessionId: string, agentId: string) => void;
   onAgentSelect: (agentId: string) => void;
   /** Start a fresh chat from an expert row (classic + minimal). */
@@ -59,7 +66,10 @@ export default function ChatSidebarPanel({
   sessionsHasMore,
   sessionsLoadingMore,
   onLoadMoreSessions,
-  onFetchAllSessions,
+  search,
+  onSearchChange,
+  onLoadMoreSearch,
+  onRetrySearch,
   onSelectSession,
   onAgentSelect,
   onNewChatWithAgent,
@@ -111,7 +121,10 @@ export default function ChatSidebarPanel({
       hasMore={sessionsHasMore}
       loadingMore={sessionsLoadingMore}
       onLoadMore={onLoadMoreSessions}
-      onFetchAllSessions={onFetchAllSessions}
+      search={search}
+      onSearchChange={onSearchChange}
+      onLoadMoreSearch={onLoadMoreSearch}
+      onRetrySearch={onRetrySearch}
       onSelect={onSelectSession}
       onAgentSelect={onAgentSelect}
       onNewChat={onNewChatWithAgent}

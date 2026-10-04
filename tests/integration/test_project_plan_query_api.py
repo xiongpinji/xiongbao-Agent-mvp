@@ -102,9 +102,9 @@ def _ids(body: dict[str, Any]) -> set[str]:
 def _cursor(value: str) -> dict[str, Any]:
     assert len(value.encode("utf-8")) <= 2048 and "=" not in value
     result = json.loads(base64.urlsafe_b64decode(value + "=" * (-len(value) % 4)))
-    assert set(result) == {"v", "query_fingerprint", "last_todo_id", "last_version"}
-    assert type(result["v"]) is int and result["v"] == 1
-    assert type(result["last_version"]) is int and result["last_version"] >= 1
+    assert set(result) == {"v", "query_fingerprint", "last_todo_id", "last_display_revision"}
+    assert type(result["v"]) is int and result["v"] == 2
+    assert type(result["last_display_revision"]) is int and result["last_display_revision"] >= 1
     return result
 
 
@@ -870,9 +870,9 @@ async def test_anchor_revalidation_includes_version_deletion_filters_group_and_w
             assert changed.status_code == 200, changed.text
         _reason(await _query(ctx, **options, cursor=cursor, status=409), "query_changed")
         if mutation in ("filter", "group", "window"):
-            # A current row version alone cannot bypass its complete query predicate.
+            # A current display revision alone cannot bypass the complete query predicate.
             decoded = _cursor(cursor)
-            decoded["last_version"] = changed.json()["version"]
+            decoded["last_display_revision"] = changed.json()["display_revision"]
             forged = (
                 base64.urlsafe_b64encode(json.dumps(decoded, separators=(",", ":")).encode())
                 .decode()

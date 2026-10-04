@@ -118,6 +118,9 @@ async def test_actual_openapi_documents_strict_query_and_full_c1_response(
     assert set(result["properties"]) == set(result["required"]) == QUERY_KEYS
     todo = _referenced(result["properties"]["items"]["items"], schemas)
     assert set(todo["properties"]) == set(todo["required"]) == _TODO_KEYS
+    assert todo["properties"]["display_revision"]["type"] == "integer"
+    assert todo["properties"]["display_revision"]["minimum"] == 1
+    assert todo["properties"]["display_revision"]["maximum"] == 9007199254740991
     for field in ("total", "matched_total", "view_version", "catalog_revision"):
         assert result["properties"][field]["type"] == "integer"
     assert _non_null(result["properties"]["unscheduled_total"])["type"] == "integer"

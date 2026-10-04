@@ -346,10 +346,10 @@ def test_two_and_three_distinct_sort_fields_keep_order_and_direction(sort):
 
 def _cursor(**changes):
     value = {
-        "v": 1,
+        "v": 2,
         "query_fingerprint": FINGERPRINT,
         "last_todo_id": PUBLIC_ID,
-        "last_version": 1,
+        "last_display_revision": 1,
     }
     value.update(changes)
     return value
@@ -374,17 +374,17 @@ def test_cursor_is_compact_canonical_and_roundtrips_only_four_fields():
 @pytest.mark.parametrize(
     "maximum,version,allowed",
     [
-        (PG_MAX, PG_MAX, True),
-        (PG_MAX, PG_MAX + 1, False),
-        (SQLITE_MAX, SQLITE_MAX, True),
-        (SQLITE_MAX, SQLITE_MAX + 1, False),
+        (PG_MAX, 9007199254740991, True),
+        (PG_MAX, 9007199254740992, False),
+        (SQLITE_MAX, 9007199254740991, True),
+        (SQLITE_MAX, 9007199254740992, False),
     ],
 )
 def test_cursor_version_uses_explicit_actual_database_boundary(maximum, version, allowed):
-    value = _cursor(last_version=version)
+    value = _cursor(last_display_revision=version)
     if allowed:
         token = encode_cursor(value, max_version=maximum)
-        assert parse_cursor(token, max_version=maximum).last_version == version
+        assert parse_cursor(token, max_version=maximum).last_display_revision == version
     else:
         with pytest.raises(ValueError):
             encode_cursor(value, max_version=maximum)
@@ -398,12 +398,12 @@ def test_cursor_version_uses_explicit_actual_database_boundary(maximum, version,
         {"v": True},
         {"v": 1.0},
         {"v": "1"},
-        {"v": 2},
-        {"last_version": True},
-        {"last_version": 0},
-        {"last_version": -1},
-        {"last_version": "1"},
-        {"last_version": 1.0},
+        {"v": 3},
+        {"last_display_revision": True},
+        {"last_display_revision": 0},
+        {"last_display_revision": -1},
+        {"last_display_revision": "1"},
+        {"last_display_revision": 1.0},
         {"last_todo_id": PUBLIC_ID.lower()},
         {"last_todo_id": "8" + PUBLIC_ID[1:]},
         {"last_todo_id": "I" + PUBLIC_ID[1:]},
@@ -490,7 +490,7 @@ def test_mutated_returned_definition_is_revalidated_before_reuse():
 
 @pytest.mark.parametrize(
     "field,value",
-    [("v", True), ("last_version", "2"), ("query_fingerprint", "invalid")],
+    [("v", True), ("last_display_revision", "2"), ("query_fingerprint", "invalid")],
 )
 def test_mutated_returned_cursor_is_revalidated_before_encoding(field, value):
     parsed = parse_cursor(_token(_cursor()), max_version=SQLITE_MAX)
@@ -558,3 +558,53 @@ def test_malformed_cursor_errors_do_not_chain_private_wire_input(malformed):
     assert error.value.__suppress_context__ is True
     rendered = "".join(traceback.format_exception(error.type, error.value, error.tb))
     assert private_key not in rendered
+
+
+def test_internal_table_has_complete_strict_fields_without_public_attachment_activation():
+    from octop.infra.projects.plan_definition import TableDefinition
+
+    value = default_definition("table")
+    value["fields"] = [
+        "title",
+        "status",
+        "assignee",
+        "priority",
+        "tags",
+        "start_date",
+        "due_date",
+        "created_at",
+        "updated_at",
+        "source",
+        "attachments",
+    ]
+    assert TableDefinition.model_validate(value).model_dump(mode="json") == value
+    assert "attachments" not in default_definition("table")["fields"]
+    for kind in ("table", "list", "board", "calendar", "gantt"):
+        with pytest.raises(ValueError):
+            parse_definition(kind, value)
+    for change in (
+        {"fields": ["attachments", "title"]},
+        {"fields": ["title", "attachments", "attachments"]},
+        {"sort": [{"field": "attachments", "direction": "asc"}]},
+        {"filters": [{"field": "attachments", "op": "is_empty"}]},
+        {"group_by": "attachments"},
+        {"show_subtodos": True},
+    ):
+        with pytest.raises(ValueError):
+            TableDefinition.model_validate(dict(value, **change))
+
+
+def test_legacy_cursor_is_validated_for_retirement_and_never_encoded():
+    legacy = {
+        "v": 1,
+        "query_fingerprint": FINGERPRINT,
+        "last_todo_id": PUBLIC_ID,
+        "last_version": PG_MAX,
+    }
+    assert parse_cursor(_token(legacy), max_version=PG_MAX).last_version == PG_MAX
+    with pytest.raises(ValueError):
+        encode_cursor(legacy, max_version=PG_MAX)
+    with pytest.raises(ValueError):
+        parse_cursor(_token(dict(legacy, last_version=PG_MAX + 1)), max_version=PG_MAX)
+    with pytest.raises(ValueError):
+        parse_cursor(_token(dict(legacy, last_version=True)), max_version=PG_MAX)

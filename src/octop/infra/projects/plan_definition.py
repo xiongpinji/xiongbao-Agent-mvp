@@ -20,6 +20,8 @@ from pydantic import (
     model_validator,
 )
 
+from octop.infra.db.repos.project_plan_locks import DISPLAY_REVISION_MAX
+
 ViewType = Literal["list", "table", "board", "gantt", "calendar"]
 VisibleField = Literal[
     "title",
@@ -169,9 +171,8 @@ class SortSpec(_StrictModel):
     direction: Literal["asc", "desc"]
 
 
-class PlanDefinition(_StrictModel):
+class _DefinitionBase(_StrictModel):
     schema_version: Literal[1]
-    fields: Annotated[list[VisibleField], Field(min_length=1, max_length=10)]
     group_by: GroupBy | None
     filters: Annotated[list[FilterClause], Field(max_length=12)]
     sort: Annotated[list[SortSpec], Field(max_length=3)]
@@ -183,9 +184,9 @@ class PlanDefinition(_StrictModel):
             raise ValueError("schema_version must be an integer")
         return value
 
-    @field_validator("fields")
+    @field_validator("fields", check_fields=False)
     @classmethod
-    def _visible_fields(cls, values: list[VisibleField]) -> list[VisibleField]:
+    def _visible_fields(cls, values: list[str]) -> list[str]:
         if values[0] != "title" or len(set(values)) != len(values):
             raise ValueError("Visible fields must start with title and be unique")
         return values
@@ -196,6 +197,31 @@ class PlanDefinition(_StrictModel):
         if len({item.field for item in values}) != len(values):
             raise ValueError("Sort fields must be unique")
         return values
+
+
+class PlanDefinition(_DefinitionBase):
+    fields: Annotated[list[VisibleField], Field(min_length=1, max_length=10)]
+
+
+TableVisibleField = Literal[
+    "title",
+    "status",
+    "assignee",
+    "priority",
+    "tags",
+    "start_date",
+    "due_date",
+    "created_at",
+    "updated_at",
+    "source",
+    "attachments",
+]
+
+
+class TableDefinition(_DefinitionBase):
+    """Internal complete D1 table contract; public parsing remains on PlanDefinition."""
+
+    fields: Annotated[list[TableVisibleField], Field(min_length=1, max_length=11)]
 
 
 class BoardDefinition(PlanDefinition):
@@ -265,13 +291,11 @@ def parse_definition(view_type: ViewType, value: Any) -> PlanDefinition:
         raise ValueError("Invalid plan definition") from None
 
 
-class QueryCursor(_StrictModel):
-    v: Literal[1]
+class _CursorIdentity(_StrictModel):
     query_fingerprint: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
     last_todo_id: Annotated[str, Field(pattern=r"^[0-7][0-9A-HJKMNP-TV-Z]{25}$")]
-    last_version: Annotated[int, Field(strict=True, ge=1)]
 
-    @field_validator("v", mode="before")
+    @field_validator("v", mode="before", check_fields=False)
     @classmethod
     def _strict_version(cls, value: Any) -> Any:
         if type(value) is not int:
@@ -279,19 +303,39 @@ class QueryCursor(_StrictModel):
         return value
 
 
+class LegacyQueryCursor(_CursorIdentity):
+    v: Literal[1]
+    last_version: Annotated[int, Field(strict=True, ge=1)]
+
+
+class QueryCursor(_CursorIdentity):
+    v: Literal[2]
+    last_display_revision: Annotated[int, Field(strict=True, ge=1, le=DISPLAY_REVISION_MAX)]
+
+
 def _version_boundary(max_version: int) -> None:
     if type(max_version) is not int or max_version < 1:
         raise ValueError("max_version must be a positive integer")
 
 
-def _validated_cursor(value: Any, max_version: int) -> QueryCursor:
+def _validated_cursor(
+    value: Any, max_version: int, *, allow_legacy: bool = False
+) -> QueryCursor | LegacyQueryCursor:
     _version_boundary(max_version)
     try:
+        if (
+            allow_legacy
+            and isinstance(value, dict)
+            and type(value.get("v")) is int
+            and value.get("v") == 1
+        ):
+            legacy = LegacyQueryCursor.model_validate(value)
+            if legacy.last_version > max_version:
+                raise ValueError("Cursor version exceeds the database boundary")
+            return legacy
         cursor = QueryCursor.model_validate(value)
     except ValidationError:
         raise ValueError("Invalid cursor") from None
-    if cursor.last_version > max_version:
-        raise ValueError("Cursor version exceeds the database boundary")
     return cursor
 
 
@@ -319,7 +363,7 @@ def _reject_constant(value: str) -> Any:
     raise ValueError("Non-finite cursor JSON number")
 
 
-def parse_cursor(raw: str, *, max_version: int) -> QueryCursor:
+def parse_cursor(raw: str, *, max_version: int) -> QueryCursor | LegacyQueryCursor:
     """Validate bounded, canonical base64url and strict UTF-8 JSON structure."""
     _version_boundary(max_version)
     if type(raw) is not str or not 1 <= len(raw) <= 2048:
@@ -337,4 +381,4 @@ def parse_cursor(raw: str, *, max_version: int) -> QueryCursor:
         )
     except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError):
         raise ValueError("Malformed cursor") from None
-    return _validated_cursor(value, max_version)
+    return _validated_cursor(value, max_version, allow_legacy=True)

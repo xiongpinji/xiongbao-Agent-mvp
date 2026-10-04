@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 import time
 from collections.abc import Mapping
 from pathlib import Path
@@ -2113,6 +2114,434 @@ def _ensure_project_todo_views_v35(db: DatabasePool, path: Path) -> None:
             raise
 
 
+def _thread_title_search_key_column(conn: Any, *, dialect: str) -> bool:
+    """Check the small schema invariant without scanning stored titles."""
+    if dialect == "postgresql":
+        row = conn.execute(
+            "SELECT data_type,is_nullable,column_default FROM information_schema.columns "
+            "WHERE table_schema=current_schema() AND table_name='threads' "
+            "AND column_name='title_search_key'"
+        ).fetchone()
+        if row is None:
+            return False
+        valid = (
+            row["data_type"] == "text"
+            and row["is_nullable"] == "NO"
+            and row["column_default"] == "''::text"
+        )
+    else:
+        rows = conn.execute("PRAGMA table_info(threads)").fetchall()
+        row = next((row for row in rows if row["name"] == "title_search_key"), None)
+        if row is None:
+            return False
+        valid = row["type"].upper() == "TEXT" and row["notnull"] == 1 and row["dflt_value"] == "''"
+    if not valid:
+        raise RuntimeError("036 thread title search key schema is incompatible")
+    return True
+
+
+def _apply_thread_title_search_key_v36(conn: Any, sql: str, *, dialect: str) -> None:
+    """Apply canonical DDL and full keys before advancing the same transaction."""
+    from octop.infra.utils.project_plan_keys import normalize_project_plan_key
+
+    prior_version = int(conn.execute("SELECT version FROM _schema_version").fetchone()[0])
+    if (
+        dialect == "sqlite"
+        and conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='threads'"
+        ).fetchone()
+        is None
+    ):
+        # Existing users-only legacy installs have no history to index.
+        conn.execute("UPDATE _schema_version SET version = ?", (max(prior_version, 36),))
+        return
+    has_key = _thread_title_search_key_column(conn, dialect=dialect)
+    for statement in _split_pg_sql(sql):
+        if statement == "UPDATE _schema_version SET version = 36":
+            continue
+        if has_key and statement.startswith("ALTER TABLE threads ADD COLUMN "):
+            continue
+        conn.execute(statement)
+    if not _thread_title_search_key_column(conn, dialect=dialect):
+        raise RuntimeError("036 thread title search key column is missing")
+    cursor = conn.execute("SELECT id,title,title_search_key FROM threads ORDER BY id")
+    while rows := cursor.fetchmany(500):
+        for row in rows:
+            title = row["title"]
+            key = normalize_project_plan_key(str(title) if title is not None else "")
+            if row["title_search_key"] != key:
+                conn.execute(
+                    "UPDATE threads SET title_search_key=? WHERE id=? "
+                    "AND (title=? OR (title IS NULL AND CAST(? AS TEXT) IS NULL))",
+                    (key, row["id"], title, title),
+                )
+    cursor = conn.execute("SELECT title,title_search_key FROM threads")
+    while rows := cursor.fetchmany(500):
+        if any(
+            row["title_search_key"] != normalize_project_plan_key(row["title"] or "")
+            for row in rows
+        ):
+            raise RuntimeError("036 thread title search key backfill failed validation")
+    if dialect == "sqlite" and conn.execute("PRAGMA foreign_key_check").fetchall():
+        raise RuntimeError("036 failed SQLite foreign_key_check")
+    version = max(prior_version, 36)
+    conn.execute("UPDATE _schema_version SET version = ?", (version,))
+    if conn.execute("SELECT version FROM _schema_version").fetchone()[0] != version:
+        raise RuntimeError("036 thread title search key watermark did not advance")
+
+
+def _ensure_thread_title_search_key_v36(
+    db: DatabasePool, path: Path, *, only_if_missing: bool = False
+) -> None:
+    """Repair a missing column once; ordinary reentry only checks its schema."""
+    with db.connect() as conn:
+        if only_if_missing and _thread_title_search_key_column(conn, dialect=db.dialect):
+            return
+        sql = path.read_text(encoding="utf-8")
+        if db.dialect == "postgresql":
+            with conn.transaction():
+                _apply_thread_title_search_key_v36(conn, sql, dialect="postgresql")
+            return
+        if conn.in_transaction:
+            raise RuntimeError("036 requires its own SQLite migration transaction")
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            _apply_thread_title_search_key_v36(conn, sql, dialect="sqlite")
+            conn.execute("COMMIT")
+        except BaseException:
+            if conn.in_transaction:
+                conn.execute("ROLLBACK")
+            raise
+
+
+def _d1_statements(sql: str, *, dialect: str) -> list[str]:
+    """Only the packaged canonical pair may use this dedicated applier."""
+    suffix = ".pg.sql" if dialect == "postgresql" else ".sql"
+    expected = (_MIGRATIONS_DIR / ("037_project_todo_d1_foundation" + suffix)).read_text(
+        encoding="utf-8"
+    )
+    if sql != expected:
+        raise RuntimeError("D1 canonical migration input differs")
+    statements = [part.strip() for part in sql.split("\n-- D1_STATEMENT_BOUNDARY\n")]
+    expected_prefixes = [
+        "CREATE TABLE IF NOT EXISTS project_todo_display_state",
+        "CREATE TABLE IF NOT EXISTS project_todo_attachment_state",
+        "CREATE TABLE IF NOT EXISTS project_todo_attachment_usage",
+        "CREATE TABLE IF NOT EXISTS project_todo_attachments",
+        "CREATE TABLE IF NOT EXISTS project_todo_attachment_retained_objects",
+        "CREATE INDEX IF NOT EXISTS idx_project_todo_attachments_active",
+        "CREATE INDEX IF NOT EXISTS idx_project_todo_attachments_removed",
+        "CREATE INDEX IF NOT EXISTS idx_project_todo_attachment_retained_project",
+        "CREATE INDEX IF NOT EXISTS idx_project_todos_assignee_display_delete",
+        "CREATE INDEX IF NOT EXISTS idx_project_todos_creator_attachment_delete",
+    ]
+    for name in (
+        "project_todo_attachment_retain_before_delete",
+        "users_todo_display_before_delete",
+    ):
+        if dialect == "postgresql":
+            expected_prefixes.append("CREATE OR REPLACE FUNCTION " + name + "()")
+            expected_prefixes.append("CREATE TRIGGER trg_" + name)
+        else:
+            expected_prefixes.append("CREATE TRIGGER IF NOT EXISTS trg_" + name)
+    expected_prefixes.extend(
+        [
+            "INSERT INTO project_todo_display_state(",
+            "INSERT INTO project_todo_attachment_state(",
+            "INSERT INTO project_todo_attachment_usage(",
+            "UPDATE _schema_version SET version = CASE WHEN version < 37 THEN 37 ELSE version END;",
+        ]
+    )
+    if len(statements) != len(expected_prefixes) or any(
+        not part.startswith(prefix)
+        for part, prefix in zip(statements, expected_prefixes, strict=True)
+    ):
+        raise RuntimeError("D1 canonical statement order differs")
+    if dialect == "sqlite" and any(not sqlite3.complete_statement(part) for part in statements):
+        raise RuntimeError("D1 migration contains an incomplete SQLite statement")
+    return statements
+
+
+def _d1_sql_normalized(sql: str) -> str:
+    # Do not collapse whitespace inside SQL string literals.
+    pieces = re.split(r"('(?:''|[^'])*')", sql.strip().rstrip(";"))
+    for index in range(0, len(pieces), 2):
+        pieces[index] = re.sub(r"\s+", "", pieces[index]).lower().replace("ifnotexists", "")
+    return "".join(pieces)
+
+
+def _validate_d1_sqlite_schema(conn: Any, statements: list[str]) -> None:
+    for statement in statements:
+        match = re.match(r"CREATE (TABLE|INDEX|TRIGGER) IF NOT EXISTS (\w+)", statement)
+        if match is None:
+            continue
+        kind, name = match.groups()
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type=? AND name=?", (kind.lower(), name)
+        ).fetchone()
+        if row is None or _d1_sql_normalized(str(row["sql"])) != _d1_sql_normalized(statement):
+            raise RuntimeError("D1 schema definition differs: " + name)
+    if conn.execute("PRAGMA foreign_key_check").fetchone() is not None:
+        raise RuntimeError("D1 foreign key integrity failure")
+
+
+def _d1_pg_temporary_table_ddl(statement: str) -> tuple[str, str]:
+    """Retain all canonical constraints with temporary-to-temporary FKs."""
+    match = re.match(r"CREATE TABLE IF NOT EXISTS (\w+)", statement)
+    assert match is not None
+    name = match.group(1)
+    temporary = "__d1_expected_" + name
+    temporary_ddl = statement.replace(
+        "CREATE TABLE IF NOT EXISTS " + name, "CREATE TEMP TABLE " + temporary, 1
+    )
+    for parent in ("project_todos", "project_spaces"):
+        temporary_ddl = temporary_ddl.replace(
+            "REFERENCES " + parent + "(", "REFERENCES __d1_expected_" + parent + "("
+        )
+    return name, temporary_ddl.rstrip(";") + " ON COMMIT DROP;"
+
+
+def _validate_d1_pg_table(conn: Any, statement: str) -> None:
+    """Compare canonical temporary structure using PostgreSQL's own catalogs."""
+    name, temporary_ddl = _d1_pg_temporary_table_ddl(statement)
+    temporary = "__d1_expected_" + name
+    conn.execute(temporary_ddl)
+
+    def structure(table: str) -> tuple[list[Any], list[str], list[str]]:
+        columns = conn.execute(
+            "SELECT a.attname,format_type(a.atttypid,a.atttypmod) AS type,a.attnotnull,"
+            "a.attidentity,CASE WHEN a.attidentity <> '' THEN '' ELSE "
+            "COALESCE(pg_get_expr(d.adbin,d.adrelid),'') END AS default_expr "
+            "FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum "
+            "WHERE a.attrelid=to_regclass(?) AND a.attnum>0 AND NOT a.attisdropped ORDER BY a.attnum",
+            (table,),
+        ).fetchall()
+        constraints = conn.execute(
+            "SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint "
+            "WHERE conrelid=to_regclass(?) ORDER BY contype,pg_get_constraintdef(oid)",
+            (table,),
+        ).fetchall()
+        indexes = conn.execute(
+            "SELECT pg_get_indexdef(indexrelid,0,true) AS definition FROM pg_index "
+            "WHERE indrelid=to_regclass(?) AND (indisprimary OR indisunique) "
+            "ORDER BY pg_get_indexdef(indexrelid,0,true)",
+            (table,),
+        ).fetchall()
+        return (
+            [
+                tuple(
+                    row[key]
+                    for key in ("attname", "type", "attnotnull", "attidentity", "default_expr")
+                )
+                for row in columns
+            ],
+            sorted(
+                _d1_sql_normalized(
+                    re.sub(
+                        r"(?:pg_temp(?:_\d+)?\.)?__d1_expected_(?=project_todos|project_spaces)",
+                        "",
+                        str(row["definition"]),
+                    )
+                    if table.startswith("pg_temp.")
+                    else str(row["definition"])
+                )
+                for row in constraints
+            ),
+            sorted(str(row["definition"]).split(" USING ", 1)[1] for row in indexes),
+        )
+
+    if structure(name) != structure("pg_temp." + temporary):
+        raise RuntimeError("D1 PostgreSQL table structure differs: " + name)
+
+
+def validate_project_todo_d1_in_connection(conn: Any, *, initialize_usage: bool = False) -> None:
+    """Verify state and metadata/retained union; never infer a lost revision."""
+    for table, maximum in (
+        ("project_todo_display_state", 9007199254740991),
+        ("project_todo_attachment_state", 9223372036854775807),
+    ):
+        missing = conn.execute(
+            "SELECT 1 FROM project_todos t LEFT JOIN " + table + " s "
+            "ON s.project_id=t.project_id AND s.todo_id=t.todo_id "
+            "WHERE s.todo_id IS NULL OR s.revision < 1 OR s.revision > ? LIMIT 1",
+            (maximum,),
+        ).fetchone()
+        if missing is not None:
+            raise RuntimeError("D1 state is missing or outside its range")
+    fields = (
+        "attachment_id",
+        "project_id",
+        "todo_id",
+        "uploader_user_id",
+        "display_name",
+        "size_bytes",
+        "sha256",
+        "preview_media_type",
+        "preview_width",
+        "preview_height",
+        "created_at",
+        "removed_at",
+        "client_request_id",
+        "request_fingerprint",
+    )
+    objects: dict[str, tuple[Any, ...]] = {}
+    usage: dict[str, int] = {}
+    for table in ("project_todo_attachments", "project_todo_attachment_retained_objects"):
+        for row in conn.execute("SELECT * FROM " + table).fetchall():
+            key = str(row["object_key"])
+            value = tuple(row[field] for field in fields)
+            if key in objects:
+                if objects[key] != value:
+                    raise RuntimeError("D1 retained object conflicts with metadata")
+                continue
+            objects[key] = value
+            project_id = str(row["project_id"])
+            usage[project_id] = usage.get(project_id, 0) + int(row["size_bytes"])
+            if usage[project_id] > 1073741824:
+                raise RuntimeError("D1 project usage exceeds quota")
+    for row in conn.execute(
+        "SELECT p.project_id,u.used_bytes FROM project_spaces p "
+        "LEFT JOIN project_todo_attachment_usage u ON u.project_id=p.project_id"
+    ).fetchall():
+        if row["used_bytes"] is None:
+            raise RuntimeError("D1 project usage state is missing")
+        expected = usage.get(str(row["project_id"]), 0)
+        if initialize_usage:
+            conn.execute(
+                "UPDATE project_todo_attachment_usage SET used_bytes=? WHERE project_id=?",
+                (expected, row["project_id"]),
+            )
+        elif int(row["used_bytes"]) != expected:
+            raise RuntimeError("D1 project usage differs from committed object union")
+
+
+def _apply_project_todo_d1_v37(conn: Any, sql: str, *, dialect: str) -> None:
+    statements = _d1_statements(sql, dialect=dialect)
+    prior = int(conn.execute("SELECT version FROM _schema_version").fetchone()[0])
+    # A high watermark is evidence of prior activation. Never recreate lost
+    # state, including when all D1 tables were removed from a restored database.
+    if prior >= 37:
+        if dialect == "sqlite":
+            _validate_d1_sqlite_schema(conn, statements)
+        validate_project_todo_d1_in_connection(conn)
+    for statement in statements[:-4]:
+        if dialect == "postgresql":
+            if statement.startswith("CREATE OR REPLACE FUNCTION"):
+                name = statement.split()[4].split("(")[0]
+                row = conn.execute(
+                    "SELECT p.prosrc,p.prorettype::regtype::text AS result_type,p.prosecdef,p.proconfig,p.provolatile,l.lanname "
+                    "FROM pg_proc p JOIN pg_language l ON l.oid=p.prolang WHERE p.oid=to_regprocedure(?)",
+                    (name + "()",),
+                ).fetchone()
+                body = statement.split("$d1$")[1].strip()
+                if row is not None:
+                    if (
+                        row["result_type"] != "trigger"
+                        or row["lanname"] != "plpgsql"
+                        or row["prosecdef"]
+                        or row["proconfig"] is not None
+                        or row["provolatile"] != "v"
+                        or _d1_sql_normalized(str(row["prosrc"])) != _d1_sql_normalized(body)
+                    ):
+                        raise RuntimeError("D1 PostgreSQL function differs")
+                    continue
+            elif statement.startswith("CREATE TRIGGER"):
+                name = statement.split()[2]
+                row = conn.execute(
+                    "SELECT pg_get_triggerdef(oid) AS definition,tgenabled FROM pg_trigger "
+                    "WHERE tgname=? AND tgrelid=to_regclass(?)",
+                    (name, "users" if "trg_users_" in name else "project_todo_attachments"),
+                ).fetchone()
+                if row is not None:
+                    schema = str(conn.execute("SELECT current_schema()").fetchone()[0])
+                    actual = str(row["definition"]).replace(schema + ".", "")
+                    if row["tgenabled"] != "O" or _d1_sql_normalized(actual) != _d1_sql_normalized(
+                        statement
+                    ):
+                        raise RuntimeError("D1 PostgreSQL trigger differs")
+                    continue
+        conn.execute(statement)
+    if dialect == "sqlite":
+        _validate_d1_sqlite_schema(conn, statements)
+    else:
+        # PostgreSQL forbids temporary -> permanent foreign keys. Both parent
+        # clones retain their unique indexes, so canonical temporary FKs remain
+        # enforceable and comparable to the permanent resource constraints.
+        for parent in ("project_spaces", "project_todos"):
+            conn.execute(
+                "CREATE TEMP TABLE __d1_expected_"
+                + parent
+                + " (LIKE "
+                + parent
+                + " INCLUDING ALL) ON COMMIT DROP"
+            )
+        for statement in statements[:5]:
+            _validate_d1_pg_table(conn, statement)
+        for statement in statements[5:10]:
+            name = statement.split()[5]
+            match = re.search(r"ON (\w+)", statement)
+            assert match is not None
+            table = match.group(1)
+            expected_name = "__d1_expected_" + name
+            temporary = "__d1_expected_" + table
+            conn.execute(
+                statement.replace(
+                    "CREATE INDEX IF NOT EXISTS " + name, "CREATE INDEX " + expected_name, 1
+                ).replace("ON " + table, "ON " + temporary, 1)
+            )
+
+            def index_structure(index_name: str) -> tuple[Any, ...] | None:
+                row = conn.execute(
+                    "SELECT i.indisvalid,i.indisready,pg_get_indexdef(i.indexrelid,0,true) AS definition, "
+                    "c.relname AS table_name FROM pg_index i JOIN pg_class c ON c.oid=i.indrelid "
+                    "WHERE i.indexrelid=to_regclass(?)",
+                    (index_name,),
+                ).fetchone()
+                if row is None:
+                    return None
+                return (
+                    row["indisvalid"],
+                    row["indisready"],
+                    str(row["definition"]).split(" USING ", 1)[1],
+                )
+
+            actual_index = index_structure(name)
+            expected_index = index_structure("pg_temp." + expected_name)
+            actual_table = conn.execute(
+                "SELECT indrelid=to_regclass(?) AS correct FROM pg_index WHERE indexrelid=to_regclass(?)",
+                (table, name),
+            ).fetchone()
+            if (
+                actual_index != expected_index
+                or actual_table is None
+                or not actual_table["correct"]
+            ):
+                raise RuntimeError("D1 PostgreSQL index differs")
+    if prior < 37:
+        for statement in statements[-4:-1]:
+            conn.execute(statement)
+    validate_project_todo_d1_in_connection(conn, initialize_usage=prior < 37)
+    conn.execute(statements[-1])
+
+
+def _ensure_project_todo_d1_v37(db: DatabasePool, path: Path) -> None:
+    sql = path.read_text(encoding="utf-8")
+    if db.dialect == "postgresql":
+        with db.connect() as conn, conn.transaction():
+            _apply_project_todo_d1_v37(conn, sql, dialect=db.dialect)
+        return
+    with db.connect() as conn:
+        if int(conn.execute("PRAGMA foreign_keys").fetchone()[0]) != 1:
+            raise RuntimeError("D1 migration requires foreign keys")
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            _apply_project_todo_d1_v37(conn, sql, dialect=db.dialect)
+            conn.execute("COMMIT")
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+
+
 def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
     """Apply one SQLite migration.
 
@@ -2287,6 +2716,12 @@ def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
     if version == 35:
         _ensure_project_todo_views_v35(db, path)
         return
+    if version == 36:
+        _ensure_thread_title_search_key_v36(db, path)
+        return
+    if version == 37:
+        _ensure_project_todo_d1_v37(db, path)
+        return
     sql = path.read_text(encoding="utf-8")
     with db.connect() as conn:
         conn.executescript(sql)
@@ -2311,6 +2746,10 @@ def run_migrations(db: DatabasePool) -> None:
                         _apply_project_todo_views_v35(
                             conn, path.read_text(encoding="utf-8"), dialect="postgresql"
                         )
+            elif version == 36:
+                _ensure_thread_title_search_key_v36(db, path, only_if_missing=True)
+            elif version == 37:
+                _ensure_project_todo_d1_v37(db, path)
             continue
         if db.dialect == "postgresql":
             sql = path.read_text(encoding="utf-8")
@@ -2319,6 +2758,10 @@ def run_migrations(db: DatabasePool) -> None:
                     _apply_project_todo_fields_pg_v34(conn, sql)
                 elif version == 35:
                     _apply_project_todo_views_v35(conn, sql, dialect="postgresql")
+                elif version == 36:
+                    _apply_thread_title_search_key_v36(conn, sql, dialect="postgresql")
+                elif version == 37:
+                    _apply_project_todo_d1_v37(conn, sql, dialect="postgresql")
                 else:
                     _apply_postgresql_migration(conn, sql)
             if version == 3:

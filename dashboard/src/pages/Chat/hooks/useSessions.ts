@@ -37,6 +37,16 @@ export interface UseSessionsOptions {
    * deep link into a blank chat.
    */
   internal?: boolean;
+  searchEnabled?: boolean;
+  selectedThreadId?: string | null;
+}
+
+export interface SessionSearch {
+  query: string;
+  sessions: Session[];
+  loading: boolean;
+  hasMore: boolean;
+  error: unknown;
 }
 
 export function toSession(row: {
@@ -127,6 +137,23 @@ let _initialFetchGeneration = -1;
 let _readSequence = 0;
 let _publishedRead = 0;
 let _loadingMoreRead = 0;
+const emptySearch = (): SessionSearch => ({
+  query: "",
+  sessions: [],
+  loading: false,
+  hasMore: false,
+  error: null,
+});
+let _search = emptySearch();
+let _searchEpoch = 0;
+let _searchToken: object | null = null;
+let _searchPrefix = SESSION_PAGE_SIZE;
+let _requestedSearchPrefix = SESSION_PAGE_SIZE;
+let _requiredSaveRevision = 0;
+let _searchRefreshQueued = false;
+let _selectedThreadId: string | null = null;
+let _selectionSequence = 0;
+let _selectedAnchor: Session | null = null;
 
 export type SessionMutationResult =
   | { status: "saved"; value: string | boolean }
@@ -134,7 +161,15 @@ export type SessionMutationResult =
   | { status: "ignored"; reason: "busy" | "invalid" | "stale" | "restricted" };
 type SessionField = "name" | "pinned";
 let _sessionRevision = 0;
-const _sessionWrites = new Map<string, { revision: number; token?: object }>();
+const _sessionWrites = new Map<
+  string,
+  {
+    revision: number;
+    token?: object;
+    generation?: number;
+    value?: string | boolean;
+  }
+>();
 const _deletedSessionIds = new Set<string>();
 
 function sessionWriteKey(agentId: string, id: string, field: SessionField) {
@@ -153,6 +188,12 @@ export function sessionMutationPending(
 
 export function forgetDeletedSession(id: string) {
   _deletedSessionIds.add(id);
+  if (_selectedAnchor?.id === id) _selectedAnchor = null;
+  for (const [key, write] of _sessionWrites)
+    if ((JSON.parse(key) as string[])[1] === id) {
+      if (write.token) delete write.value;
+      else _sessionWrites.delete(key);
+    }
 }
 
 export function captureSessionRevision() {
@@ -173,7 +214,6 @@ export function mergeSessionMetadata(
       .filter((session) => !_deletedSessionIds.has(session.id))
       .map((session) => {
         const existing = byId.get(session.id);
-        if (!existing) return session;
         const next = { ...session };
         const nameWrite = _sessionWrites.get(
           sessionWriteKey(agentId, session.id, "name"),
@@ -184,15 +224,25 @@ export function mergeSessionMetadata(
         if (
           fieldIsCurrent(session.id, "name") &&
           nameWrite &&
+          nameWrite.generation === _storeGeneration &&
           (nameWrite.token || nameWrite.revision > revision)
         )
-          next.name = existing.name;
+          next.name =
+            nameWrite.generation === _storeGeneration &&
+            typeof nameWrite.value === "string"
+              ? nameWrite.value
+              : existing?.name ?? next.name;
         if (
           fieldIsCurrent(session.id, "pinned") &&
           pinWrite &&
+          pinWrite.generation === _storeGeneration &&
           (pinWrite.token || pinWrite.revision > revision)
         )
-          next.pinned = existing.pinned;
+          next.pinned =
+            pinWrite.generation === _storeGeneration &&
+            typeof pinWrite.value === "boolean"
+              ? pinWrite.value
+              : existing?.pinned ?? next.pinned;
         return next;
       }),
   );
@@ -219,7 +269,15 @@ export async function persistSessionMetadata(options: {
     return { status: "ignored", reason: "busy" };
   if (value === previous) return { status: "ignored", reason: "invalid" };
   const token = {};
-  _sessionWrites.set(key, { revision: ++_sessionRevision, token });
+  const generation = _storeGeneration;
+  _sessionWrites.set(key, {
+    revision: ++_sessionRevision,
+    token,
+    generation,
+    value,
+  });
+  let settledValue = previous;
+  let saved = false;
   const current = () =>
     _sessionWrites.get(key)?.token === token &&
     !_deletedSessionIds.has(id) &&
@@ -233,14 +291,16 @@ export async function persistSessionMetadata(options: {
             pinned: value as boolean,
           });
     if (!current()) return { status: "ignored", reason: "stale" };
-    const saved =
+    const canonical =
       field === "name"
         ? formatThreadTitle(response.title) || "New Chat"
         : typeof response.pinned === "boolean"
         ? response.pinned
         : value;
-    apply?.(saved);
-    return { status: "saved", value: saved };
+    settledValue = canonical;
+    saved = true;
+    apply?.(canonical);
+    return { status: "saved", value: canonical };
   } catch (error) {
     if (!current()) return { status: "ignored", reason: "stale" };
     if (previous !== undefined) apply?.(previous);
@@ -248,7 +308,15 @@ export async function persistSessionMetadata(options: {
     return { status: "failed" };
   } finally {
     if (_sessionWrites.get(key)?.token === token) {
-      _sessionWrites.set(key, { revision: ++_sessionRevision });
+      const revision = ++_sessionRevision;
+      _sessionWrites.set(key, {
+        revision,
+        ...(generation === _storeGeneration && current()
+          ? { generation, value: settledValue }
+          : {}),
+      });
+      if (saved && generation === _storeGeneration && isCurrent())
+        refreshSearchAfterSave(revision);
     }
   }
 }
@@ -369,15 +437,116 @@ function notifyListeners() {
   for (const cb of _listeners) cb();
 }
 
+function publishSearch(next: SessionSearch) {
+  _search = next;
+  _snapshot = { ..._snapshot, search: _search };
+  notifyListeners();
+}
+
+function resetSearch() {
+  _searchEpoch++;
+  _searchToken = null;
+  _searchPrefix = SESSION_PAGE_SIZE;
+  _requestedSearchPrefix = SESSION_PAGE_SIZE;
+  _requiredSaveRevision = _sessionRevision;
+  publishSearch(emptySearch());
+}
+
+async function readSearch(agentId: string, limit: number) {
+  const token = {};
+  const generation = _storeGeneration;
+  const epoch = _searchEpoch;
+  const query = _search.query;
+  const revision = captureSessionRevision();
+  const coveredSaveRevision = _requiredSaveRevision;
+  _searchToken = token;
+  _requestedSearchPrefix = limit;
+  publishSearch({ ..._search, loading: true, error: null });
+  const current = () =>
+    _storeAgentId === agentId &&
+    generation === _storeGeneration &&
+    epoch === _searchEpoch &&
+    token === _searchToken &&
+    coveredSaveRevision >= _requiredSaveRevision;
+  try {
+    const rows = await octopThreadsApi.list(agentId, limit + 1, query);
+    if (!current()) return;
+    _searchPrefix = limit;
+    publishSearch({
+      query,
+      sessions: mergeSessionMetadata(
+        agentId,
+        rows.slice(0, limit).map(toSession),
+        _search.sessions,
+        revision,
+      ),
+      loading: false,
+      error: null,
+      hasMore: rows.length > limit,
+    });
+  } catch (error) {
+    if (current()) publishSearch({ ..._search, loading: false, error });
+  } finally {
+    if (current()) _searchToken = null;
+  }
+}
+
+function refreshSearchAfterSave(revision: number) {
+  _requiredSaveRevision = revision;
+  if (!_storeAgentId || !_search.query.trim()) return;
+  _searchToken = null;
+  if (_searchRefreshQueued) return;
+  _searchRefreshQueued = true;
+  const generation = _storeGeneration;
+  queueMicrotask(() => {
+    if (generation !== _storeGeneration) return;
+    _searchRefreshQueued = false;
+    if (_storeAgentId && _search.query.trim())
+      void readSearch(_storeAgentId, _requestedSearchPrefix);
+  });
+}
+
+function selectSessionAnchor(id: string | null) {
+  if (id === _selectedThreadId) return;
+  _selectionSequence++;
+  _selectedThreadId = id;
+  _selectedAnchor = id
+    ? _sessions.find((row) => row.id === id) ??
+      _search.sessions.find((row) => row.id === id) ??
+      null
+    : null;
+}
+
+function patchSessionField(
+  id: string,
+  field: SessionField,
+  value: string | boolean,
+) {
+  const patch = (row: Session): Session =>
+    row.id === id ? { ...row, [field]: value } : row;
+  if (_selectedAnchor?.id === id) _selectedAnchor = patch(_selectedAnchor);
+  setModuleSessions((rows) => sortSessions(rows.map(patch)));
+  publishSearch({
+    ..._search,
+    sessions: sortSessions(_search.sessions.map(patch)),
+  });
+}
+
 function setModuleSessions(
   updater: Session[] | ((prev: Session[]) => Session[]),
 ) {
   _sessions = typeof updater === "function" ? updater(_sessions) : updater;
+  if (_selectedAnchor) {
+    _selectedAnchor =
+      _sessions.find((row) => row.id === _selectedAnchor?.id) ??
+      _selectedAnchor;
+  }
   _snapshot = {
     sessions: _sessions,
     loading: _loading,
     hasMore: _hasMore,
     loadingMore: _loadingMore,
+    search: _search,
   };
   notifyListeners();
 }
@@ -389,6 +558,7 @@ function setModuleLoading(value: boolean) {
     loading: _loading,
     hasMore: _hasMore,
     loadingMore: _loadingMore,
+    search: _search,
   };
   notifyListeners();
 }
@@ -406,6 +576,7 @@ let _snapshot = {
   loading: _loading,
   hasMore: _hasMore,
   loadingMore: _loadingMore,
+  search: _search,
 };
 
 function getSessionSnapshot() {
@@ -437,7 +608,9 @@ function visibleSessionsForAgent(
   if (!activeThreadId || visible.some((s) => s.id === activeThreadId)) {
     return visible;
   }
-  const active = sessions.find((s) => s.id === activeThreadId);
+  const active =
+    sessions.find((s) => s.id === activeThreadId) ??
+    (_selectedAnchor?.id === activeThreadId ? _selectedAnchor : null);
   if (!active) return visible;
   visible = [active, ...visible.filter((s) => s.id !== activeThreadId)];
   return visible.slice(0, limit);
@@ -494,11 +667,22 @@ function applySessionPage(
   _publishedRead = Math.max(_publishedRead, read.sequence);
   _loadedLimitByAgent.set(agentId, limit);
   _hasMore = hasMore;
+  if (_selectedThreadId) {
+    const row = allSessions.find((s) => s.id === _selectedThreadId);
+    if (row)
+      _selectedAnchor =
+        mergeSessionMetadata(
+          agentId,
+          [row],
+          _selectedAnchor ? [_selectedAnchor] : [],
+          read.revision,
+        )[0] ?? null;
+  }
   setModuleSessions(
     visibleSessionsForAgent(
       mergeSessionMetadata(agentId, allSessions, _sessions, read.revision),
       agentId,
-      activeThreadId,
+      _selectedThreadId ?? activeThreadId,
     ),
   );
 }
@@ -510,6 +694,7 @@ function setModuleLoadingMore(value: boolean) {
     loading: _loading,
     hasMore: _hasMore,
     loadingMore: _loadingMore,
+    search: _search,
   };
   notifyListeners();
 }
@@ -527,11 +712,28 @@ function syncStoreToAgent(agentId: string | null) {
   _loading = agentId != null;
   _hasMore = false;
   _loadingMore = false;
+  _searchEpoch++;
+  _searchToken = null;
+  _search = emptySearch();
+  _searchPrefix = SESSION_PAGE_SIZE;
+  _requestedSearchPrefix = SESSION_PAGE_SIZE;
+  _requiredSaveRevision = _sessionRevision;
+  _searchRefreshQueued = false;
+  _selectedThreadId = null;
+  _selectionSequence++;
+  _selectedAnchor = null;
+  for (const [key, write] of _sessionWrites) {
+    if (write.token) {
+      delete write.value;
+      delete write.generation;
+    } else _sessionWrites.delete(key);
+  }
   _snapshot = {
     sessions: _sessions,
     loading: _loading,
     hasMore: _hasMore,
     loadingMore: _loadingMore,
+    search: _search,
   };
 }
 
@@ -552,11 +754,22 @@ export function resetSessionStoreForTests() {
   _loadingMore = false;
   _loadedLimitByAgent.clear();
   _pendingThreadIds.clear();
+  _searchEpoch++;
+  _searchToken = null;
+  _search = emptySearch();
+  _searchPrefix = SESSION_PAGE_SIZE;
+  _requestedSearchPrefix = SESSION_PAGE_SIZE;
+  _requiredSaveRevision = 0;
+  _searchRefreshQueued = false;
+  _selectedThreadId = null;
+  _selectionSequence++;
+  _selectedAnchor = null;
   _snapshot = {
     sessions: _sessions,
     loading: _loading,
     hasMore: _hasMore,
     loadingMore: _loadingMore,
+    search: _search,
   };
 }
 
@@ -565,8 +778,11 @@ export function useSessions(
   options: UseSessionsOptions = {},
 ) {
   const internal = options.internal === true;
+  const searchEnabled = options.searchEnabled === true && !internal;
   const { t } = useTranslation();
   syncStoreToAgent(agentId);
+  if (options.selectedThreadId !== undefined)
+    selectSessionAnchor(options.selectedThreadId);
   const ownerRef = useRef({
     agentId,
     generation: _storeGeneration,
@@ -582,10 +798,49 @@ export function useSessions(
       _storeAgentId === agentId,
     [owner, agentId],
   );
-  const { sessions, loading, hasMore, loadingMore } = useSyncExternalStore(
-    subscribeSessionStore,
-    getSessionSnapshot,
+  const { sessions, loading, hasMore, loadingMore, search } =
+    useSyncExternalStore(subscribeSessionStore, getSessionSnapshot);
+
+  const setSearchQuery = useCallback(
+    (query: string) => {
+      if (!agentId || !isCurrentOwner() || !searchEnabled) return;
+      if (query === _search.query) return;
+      resetSearch();
+      if (!query.trim()) return;
+      publishSearch({ ..._search, query });
+      void readSearch(agentId, SESSION_PAGE_SIZE);
+    },
+    [agentId, isCurrentOwner, searchEnabled],
   );
+
+  const loadMoreSearch = useCallback(() => {
+    if (
+      !agentId ||
+      !isCurrentOwner() ||
+      !searchEnabled ||
+      !_search.query.trim() ||
+      _search.loading ||
+      !_search.hasMore
+    )
+      return;
+    void readSearch(agentId, _searchPrefix + SESSION_PAGE_SIZE);
+  }, [agentId, isCurrentOwner, searchEnabled]);
+
+  const retrySearch = useCallback(() => {
+    if (
+      !agentId ||
+      !isCurrentOwner() ||
+      !searchEnabled ||
+      !_search.query.trim() ||
+      _search.loading
+    )
+      return;
+    void readSearch(agentId, _requestedSearchPrefix);
+  }, [agentId, isCurrentOwner, searchEnabled]);
+
+  useEffect(() => {
+    if (!searchEnabled && _search.query) resetSearch();
+  }, [searchEnabled]);
 
   const fetchSessions = useCallback(
     async (activeThreadId?: string) => {
@@ -670,33 +925,48 @@ export function useSessions(
       if (!agentId || !threadId) return "missing";
       if (!isCurrentOwner()) return "unknown";
       if (_sessions.some((s) => s.id === threadId)) return "found";
+      if (internal) return "unknown";
+      if (!_selectedThreadId) selectSessionAnchor(threadId);
+      const selection = _selectionSequence;
       try {
-        const limit = getLoadedLimit(agentId);
-        const probeLimit = Math.max(limit + 1, 50);
-        const {
-          sessions: valid,
-          hasMore: more,
-          read,
-        } = await fetchSessionsPage(agentId, probeLimit);
-        // Agent switched while the probe was in flight — do not rewrite URL.
-        if (!isCurrentOwner() || !currentSessionRead(read)) return "unknown";
-        const found = valid.some(
-          (s) => s.id === threadId && !_deletedSessionIds.has(s.id),
-        );
-        // An internal runtime has no "create a new thread" fallback, so a list
-        // gap must never be treated as a deleted thread.
-        if (!found) return internal ? "unknown" : "missing";
-        applySessionPage(
-          valid,
-          more || valid.length > limit,
-          limit,
+        const revision = captureSessionRevision();
+        const row = await octopThreadsApi.metadata(agentId, threadId);
+        if (
+          !isCurrentOwner() ||
+          selection !== _selectionSequence ||
+          _deletedSessionIds.has(threadId)
+        )
+          return "unknown";
+        if (
+          row.thread_id !== threadId ||
+          (typeof row.title !== "string" && row.title !== null) ||
+          typeof row.last_active !== "number" ||
+          typeof row.created_at !== "number"
+        )
+          return "unknown";
+        const valid = mergeSessionMetadata(
           agentId,
-          read,
-          threadId,
-        );
+          [toSession(row)],
+          [..._sessions, ..._search.sessions],
+          revision,
+        )[0];
+        if (_selectedThreadId === threadId) {
+          _selectedAnchor = valid;
+          setModuleSessions(
+            visibleSessionsForAgent(_sessions, agentId, threadId),
+          );
+        }
         return "found";
-      } catch {
-        // Network/API failure — keep the URL until a later successful probe.
+      } catch (error) {
+        if (!isCurrentOwner() || selection !== _selectionSequence)
+          return "unknown";
+        if (
+          error instanceof Error &&
+          /^Request failed: 404(?:\s|$)/.test(error.message)
+        ) {
+          forgetDeletedSession(threadId);
+          return "missing";
+        }
         return "unknown";
       }
     },
@@ -749,6 +1019,10 @@ export function useSessions(
       const { sessionId } = event;
       forgetDeletedSession(sessionId);
       setModuleSessions((prev) => prev.filter((s) => s.id !== sessionId));
+      publishSearch({
+        ..._search,
+        sessions: _search.sessions.filter((s) => s.id !== sessionId),
+      });
     });
   }, []);
 
@@ -809,6 +1083,7 @@ export function useSessions(
       if (!agentId || !id) return false;
       try {
         await octopThreadsApi.delete(agentId, id);
+        forgetDeletedSession(id);
         setModuleSessions((prev) => prev.filter((s) => s.id !== id));
         chatStore.removeSession(id);
         chatStore.emitSessionEvent({ kind: "sessionDeleted", sessionId: id });
@@ -822,7 +1097,9 @@ export function useSessions(
 
   const pinSession = useCallback(
     async (id: string, pinned: boolean): Promise<SessionMutationResult> => {
-      const existing = _sessions.find((s) => s.id === id);
+      const existing =
+        _sessions.find((s) => s.id === id) ??
+        _search.sessions.find((s) => s.id === id);
       if (!existing) return { status: "ignored", reason: "invalid" };
       return persistSessionMetadata({
         agentId,
@@ -830,15 +1107,8 @@ export function useSessions(
         field: "pinned",
         value: pinned,
         previous: Boolean(existing.pinned),
-        isCurrent: () => isCurrentOwner() && _sessions.some((s) => s.id === id),
-        apply: (value) =>
-          setModuleSessions((prev) =>
-            sortSessions(
-              prev.map((s) =>
-                s.id === id ? { ...s, pinned: value as boolean } : s,
-              ),
-            ),
-          ),
+        isCurrent: isCurrentOwner,
+        apply: (value) => patchSessionField(id, "pinned", value),
         onError: (error) => showApiError(error, t("common.saveFailed"), t),
       });
     },
@@ -848,7 +1118,9 @@ export function useSessions(
   const renameSession = useCallback(
     async (id: string, name: string): Promise<SessionMutationResult> => {
       const next = formatThreadTitle(name) || name.trim();
-      const existing = _sessions.find((s) => s.id === id);
+      const existing =
+        _sessions.find((s) => s.id === id) ??
+        _search.sessions.find((s) => s.id === id);
       if (!next || !existing) return { status: "ignored", reason: "invalid" };
       return persistSessionMetadata({
         agentId,
@@ -856,13 +1128,8 @@ export function useSessions(
         field: "name",
         value: next,
         previous: existing.name,
-        isCurrent: () => isCurrentOwner() && _sessions.some((s) => s.id === id),
-        apply: (value) =>
-          setModuleSessions((prev) =>
-            prev.map((s) =>
-              s.id === id ? { ...s, name: value as string } : s,
-            ),
-          ),
+        isCurrent: isCurrentOwner,
+        apply: (value) => patchSessionField(id, "name", value),
         onError: (error) => showApiError(error, t("common.saveFailed"), t),
       });
     },
@@ -882,6 +1149,10 @@ export function useSessions(
     loading,
     hasMore,
     loadingMore,
+    search,
+    setSearchQuery,
+    loadMoreSearch,
+    retrySearch,
     createSession,
     deleteSession,
     renameSession,

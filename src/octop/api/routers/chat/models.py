@@ -20,6 +20,31 @@ class HitlSessionPolicyBody(BaseModel):
     tools: list[str] = Field(default_factory=list)
 
 
+class ThreadMetadataResponse(BaseModel):
+    """Conversation metadata; contains no messages or runtime state."""
+
+    thread_id: str = Field(description="Public conversation identifier.")
+    title: str | None = Field(description="Stored title, or null for an unnamed conversation.")
+    channel_type: str
+    session_key: str
+    last_active: int = Field(description="Last activity as Unix seconds; zero when empty.")
+    created_at: int = Field(description="Creation time as Unix seconds.")
+    is_active: bool = Field(
+        description="Currently bound to the effective user's dashboard session."
+    )
+    has_messages: bool
+    pinned: bool
+    model_ref: str | None
+    reasoning_mode: str | None
+    reasoning_effort: str | None
+    conversation_mode: str
+    pending_plan_path: str | None
+    hitl_policy: HitlSessionPolicyBody
+    artifacts: list[str] = Field(
+        description="Normalized agent-facing artifact paths, without contents."
+    )
+
+
 class ChatTurnBody(BaseModel):
     """User turn payload — same fields for WebSocket ``user_turn`` and legacy HTTP bodies."""
 

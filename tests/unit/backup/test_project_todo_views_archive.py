@@ -31,7 +31,7 @@ from tests.unit.db.test_project_todo_views_migration import (
 
 from octop.config import DatabaseConfig
 from octop.infra.backup import system_archive
-from octop.infra.db.migrate import run_migrations
+from octop.infra.db.migrate import _max_discovered_version, run_migrations
 from octop.infra.db.pool import DatabasePool, SqlitePool
 from octop.infra.db.repos.users import UserRepo
 from octop.infra.utils.paths import PathLayout
@@ -182,7 +182,7 @@ def test_real_sqlite_archive_preserves_plan_views_and_recomputes_final_keys(
             restore_config=False,
             preserve_users=preserve_users,
         )
-        assert result["schema_version"] == 35
+        assert result["schema_version"] == _max_discovered_version("sqlite")
         assert result["project_todo_comment_image_files"] == 1
         with target_pool.connect() as conn:
             _assert_035(conn)

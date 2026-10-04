@@ -29,6 +29,7 @@ _TODO_KEYS = {
     "creator_user_id",
     "assignee_user_id",
     "version",
+    "display_revision",
     "created_at",
     "updated_at",
     "start_date",

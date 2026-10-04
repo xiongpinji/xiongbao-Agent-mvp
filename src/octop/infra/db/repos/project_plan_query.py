@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from octop.infra.db.pool import DatabasePool
+from octop.infra.db.repos import project_plan_locks as locks
 from octop.infra.db.repos.project_todo_views import StoredViewRow
 from octop.infra.db.repos.project_todos import ProjectTodoRow
 from octop.infra.utils.project_plan_keys import normalize_project_plan_key
@@ -399,6 +400,17 @@ class ProjectPlanQueryRepo:
         predicate, params = self._filters(definition["filters"], today)
         where = "t.project_id=? AND t.deleted_at IS NULL AND " + predicate
         parameters = [project_id, *params]
+        # Count every authorized matching todo, including corrupt missing state.
+        # Fail the snapshot instead of filtering such rows out of totals/items.
+        bad_state = conn.execute(
+            "SELECT 1 FROM project_todos t LEFT JOIN project_todo_display_state d "
+            "ON d.project_id=t.project_id AND d.todo_id=t.todo_id WHERE "
+            + where
+            + " AND (d.revision IS NULL OR d.revision<1 OR d.revision>?) LIMIT 1",
+            [*parameters, locks.DISPLAY_REVISION_MAX],
+        ).fetchone()
+        if bad_state is not None:
+            raise RuntimeError("todo display state is missing or outside its range")
         total = int(
             conn.execute(
                 "SELECT COUNT(*) FROM project_todos t WHERE " + where, parameters
@@ -444,7 +456,7 @@ class ProjectPlanQueryRepo:
         scoped_where = where + " AND (" + date_predicate + ") AND (" + group_predicate + ")"
         scoped_params = [*parameters, *date_params, *group_values]
         source = (
-            " FROM project_todos t LEFT JOIN users u ON u.id=t.assignee_user_id "
+            " FROM project_todos t LEFT JOIN project_todo_display_state d ON d.project_id=t.project_id AND d.todo_id=t.todo_id LEFT JOIN users u ON u.id=t.assignee_user_id "
             "LEFT JOIN project_todo_priorities p ON p.project_id=t.project_id AND p.priority_id=t.priority_id"
         )
         parts = self._sort_parts(definition["sort"])
@@ -455,17 +467,22 @@ class ProjectPlanQueryRepo:
                 f"{part.expression} AS __plan_sort_{index}" for index, part in enumerate(parts)
             )
             row = conn.execute(
-                "SELECT t.version," + keys + source + " WHERE " + scoped_where + " AND t.todo_id=?",
+                "SELECT d.revision AS display_revision,"
+                + keys
+                + source
+                + " WHERE "
+                + scoped_where
+                + " AND t.todo_id=?",
                 [*scoped_params, anchor[0]],
             ).fetchone()
-            if row is None or int(row["version"]) != anchor[1]:
+            if row is None or locks.checked_display_revision(row["display_revision"]) != anchor[1]:
                 raise QueryAnchorChanged("plan query anchor changed")
             seek, seek_params = self._seek(
                 parts, [row[f"__plan_sort_{index}"] for index in range(len(parts))]
             )
         order = ",".join(part.expression + " " + part.direction for part in parts)
         rows = conn.execute(
-            "SELECT t.*"
+            "SELECT t.*,d.revision AS display_revision"
             + source
             + " WHERE "
             + scoped_where
@@ -488,7 +505,10 @@ class ProjectPlanQueryRepo:
                 page_tags[str(ref["todo_id"])].append(str(ref["tag_id"]))
         payloads = [
             ProjectTodoRow.from_row(
-                row, tag_ids=page_tags[str(row["todo_id"])], catalog_revision=catalog_revision
+                row,
+                tag_ids=page_tags[str(row["todo_id"])],
+                catalog_revision=catalog_revision,
+                display_revision=locks.checked_display_revision(row["display_revision"]),
             )
             for row in rows
         ]

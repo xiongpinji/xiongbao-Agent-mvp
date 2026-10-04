@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from octop.infra.db.repos._base import UNSET
+from octop.infra.db.repos.project_plan_locks import DISPLAY_REVISION_MAX as DISPLAY_REVISION_MAX
 from octop.infra.db.repos.project_todos import ProjectTodoRow
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.projects.service import (
@@ -82,6 +83,7 @@ class TodoView:
     priority_id: str | None
     tag_ids: list[str]
     catalog_revision: int
+    display_revision: int
 
 
 @dataclass(frozen=True)
@@ -193,6 +195,7 @@ class ProjectTodoService:
             creator_user_id=row.creator_user_id,
             assignee_user_id=row.assignee_user_id,
             version=row.version,
+            display_revision=row.display_revision,
             created_at=row.created_at,
             updated_at=row.updated_at,
             start_date=row.start_date,

@@ -101,9 +101,18 @@ export interface HistoryMigrationStatus {
 export const CHAT_HISTORY_PAGE_SIZE = 25;
 
 export const octopThreadsApi = {
-  list: (agentId: string, limit = 50) =>
+  list: (agentId: string, limit = 50, q?: string) =>
     request<OctopThread[]>(
-      `/agents/${encodeURIComponent(agentId)}/threads?limit=${limit}`,
+      `/agents/${encodeURIComponent(agentId)}/threads?limit=${limit}${
+        q ? `&q=${encodeURIComponent(q)}` : ""
+      }`,
+    ),
+
+  metadata: (agentId: string, threadId: string) =>
+    request<OctopThread>(
+      `/agents/${encodeURIComponent(agentId)}/threads/${encodeURIComponent(
+        threadId,
+      )}`,
     ),
 
   create: (agentId: string) =>

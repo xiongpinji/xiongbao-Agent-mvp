@@ -39,12 +39,18 @@ from octop.infra.backup.snapshot import (
     infer_owner_user_id,
     prune_users_not_in,
     remap_ownership_to_user,
+    repair_project_plan_keys_in_connection,
     restore_jwt_secret_into_pool,
     restore_sqlite_into_pool,
     snapshot_sqlite_file,
     upsert_users_into_pool,
 )
-from octop.infra.db.migrate import _current_version, _max_discovered_version, run_migrations
+from octop.infra.db.migrate import (
+    _current_version,
+    _max_discovered_version,
+    run_migrations,
+    validate_project_todo_d1_in_connection,
+)
 from octop.infra.db.pool import DatabasePool, SqlitePool
 from octop.infra.db.repos.agents import AgentRepo
 from octop.infra.db.repos.secrets import SecretRepo
@@ -997,6 +1003,16 @@ def restore_system_backup(
                     f"to {runtime_schema_version}: {exc}",
                     details=details,
                 ) from exc
+            # Migration ownership remap must run after the target owner exists and
+            # before pruning backup placeholder users (avoids ON DELETE CASCADE).
+            if saved_users and pool is not None:
+                upsert_users_into_pool(pool, saved_users)
+                if is_migration and effective_owner is not None:
+                    ownership_remap = remap_ownership_to_user(pool, int(effective_owner))
+                prune_users_not_in(pool, [row[0] for row in saved_users])
+            with pool.transaction() as conn:
+                repair_project_plan_keys_in_connection(conn)
+                validate_project_todo_d1_in_connection(conn)
         except BaseException as original_error:
             failed_resources: list[str] = []
             if database_attempted:
@@ -1010,6 +1026,12 @@ def restore_system_backup(
                             schema_version=previous_schema_version,
                         )
                     elif isinstance(pool, SqlitePool):
+                        # Pool transactions only roll back Exception. End a
+                        # transaction left by an interruption before restoring
+                        # the preimage into this same live connection.
+                        with pool.connect() as live:
+                            if live.in_transaction:
+                                live.rollback()
                         restore_sqlite_into_pool(previous_database, pool)
                 except BaseException:
                     failed_resources.append("database")
@@ -1042,14 +1064,6 @@ def restore_system_backup(
                 env_path = env_file_path(paths.root)
                 env_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(env_blob_path, env_path)
-
-        # Migration ownership remap must run after the target owner exists and
-        # before pruning backup placeholder users (avoids ON DELETE CASCADE).
-        if saved_users and pool is not None:
-            upsert_users_into_pool(pool, saved_users)
-            if is_migration and effective_owner is not None:
-                ownership_remap = remap_ownership_to_user(pool, int(effective_owner))
-            prune_users_not_in(pool, [row[0] for row in saved_users])
 
         # Migration backups ship a foreign ``secrets`` table. Prefer the current
         # instance's JWT secret so outstanding sessions stay valid; only seed a
