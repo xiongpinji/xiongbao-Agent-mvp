@@ -192,20 +192,7 @@ export default function PlanTodoAttributes(props: PlanTodoAttributesProps) {
   );
 }
 
-export function uniquePlanTodos(items: readonly ProjectTodo[]): ProjectTodo[] {
-  const unique = new Map<string, ProjectTodo>();
-  for (const todo of items) {
-    const old = unique.get(todo.todo_id);
-    if (
-      !old ||
-      todo.version > old.version ||
-      (todo.version === old.version &&
-        todo.catalog_revision > old.catalog_revision)
-    )
-      unique.set(todo.todo_id, todo);
-  }
-  return [...unique.values()];
-}
+export { uniqueTodoSnapshots as uniquePlanTodos } from "./todoSnapshot";
 
 export function planLaneLabel(
   lane: PlanLaneState,

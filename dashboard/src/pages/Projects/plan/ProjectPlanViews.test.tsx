@@ -295,6 +295,34 @@ afterEach(() => vi.restoreAllMocks());
 const ready = async () =>
   waitFor(() => expect(screen.getByTestId("renderer")).toBeInTheDocument());
 describe("shared shell query configuration and C1 bridges", () => {
+  it("D1 bridges a display-only projection to the parent exactly once", async () => {
+    const ref = createRef<ProjectPlanViewsHandle>();
+    const current = props();
+    render(<ProjectPlanViews {...current} ref={ref} />);
+    await ready();
+    const loaded = current.onLoadedTodosChanged as ReturnType<typeof vi.fn>;
+    await waitFor(() => expect(loaded.mock.calls.at(-1)?.[0]).toHaveLength(1));
+    const previous = loaded.mock.calls.at(-1)![0][0];
+    const count = loaded.mock.calls.length;
+    await act(async () => {
+      expect(
+        await ref.current!.acceptTodo(
+          ref.current!.captureOperation("external-delete")!,
+          {
+            ...previous,
+            assignee_user_id: null,
+            display_revision: previous.display_revision + 1,
+          },
+        ),
+      ).toBe(true);
+    });
+    await waitFor(() => expect(loaded.mock.calls.length).toBe(count + 1));
+    expect(loaded.mock.calls.at(-1)![0][0]).toMatchObject({
+      version: previous.version,
+      display_revision: previous.display_revision + 1,
+    });
+    expect(mocks.query).toHaveBeenCalledTimes(1);
+  });
   it("loads server views and the POST query source without legacy GET pages", async () => {
     render(<ProjectPlanViews {...props()} />);
     await ready();

@@ -42,6 +42,7 @@ import ProjectPlanViews, {
   type PlanTodoMutationResult,
 } from "./plan/ProjectPlanViews";
 import styles from "./ProjectPlan.module.less";
+import { compareTodoSnapshot, validTodoSnapshot } from "./plan/todoSnapshot";
 
 const TODO_STATUSES: ProjectTodoStatus[] = ["todo", "in_progress", "done"];
 const STATUS_FALLBACKS: Record<ProjectTodoStatus, string> = {
@@ -92,6 +93,7 @@ function validTodo(
   projectId: string,
 ): todo is ProjectTodo {
   return (
+    validTodoSnapshot(todo, projectId) &&
     !!todo &&
     todo.project_id === projectId &&
     typeof todo.todo_id === "string" &&
@@ -501,12 +503,24 @@ function ProjectPlanContent({
   detailRef.current = detail;
   const suppressedDeepLink = useRef<string | null>(null);
   const lostCallback = useRef<() => void>(() => {});
-  const catalogState = useTodoCatalog(
+  const [snapshotCatalog, setSnapshotCatalog] =
+    useState<ProjectTodoCatalog | null>(null);
+  const baseCatalogState = useTodoCatalog(
     projectId,
     currentUserId,
     () => lostCallback.current(),
-    loadedTodos.map((todo) => todo.catalog_revision),
+    loadedTodos
+      .filter((todo) => snapshotCatalog?.revision !== todo.catalog_revision)
+      .map((todo) => todo.catalog_revision),
   );
+  const catalogState = {
+    ...baseCatalogState,
+    catalog:
+      snapshotCatalog &&
+      snapshotCatalog.revision >= (baseCatalogState.catalog?.revision ?? 0)
+        ? snapshotCatalog
+        : baseCatalogState.catalog,
+  };
   const catalogRef = useRef(catalogState);
   catalogRef.current = catalogState;
   const catalog = catalogState.catalog;
@@ -561,6 +575,7 @@ function ProjectPlanContent({
     explicitEditorRefresh.current = null;
     views.current?.clearPrivate();
     catalogState.clear();
+    setSnapshotCatalog(null);
     loaded.current = [];
     setLoadedTodos([]);
     setAccessLost(true);
@@ -659,14 +674,12 @@ function ProjectPlanContent({
     const deduped = new Map<string, ProjectTodo>();
     for (const todo of todos) {
       if (!validTodo(todo, projectId)) continue;
-      const prior = deduped.get(todo.todo_id);
-      if (
-        !prior ||
-        todo.version > prior.version ||
-        (todo.version === prior.version &&
-          todo.catalog_revision > prior.catalog_revision)
-      )
-        deduped.set(todo.todo_id, todo);
+      const prior =
+        deduped.get(todo.todo_id) ??
+        loaded.current.find((item) => item.todo_id === todo.todo_id);
+      const order = compareTodoSnapshot(prior, todo);
+      if (order === "accept") deduped.set(todo.todo_id, todo);
+      else if (prior && order !== "invalid") deduped.set(todo.todo_id, prior);
     }
     const next = [...deduped.values()];
     loaded.current = next;
@@ -747,17 +760,35 @@ function ProjectPlanContent({
     // Unknown transport text may contain internal details. Keep it out of the UI.
     return fallback;
   };
-  const acceptTodo = (scope: PlanOperationScope, todo: ProjectTodo) => {
+  const acceptTodo = async (
+    scope: PlanOperationScope,
+    todo: ProjectTodo,
+    catalog?: ProjectTodoCatalog,
+  ) => {
     if (!current(scope) || !validTodo(todo, projectId)) return false;
-    views.current?.acceptTodo(scope, todo);
+    if (
+      !(await views.current?.acceptTodo(scope, todo, catalog)) ||
+      !active.current ||
+      !views.current?.hasAcceptedTodo(scope, todo)
+    )
+      return false;
+    const accepted = views.current.getKnownTodo(todo.todo_id);
+    if (!accepted) return false;
     loaded.current = loaded.current.map((old) =>
-      old.todo_id === todo.todo_id && old.version <= todo.version ? todo : old,
+      old.todo_id === accepted.todo_id &&
+      compareTodoSnapshot(old, accepted) === "accept"
+        ? accepted
+        : old,
     );
     setLoadedTodos(loaded.current);
     return true;
   };
-  const refreshAccepted = () => {
-    void views.current?.refreshCurrent();
+  const refreshAccepted = (
+    scope?: PlanOperationScope,
+    todos?: readonly ProjectTodo[],
+  ) => {
+    if (scope && todos) void views.current?.refreshAfterTodos(scope, todos);
+    else void views.current?.refreshCurrent();
   };
   const mutationFailure = async (
     error: unknown,
@@ -919,8 +950,9 @@ function ProjectPlanContent({
         updated.version <= proposal.baseVersion
       )
         throw new Error("Invalid todo mutation response");
-      acceptTodo(scope, updated);
-      refreshAccepted();
+      if (!(await acceptTodo(scope, updated)))
+        throw new Error("Todo snapshot was not accepted");
+      refreshAccepted(scope, [updated]);
       return { status: "saved", todo: updated };
     } catch (error) {
       if (!current(scope))
@@ -1013,8 +1045,20 @@ function ProjectPlanContent({
         new Set(updated.map((todo) => todo.todo_id)).size !== unique.size
       )
         throw new Error("Invalid bulk mutation response");
-      for (const todo of updated) acceptTodo(scope, todo);
-      refreshAccepted();
+      if (
+        !(await views.current?.acceptTodos(scope, updated)) ||
+        !active.current ||
+        !updated.every((todo) => views.current?.hasAcceptedTodo(scope, todo))
+      )
+        throw new Error("Todo snapshot was not accepted");
+      loaded.current = loaded.current.map((old) => {
+        const accepted = views.current?.getKnownTodo(old.todo_id);
+        return accepted && compareTodoSnapshot(old, accepted) === "accept"
+          ? accepted
+          : old;
+      });
+      setLoadedTodos(loaded.current);
+      refreshAccepted(scope, updated);
       void message.success(
         t("projects.plan.bulkSuccess", { count: items.length }),
       );
@@ -1138,12 +1182,13 @@ function ProjectPlanContent({
           updated.version <= editing.version
         )
           throw new Error("Invalid todo mutation response");
-        acceptTodo(scope, updated);
+        if (!(await acceptTodo(scope, updated)))
+          throw new Error("Todo snapshot was not accepted");
         editorShown.current = false;
         setEditorOpen(false);
         setEditing(null);
         void message.success(t("projects.plan.saved"));
-        refreshAccepted();
+        refreshAccepted(scope, [updated]);
       } else {
         const body: ProjectTodoCreateBody = {
           title: values.title,
@@ -1174,11 +1219,12 @@ function ProjectPlanContent({
         if (!owns()) return;
         if (!validTodo(created, projectId))
           throw new Error("Invalid todo create response");
-        acceptTodo(scope, created);
+        if (!(await acceptTodo(scope, created)))
+          throw new Error("Todo snapshot was not accepted");
         editorShown.current = false;
         setEditorOpen(false);
         void message.success(t("projects.plan.created"));
-        refreshAccepted();
+        refreshAccepted(scope, [created]);
       }
     } catch (error) {
       if (!owns()) return;
@@ -1387,6 +1433,13 @@ function ProjectPlanContent({
           catalogLoading={catalogState.loading}
           catalogError={catalogState.error}
           onCatalogRetry={catalogState.reload}
+          onCatalogSnapshot={(incoming) =>
+            setSnapshotCatalog((previous) =>
+              !previous || incoming.revision >= previous.revision
+                ? incoming
+                : previous,
+            )
+          }
           selectedTodoId={selectedTodoId}
           canEdit={canEditTodo}
           canDelete={canDeleteTodo}
@@ -1468,9 +1521,11 @@ function ProjectPlanContent({
           onClose={() => {
             if (current(detail.scope)) closeDetail(detail);
           }}
-          onChanged={(todo) => {
-            if (current(detail.scope) && acceptTodo(detail.scope, todo))
-              refreshAccepted();
+          onChanged={(todo, catalog) => {
+            if (current(detail.scope))
+              void acceptTodo(detail.scope, todo, catalog).then((accepted) => {
+                if (accepted) refreshAccepted(detail.scope, [todo]);
+              });
           }}
           onAccessLost={() => {
             if (current(detail.scope))

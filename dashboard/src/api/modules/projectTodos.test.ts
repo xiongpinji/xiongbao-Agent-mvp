@@ -31,6 +31,7 @@ const todo: ProjectTodo = {
   creator_user_id: 1,
   assignee_user_id: null,
   version: 2,
+  display_revision: 2,
   created_at: 1_700_000_000,
   updated_at: 1_700_000_100,
 };
@@ -42,6 +43,19 @@ beforeEach(() => {
 });
 
 describe("projectTodosApi", () => {
+  it("D1 GET retains AbortSignal and fixes its read method without adding a write token", () => {
+    const signal = new AbortController().signal;
+    projectTodosApi.get("p1", "t1", {
+      signal,
+      method: "DELETE",
+      body: "wrong",
+    });
+    expect(request).toHaveBeenCalledWith("/projects/p1/todos/t1", {
+      signal,
+      method: "GET",
+      body: undefined,
+    });
+  });
   it("preserves C1 null clears, omitted dates, full tag replacement and exact catalog revision", () => {
     projectTodosApi.update("p1", "t1", {
       expected_version: 3,

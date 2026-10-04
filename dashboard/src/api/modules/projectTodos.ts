@@ -36,6 +36,7 @@ export interface ProjectTodo {
   priority_id: string | null;
   tag_ids: string[];
   catalog_revision: number;
+  display_revision: number;
   creator_user_id: number;
   assignee_user_id: number | null;
   version: number;
@@ -186,8 +187,14 @@ export const projectTodosApi = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  get: (projectId: string, todoId: string) =>
-    request<ProjectTodo>(todoPath(projectId, todoId)),
+  get: (projectId: string, todoId: string, options?: RequestInit) =>
+    options
+      ? request<ProjectTodo>(todoPath(projectId, todoId), {
+          ...options,
+          method: "GET",
+          body: undefined,
+        })
+      : request<ProjectTodo>(todoPath(projectId, todoId)),
   listComments: (
     projectId: string,
     todoId: string,

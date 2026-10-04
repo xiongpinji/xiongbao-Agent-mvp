@@ -1,8 +1,10 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-const { query, getProject } = vi.hoisted(() => ({
+const { query, getProject, getTodo, getCatalog } = vi.hoisted(() => ({
   query: vi.fn(),
   getProject: vi.fn(),
+  getTodo: vi.fn(),
+  getCatalog: vi.fn(),
 }));
 vi.mock("../../../api/modules/projectPlanViews", async (original) => ({
   ...(await original<typeof import("../../../api/modules/projectPlanViews")>()),
@@ -10,6 +12,16 @@ vi.mock("../../../api/modules/projectPlanViews", async (original) => ({
 }));
 vi.mock("../../../api/modules/projects", () => ({
   projectsApi: { get: getProject },
+}));
+vi.mock("../../../api/modules/projectTodos", async (original) => ({
+  ...(await original<typeof import("../../../api/modules/projectTodos")>()),
+  projectTodosApi: { get: getTodo },
+}));
+vi.mock("../../../api/modules/projectTodoCatalog", async (original) => ({
+  ...(await original<
+    typeof import("../../../api/modules/projectTodoCatalog")
+  >()),
+  projectTodoCatalogApi: { get: getCatalog },
 }));
 import {
   useProjectPlanQuery,
@@ -20,6 +32,7 @@ import {
   makePlanDefinition,
   makePlanQueryResponse,
   makePlanTodo,
+  makePlanCatalog,
   makePlanView,
 } from "./planView.testFixtures";
 import type {
@@ -51,8 +64,177 @@ const options = (
 beforeEach(() => {
   query.mockReset().mockResolvedValue(makePlanQueryResponse());
   getProject.mockReset().mockResolvedValue({ project_id: "p1" });
+  getTodo.mockReset().mockResolvedValue(makePlanTodo());
+  getCatalog.mockReset().mockResolvedValue(makePlanCatalog());
 });
 describe("bounded query lanes and original operation scopes", () => {
+  it("D1 accepts a real display-only assignee projection with the same body token", async () => {
+    const assigned = {
+      ...makePlanTodo({ assignee_user_id: 7 }),
+      display_revision: 1,
+    };
+    query.mockResolvedValue(makePlanQueryResponse({ items: [assigned] }));
+    const { result } = renderHook(() => useProjectPlanQuery(options()));
+    await waitFor(() =>
+      expect(result.current.lanes[0]?.items[0].assignee_user_id).toBe(7),
+    );
+    await act(async () => {
+      await result.current.acceptTodo(
+        result.current.captureOperation("external-delete")!,
+        {
+          ...assigned,
+          assignee_user_id: null,
+          display_revision: 2,
+        },
+      );
+    });
+    expect(result.current.lanes[0].items[0]).toMatchObject({
+      version: assigned.version,
+      display_revision: 2,
+      assignee_user_id: null,
+    });
+  });
+  it("D1 resolves an incomparable pair with exactly one current todo/catalog read", async () => {
+    const accepted = makePlanTodo({
+      display_revision: 3,
+      assignee_user_id: null,
+    });
+    query.mockResolvedValue(makePlanQueryResponse({ items: [accepted] }));
+    const refreshed = { ...accepted, catalog_revision: 2 };
+    getTodo.mockResolvedValue(refreshed);
+    getCatalog.mockResolvedValue(makePlanCatalog({ revision: 2 }));
+    const onCatalogSnapshot = vi.fn();
+    const { result } = renderHook(() =>
+      useProjectPlanQuery(options({ onCatalogSnapshot })),
+    );
+    await waitFor(() =>
+      expect(result.current.lanes[0]?.items[0]).toEqual(accepted),
+    );
+    await act(async () => {
+      await result.current.acceptTodo(
+        result.current.captureOperation("compare")!,
+        makePlanTodo({
+          display_revision: 2,
+          catalog_revision: 2,
+          assignee_user_id: 7,
+        }),
+      );
+    });
+    expect(result.current.lanes[0].items[0]).toEqual(refreshed);
+    expect(getTodo).toHaveBeenCalledTimes(1);
+    expect(getCatalog).toHaveBeenCalledTimes(1);
+    expect(getTodo.mock.calls[0][2].signal).toBe(
+      getCatalog.mock.calls[0][1].signal,
+    );
+    expect(onCatalogSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({ revision: 2 }),
+    );
+  });
+  it("D1 preserves the accepted projection after a still-incompatible refresh without recursion", async () => {
+    const accepted = makePlanTodo({
+      display_revision: 3,
+      assignee_user_id: null,
+    });
+    query.mockResolvedValue(makePlanQueryResponse({ items: [accepted] }));
+    getTodo.mockResolvedValue(
+      makePlanTodo({ display_revision: 4, catalog_revision: 1 }),
+    );
+    getCatalog.mockResolvedValue(makePlanCatalog());
+    const { result } = renderHook(() => useProjectPlanQuery(options()));
+    await waitFor(() =>
+      expect(result.current.lanes[0]?.items[0]).toEqual(accepted),
+    );
+    await act(async () => {
+      expect(
+        await result.current.acceptTodo(
+          result.current.captureOperation("compare")!,
+          makePlanTodo({ display_revision: 2, catalog_revision: 2 }),
+        ),
+      ).toBe(false);
+    });
+    expect(result.current.lanes[0].items[0]).toEqual(accepted);
+    expect(result.current.errorKey).toBe("projects.planViews.failed");
+    expect(getTodo).toHaveBeenCalledTimes(1);
+    expect(getCatalog).toHaveBeenCalledTimes(1);
+  });
+  it.each(["project ABA", "unmount", "replacement operation"])(
+    "D1 aborts a bounded snapshot refresh on %s",
+    async (cancel) => {
+      const accepted = makePlanTodo({
+        display_revision: 3,
+        assignee_user_id: null,
+      });
+      query.mockImplementation((p: string) =>
+        Promise.resolve(
+          makePlanQueryResponse({ items: [{ ...accepted, project_id: p }] }),
+        ),
+      );
+      const pending = deferred<ReturnType<typeof makePlanTodo>>();
+      getTodo.mockReturnValue(pending.promise);
+      getCatalog.mockResolvedValue(makePlanCatalog({ revision: 2 }));
+      const onCatalogSnapshot = vi.fn();
+      const { result, rerender, unmount } = renderHook(
+        ({ p }) =>
+          useProjectPlanQuery(
+            options({
+              projectId: p,
+              view: makePlanView({ project_id: p }),
+              onCatalogSnapshot,
+            }),
+          ),
+        { initialProps: { p: "p1" } },
+      );
+      await waitFor(() =>
+        expect(result.current.lanes[0]?.items[0]).toEqual(accepted),
+      );
+      let operation!: Promise<boolean>;
+      act(() => {
+        operation = result.current.acceptTodo(
+          result.current.captureOperation("compare")!,
+          makePlanTodo({ display_revision: 2, catalog_revision: 2 }),
+        );
+      });
+      await waitFor(() => expect(getTodo).toHaveBeenCalledTimes(1));
+      const signal = getTodo.mock.calls[0][2].signal;
+      if (cancel === "project ABA") {
+        rerender({ p: "p2" });
+        rerender({ p: "p1" });
+      } else if (cancel === "unmount") unmount();
+      else
+        act(() => {
+          result.current.captureOperation("compare");
+        });
+      expect(signal.aborted).toBe(true);
+      await act(async () => {
+        pending.resolve({ ...accepted, catalog_revision: 2 });
+        expect(await operation).toBe(false);
+      });
+      expect(onCatalogSnapshot).not.toHaveBeenCalled();
+      if (cancel !== "unmount")
+        expect(result.current.getKnownTodo("todo1")?.catalog_revision).toBe(1);
+    },
+  );
+  it("D1 rejects malformed query snapshots and keeps the legal current row", async () => {
+    const { result } = renderHook(() => useProjectPlanQuery(options()));
+    await waitFor(() => expect(result.current.lanes[0]?.items).toHaveLength(1));
+    const accepted = result.current.lanes[0].items[0];
+    query.mockResolvedValue(
+      makePlanQueryResponse({
+        items: [
+          {
+            ...accepted,
+            display_revision: undefined,
+          } as unknown as typeof accepted,
+        ],
+      }),
+    );
+    await act(async () => {
+      expect(await result.current.loadFirst("all")).toBe(false);
+    });
+    expect(result.current.lanes[0].items[0]).toEqual(accepted);
+    expect(getTodo).not.toHaveBeenCalled();
+    expect(getCatalog).not.toHaveBeenCalled();
+  });
   it("uses server complete counts beyond 200 and requests only a bounded first page", async () => {
     query.mockResolvedValue(
       makePlanQueryResponse({

@@ -23,6 +23,7 @@ export const makePlanTodo = (
   priority_id: null,
   tag_ids: [],
   catalog_revision: 1,
+  display_revision: overrides.version ?? 1,
   creator_user_id: 1,
   assignee_user_id: null,
   version: 1,

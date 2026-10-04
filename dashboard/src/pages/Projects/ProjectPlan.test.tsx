@@ -245,6 +245,7 @@ const todoOpen: ProjectTodo = {
   creator_user_id: 1,
   assignee_user_id: 2,
   version: 3,
+  display_revision: 3,
   created_at: 1_700_000_000,
   updated_at: 1_700_000_000,
 };
@@ -264,6 +265,7 @@ const todoDoing: ProjectTodo = {
   creator_user_id: 2,
   assignee_user_id: null,
   version: 1,
+  display_revision: 1,
   created_at: 1_700_000_000,
   updated_at: 1_700_000_000,
 };
@@ -283,6 +285,7 @@ const todoOther: ProjectTodo = {
   creator_user_id: 1,
   assignee_user_id: null,
   version: 1,
+  display_revision: 1,
   created_at: 1_700_000_000,
   updated_at: 1_700_000_000,
 };
@@ -479,6 +482,131 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("ProjectPlan table/board against the PS-04 contract", () => {
+  it("D1 accepts every atomic bulk row before publishing its newer pair catalog", async () => {
+    const user = userEvent.setup();
+    const accepted = [todoOpen, todoDoing].map((todo) => ({
+      ...todo,
+      priority_id: "pr1",
+      catalog_revision: 2,
+    }));
+    const written = accepted.map((todo) => ({
+      ...todo,
+      status: "done" as const,
+      version: todo.version + 1,
+      display_revision: todo.display_revision + 1,
+      catalog_revision: 1,
+    }));
+    const fresh = written.map((todo) => ({ ...todo, catalog_revision: 3 }));
+    let resolveSecond!: (todo: ProjectTodo) => void;
+    const pending = new Promise<ProjectTodo>((yes) => {
+      resolveSecond = yes;
+    });
+    catalogGet
+      .mockReset()
+      .mockResolvedValueOnce({ ...catalogFixture, revision: 2 })
+      .mockResolvedValue({ ...catalogFixture, revision: 3 });
+    planRows.mockResolvedValue(planRowsResponse(accepted));
+    bulk.mockResolvedValue({ items: written });
+    get
+      .mockReset()
+      .mockResolvedValueOnce(fresh[0])
+      .mockReturnValueOnce(pending);
+    renderPlan();
+    await screen.findByText(accepted[0].title);
+    for (const todo of accepted)
+      fireEvent.click(within(rowFor(todo.title)).getByRole("checkbox"));
+    fireEvent.change(screen.getByRole("combobox", { name: "批量状态" }), {
+      target: { value: "done" },
+    });
+    await user.click(screen.getByRole("button", { name: "应用批量修改" }));
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+    planRows.mockResolvedValue(planRowsResponse(fresh));
+    await act(async () => {
+      resolveSecond(fresh[1]);
+    });
+    await waitFor(() =>
+      expect(screen.queryByText("已选择 2 条待办，最多 50 条")).toBeNull(),
+    );
+    for (const todo of fresh)
+      await waitFor(() =>
+        expect(within(rowFor(todo.title)).getByText("已完成")).toBeVisible(),
+      );
+    expect(bulk).toHaveBeenCalledWith("p1", {
+      items: [
+        { todo_id: "t1", expected_version: 3 },
+        { todo_id: "t2", expected_version: 1 },
+      ],
+      status: "done",
+    });
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(catalogGet).toHaveBeenCalledTimes(2);
+  });
+  it("D1 publishes a bounded pair catalog into visible rows and reuses it for mutation refresh", async () => {
+    const accepted = { ...todoOpen, priority_id: "pr1", catalog_revision: 2 };
+    const written = {
+      ...accepted,
+      status: "done" as const,
+      version: 4,
+      display_revision: 4,
+      catalog_revision: 1,
+    };
+    const fresh = { ...written, catalog_revision: 3 };
+    let resolve!: (todo: ProjectTodo) => void;
+    const pending = new Promise<ProjectTodo>((yes) => {
+      resolve = yes;
+    });
+    const freshCatalog = {
+      ...catalogFixture,
+      revision: 3,
+      priorities: catalogFixture.priorities.map((priority) =>
+        priority.priority_id === "pr1"
+          ? { ...priority, name: "今日紧急" }
+          : priority,
+      ),
+    };
+    catalogGet
+      .mockReset()
+      .mockResolvedValueOnce({ ...catalogFixture, revision: 2 })
+      .mockResolvedValue(freshCatalog);
+    planRows.mockResolvedValue(planRowsResponse([accepted]));
+    update.mockResolvedValue(written);
+    get.mockReturnValue(pending);
+    renderPlan();
+    await screen.findByText(accepted.title);
+    expect(within(rowFor(accepted.title)).getByText("紧急")).toBeVisible();
+    await changeRowStatus(accepted.title, "done");
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(1));
+    expect(within(rowFor(accepted.title)).getByText("紧急")).toBeVisible();
+    expect(screen.getByRole("dialog", { name: "修改状态" })).toBeVisible();
+    planRows.mockResolvedValue(planRowsResponse([fresh]));
+    await act(async () => {
+      resolve(fresh);
+    });
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "修改状态" })).toBeNull(),
+    );
+    await waitFor(() =>
+      expect(
+        within(rowFor(accepted.title)).getByText("今日紧急"),
+      ).toBeVisible(),
+    );
+    await waitFor(() =>
+      expect(
+        planViewsQuery.mock.calls.some(
+          ([, body]) => body.expected_catalog_revision === 3,
+        ),
+      ).toBe(true),
+    );
+    expect(update).toHaveBeenCalledWith("p1", "t1", {
+      expected_version: 3,
+      status: "done",
+    });
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(catalogGet).toHaveBeenCalledTimes(2);
+    expect(get.mock.calls[0][2].signal).toBe(
+      catalogGet.mock.calls[1][1].signal,
+    );
+  });
   it("loads shared plan views and queries their fixed view and catalog versions", async () => {
     renderPlan();
     await waitFor(() => expect(planViewsList).toHaveBeenCalled());
@@ -715,11 +843,22 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
       title: "另一条逾期待办",
       due_date: "2020-02-01",
       version: 7,
+      display_revision: 7,
     };
     planRows.mockResolvedValue(planRowsResponse([overdue, other]));
     update
-      .mockResolvedValueOnce({ ...overdue, due_date: null, version: 4 })
-      .mockResolvedValue({ ...other, title: "改标题保留逾期", version: 8 });
+      .mockResolvedValueOnce({
+        ...overdue,
+        due_date: null,
+        version: 4,
+        display_revision: 4,
+      })
+      .mockResolvedValue({
+        ...other,
+        title: "改标题保留逾期",
+        version: 8,
+        display_revision: 8,
+      });
     renderPlan();
     await screen.findByText("写周报");
     await user.click(
@@ -1099,8 +1238,18 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
           '409 - {"error":{"code":"CONFLICT","details":{"reason":"version_conflict"}}}',
         ),
       )
-      .mockResolvedValue({ ...todoOpen, title: "我的草稿", version: 5 });
-    get.mockResolvedValue({ ...todoOpen, title: "服务端更新", version: 4 });
+      .mockResolvedValue({
+        ...todoOpen,
+        title: "我的草稿",
+        version: 5,
+        display_revision: 5,
+      });
+    get.mockResolvedValue({
+      ...todoOpen,
+      title: "服务端更新",
+      version: 4,
+      display_revision: 4,
+    });
     renderPlan();
     await screen.findByText("写周报");
     await user.click(
@@ -1326,7 +1475,12 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
 
   it("changes status with the current version and refreshes persisted server state", async () => {
     const user = userEvent.setup();
-    update.mockResolvedValue({ ...todoOpen, status: "done", version: 4 });
+    update.mockResolvedValue({
+      ...todoOpen,
+      status: "done",
+      version: 4,
+      display_revision: 4,
+    });
     renderPlan("owner");
     await screen.findByText("写周报");
 
@@ -1346,6 +1500,7 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
             title: "写周报（服务器）",
             status: "done",
             version: 5,
+            display_revision: 5,
           },
         ],
         null,
@@ -1379,7 +1534,7 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
     );
     update.mockImplementation(async () => {
       persisted = true;
-      return { ...todoDoing, status: "done", version: 2 };
+      return { ...todoDoing, status: "done", version: 2, display_revision: 2 };
     });
     renderPlan("owner");
     await screen.findByText("修缺陷");
@@ -1397,7 +1552,12 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
 
   it("edits only changed fields with the current version", async () => {
     const user = userEvent.setup();
-    update.mockResolvedValue({ ...todoOpen, title: "写月报", version: 4 });
+    update.mockResolvedValue({
+      ...todoOpen,
+      title: "写月报",
+      version: 4,
+      display_revision: 4,
+    });
     renderPlan("owner");
     await screen.findByText("写周报");
 
@@ -1429,6 +1589,7 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
       ...markdownTodo,
       description: "# 更新版",
       version: 4,
+      display_revision: 4,
     });
     renderPlan("owner");
     await screen.findByText("写周报");
@@ -1456,6 +1617,7 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
       ...todoOpen,
       description: "新进展",
       version: 4,
+      display_revision: 4,
     });
     renderPlan("owner");
     await screen.findByText("写周报");
@@ -1479,7 +1641,12 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
 
   it("lets a manager reassign through the edit form", async () => {
     const user = userEvent.setup();
-    update.mockResolvedValue({ ...todoOpen, assignee_user_id: 1, version: 4 });
+    update.mockResolvedValue({
+      ...todoOpen,
+      assignee_user_id: 1,
+      version: 4,
+      display_revision: 4,
+    });
     renderPlan("owner");
     await screen.findByText("写周报");
 
@@ -1544,8 +1711,13 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
           '409 - {"error":{"code":"CONFLICT","details":{"reason":"version_conflict"}}}',
         ),
       )
-      .mockResolvedValue({ ...todoOpen, status: "done", version: 5 });
-    get.mockResolvedValue({ ...todoOpen, version: 4 });
+      .mockResolvedValue({
+        ...todoOpen,
+        status: "done",
+        version: 5,
+        display_revision: 5,
+      });
+    get.mockResolvedValue({ ...todoOpen, version: 4, display_revision: 4 });
     renderPlan("owner");
     await screen.findByText("写周报");
     await changeRowStatus("写周报", "done");
@@ -1578,11 +1750,16 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
   });
 
   it("reloads assignment after the member list changes", async () => {
-    planRows
-      .mockResolvedValueOnce(planRowsResponse())
-      .mockResolvedValue(
-        planRowsResponse([{ ...todoOpen, assignee_user_id: null, version: 4 }]),
-      );
+    planRows.mockResolvedValueOnce(planRowsResponse()).mockResolvedValue(
+      planRowsResponse([
+        {
+          ...todoOpen,
+          assignee_user_id: null,
+          version: 4,
+          display_revision: 4,
+        },
+      ]),
+    );
     const { rerender } = renderPlan("owner");
     await screen.findByText("写周报");
     expect(within(rowFor("写周报")).getByText("bob")).toBeInTheDocument();
@@ -1966,8 +2143,8 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
     const user = userEvent.setup();
     bulk.mockResolvedValue({
       items: [
-        { ...todoOpen, status: "done", version: 4 },
-        { ...todoDoing, status: "done", version: 2 },
+        { ...todoOpen, status: "done", version: 4, display_revision: 4 },
+        { ...todoDoing, status: "done", version: 2, display_revision: 2 },
       ],
     });
     renderPlan("owner");

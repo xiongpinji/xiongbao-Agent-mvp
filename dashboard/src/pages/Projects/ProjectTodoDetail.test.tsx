@@ -73,6 +73,7 @@ const todo: ProjectTodo = {
   creator_user_id: 1,
   assignee_user_id: 2,
   version: 3,
+  display_revision: 3,
   created_at: 1_700_000_000,
   updated_at: 1_700_000_000,
 };
@@ -127,11 +128,174 @@ beforeEach(() => {
 });
 
 describe("ProjectTodoDetail B1", () => {
+  it("D1 keeps an unassigned display projection when an older same-body comment GET arrives", async () => {
+    const current = { ...todo, assignee_user_id: null, display_revision: 2 };
+    get
+      .mockReset()
+      .mockResolvedValueOnce(current)
+      .mockResolvedValue({ ...todo, display_revision: 1 });
+    createComment
+      .mockReset()
+      .mockResolvedValue({ ...comment, comment_id: "new" });
+    render(detail());
+    await screen.findByRole("heading", { name: todo.title });
+    expect(screen.getByText("未指派")).toBeVisible();
+    fireEvent.change(screen.getByRole("textbox", { name: "评论" }), {
+      target: { value: "refresh projection" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发表评论" }));
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: "评论" })).toHaveValue(""),
+    );
+    expect(screen.getByText("未指派")).toBeVisible();
+  });
+  it("D1 retains the field draft after an incomparable save refresh fails", async () => {
+    const accepted = { ...todo, display_revision: 3, catalog_revision: 2 };
+    catalogGet.mockResolvedValue({ ...catalogFixture, revision: 2 });
+    get
+      .mockReset()
+      .mockResolvedValueOnce(accepted)
+      .mockRejectedValue(new Error("Request failed: 503"));
+    update.mockReset().mockResolvedValue({
+      ...accepted,
+      version: 4,
+      display_revision: 4,
+      catalog_revision: 1,
+      due_date: "2026-10-03",
+    });
+    render(detail());
+    await screen.findByRole("heading", { name: todo.title });
+    fireEvent.change(screen.getByLabelText("截止日期"), {
+      target: { value: "2026-10-03" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存属性" }));
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+    await screen.findByText("Request failed: 503");
+    expect(screen.getByLabelText("截止日期")).toHaveValue("2026-10-03");
+    expect(changed).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledWith("p1", "t1", {
+      expected_version: 3,
+      due_date: "2026-10-03",
+    });
+    expect(screen.getByRole("heading", { name: todo.title })).toBeVisible();
+    expect(get).toHaveBeenCalledTimes(2);
+    // Initial catalog plus exactly the bounded pair's catalog read.
+    expect(catalogGet).toHaveBeenCalledTimes(2);
+  });
+  it("D1 refreshes an incomparable comment snapshot once while keeping visible data and a new draft", async () => {
+    const accepted = {
+      ...todo,
+      priority_id: "pr1",
+      assignee_user_id: null,
+      display_revision: 3,
+    };
+    let resolve!: (value: ProjectTodo) => void;
+    const pending = new Promise<ProjectTodo>((yes) => {
+      resolve = yes;
+    });
+    get
+      .mockReset()
+      .mockResolvedValueOnce(accepted)
+      .mockResolvedValueOnce({
+        ...accepted,
+        display_revision: 2,
+        catalog_revision: 2,
+      })
+      .mockReturnValueOnce(pending);
+    catalogGet
+      .mockReset()
+      .mockResolvedValueOnce(catalogFixture)
+      .mockResolvedValue({
+        ...catalogFixture,
+        revision: 2,
+        priorities: catalogFixture.priorities.map((priority) =>
+          priority.priority_id === "pr1"
+            ? { ...priority, name: "今日紧急" }
+            : priority,
+        ),
+      });
+    createComment.mockReset().mockResolvedValue(comment);
+    render(detail());
+    await screen.findByRole("heading", { name: todo.title });
+    expect(screen.getByText("紧急")).toBeVisible();
+    fireEvent.change(screen.getByRole("textbox", { name: "评论" }), {
+      target: { value: "posted" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发表评论" }));
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(3));
+    expect(screen.getByText("未指派")).toBeVisible();
+    const input = screen.getByRole("textbox", { name: "评论" });
+    input.focus();
+    fireEvent.change(input, { target: { value: "retained next comment" } });
+    await act(async () => {
+      resolve({ ...accepted, catalog_revision: 2 });
+    });
+    await waitFor(() => expect(screen.getByText("未指派")).toBeVisible());
+    await waitFor(() => expect(screen.getByText("今日紧急")).toBeVisible());
+    expect(input).toHaveValue("retained next comment");
+    expect(input).toHaveFocus();
+    expect(get).toHaveBeenCalledTimes(3);
+    expect(catalogGet).toHaveBeenCalledTimes(2);
+    expect(get.mock.calls[2][2].signal).toBe(
+      catalogGet.mock.calls[1][1].signal,
+    );
+  });
+  it("D1 aborts a pending detail pair on project ABA and refuses its late projection", async () => {
+    const accepted = { ...todo, assignee_user_id: null, display_revision: 3 };
+    let resolve!: (value: ProjectTodo) => void;
+    const pending = new Promise<ProjectTodo>((yes) => {
+      resolve = yes;
+    });
+    get
+      .mockReset()
+      .mockResolvedValueOnce(accepted)
+      .mockResolvedValueOnce({
+        ...todo,
+        display_revision: 2,
+        catalog_revision: 2,
+      })
+      .mockReturnValueOnce(pending)
+      .mockImplementation((p: string) =>
+        Promise.resolve({ ...accepted, project_id: p }),
+      );
+    catalogGet.mockImplementation((p: string, options?: RequestInit) =>
+      Promise.resolve({
+        ...catalogFixture,
+        project_id: p,
+        revision: options?.signal ? 2 : 1,
+      }),
+    );
+    createComment.mockReset().mockResolvedValue(comment);
+    const { rerender } = render(detail());
+    await screen.findByRole("heading", { name: todo.title });
+    fireEvent.change(screen.getByRole("textbox", { name: "评论" }), {
+      target: { value: "posted" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发表评论" }));
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(3));
+    const signal = get.mock.calls[2][2].signal;
+    rerender(detail("p2"));
+    rerender(detail("p1"));
+    expect(signal.aborted).toBe(true);
+    await screen.findByRole("heading", { name: todo.title });
+    await act(async () => {
+      resolve({ ...todo, display_revision: 4, catalog_revision: 2 });
+    });
+    expect(screen.getByText("未指派")).toBeVisible();
+    expect(changed).not.toHaveBeenCalled();
+    expect(accessLost).not.toHaveBeenCalled();
+  });
   it("keeps a committed higher todo version when a pre-commit comment refresh GET arrives last", async () => {
     const user = userEvent.setup();
     let resolveRead!: (value: ProjectTodo) => void;
     let resolveWrite!: (value: ProjectTodo) => void;
-    const committed = { ...todo, due_date: "2026-09-30", version: 4 };
+    const committed = {
+      ...todo,
+      due_date: "2026-09-30",
+      version: 4,
+      display_revision: 4,
+    };
     const posted = { ...comment, comment_id: "c2", body: "保存期间的评论" };
     const concurrent = { ...comment, comment_id: "c3", body: "并发评论快照" };
     get
@@ -149,7 +313,12 @@ describe("ProjectTodoDetail B1", () => {
           resolveWrite = resolve;
         }),
       )
-      .mockResolvedValue({ ...committed, due_date: "2026-10-01", version: 5 });
+      .mockResolvedValue({
+        ...committed,
+        due_date: "2026-10-01",
+        version: 5,
+        display_revision: 5,
+      });
     listComments
       .mockReset()
       .mockResolvedValueOnce({ items: [comment], next_cursor: null })
@@ -195,6 +364,7 @@ describe("ProjectTodoDetail B1", () => {
     const latest = {
       ...todo,
       version: 8,
+      display_revision: 8,
       due_date: "2026-10-03",
       description: "服务器版本八",
     };
@@ -206,7 +376,12 @@ describe("ProjectTodoDetail B1", () => {
           '409 - {"error":{"code":"CONFLICT","details":{"reason":"version_conflict"}}}',
         ),
       )
-      .mockResolvedValue({ ...latest, version: 9, due_date: "2026-09-30" });
+      .mockResolvedValue({
+        ...latest,
+        version: 9,
+        display_revision: 9,
+        due_date: "2026-09-30",
+      });
     createComment.mockReset().mockResolvedValue(posted);
     render(detail());
     await screen.findByRole("heading", { name: "写周报" });
@@ -253,6 +428,7 @@ describe("ProjectTodoDetail B1", () => {
       const latest: ProjectTodo = {
         ...todo,
         version: 8,
+        display_revision: 8,
         due_date: "2026-10-03",
         description: "服务器版本八",
       };
@@ -269,6 +445,7 @@ describe("ProjectTodoDetail B1", () => {
         ...latest,
         ...unrelatedPatch,
         version: 9,
+        display_revision: 9,
       };
       const posted = { ...comment, comment_id: "c2", body: "冲突后的评论" };
       update
@@ -359,6 +536,7 @@ describe("ProjectTodoDetail B1", () => {
           ...compared,
           status: "done",
           version: compared.version + 1,
+          display_revision: compared.version + 1,
         };
         update.mockResolvedValueOnce(compared);
         fireEvent.mouseDown(screen.getByRole("combobox", { name: "状态" }));
@@ -375,6 +553,7 @@ describe("ProjectTodoDetail B1", () => {
         ...compared,
         due_date: "2026-09-30",
         version: compared.version + 1,
+        display_revision: compared.version + 1,
       });
       await user.click(screen.getByRole("button", { name: "保存属性" }));
       await waitFor(() =>
@@ -392,7 +571,12 @@ describe("ProjectTodoDetail B1", () => {
   );
   it("does not reuse a manual comparison for a newer automatic comment snapshot", async () => {
     const user = userEvent.setup();
-    const compared = { ...todo, version: 8, due_date: "2026-10-03" };
+    const compared = {
+      ...todo,
+      version: 8,
+      display_revision: 8,
+      due_date: "2026-10-03",
+    };
     const posted = { ...comment, comment_id: "c2", body: "比较之后的评论" };
     update
       .mockReset()
@@ -412,6 +596,7 @@ describe("ProjectTodoDetail B1", () => {
     get.mockResolvedValue({
       ...compared,
       version: 9,
+      display_revision: 9,
       description: "比较之后又有更新",
     });
     listComments.mockResolvedValue({
@@ -461,7 +646,12 @@ describe("ProjectTodoDetail B1", () => {
           '409 - {"error":{"code":"CONFLICT","details":{"reason":"version_conflict"}}}',
         ),
       )
-      .mockResolvedValue({ ...todo, due_date: "2026-09-30", version: 5 });
+      .mockResolvedValue({
+        ...todo,
+        due_date: "2026-09-30",
+        version: 5,
+        display_revision: 5,
+      });
     render(detail());
     await screen.findByRole("heading", { name: "写周报" });
     fireEvent.change(screen.getByLabelText("截止日期"), {
@@ -471,7 +661,12 @@ describe("ProjectTodoDetail B1", () => {
     expect(
       await screen.findByText("待办已被更新，请刷新后比较再保存。"),
     ).toBeVisible();
-    get.mockResolvedValue({ ...todo, due_date: "2026-10-03", version: 4 });
+    get.mockResolvedValue({
+      ...todo,
+      due_date: "2026-10-03",
+      version: 4,
+      display_revision: 4,
+    });
     await user.click(screen.getByRole("button", { name: "刷新后比较" }));
     expect(await screen.findByText("2026-10-03")).toBeVisible();
     expect(screen.getByLabelText("截止日期")).toHaveValue("2026-09-30");
@@ -829,6 +1024,7 @@ describe("ProjectTodoDetail B2 Markdown", () => {
       description: nextDescription,
       description_format: "markdown",
       version: 4,
+      display_revision: 4,
     });
     render(detail());
     await screen.findByTestId("todo-description");
@@ -876,6 +1072,7 @@ describe("ProjectTodoDetail B2 Markdown", () => {
     get.mockResolvedValueOnce(todo).mockResolvedValueOnce({
       ...todo,
       version: 4,
+      display_revision: 4,
       description: "其他成员更新的正文",
       description_format: "plain",
     });
