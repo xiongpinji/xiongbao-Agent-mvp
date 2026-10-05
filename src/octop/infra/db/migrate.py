@@ -2712,6 +2712,234 @@ def _ensure_thread_archive_v38(db: DatabasePool, path: Path) -> None:
             raise
 
 
+def _public_connector_statements(sql: str, *, dialect: str) -> list[str]:
+    suffix = ".pg.sql" if dialect == "postgresql" else ".sql"
+    canonical = (_MIGRATIONS_DIR / ("039_project_public_connectors" + suffix)).read_text(
+        encoding="utf-8"
+    )
+    if sql != canonical:
+        raise RuntimeError("public connector canonical migration differs")
+    statements = [part.strip() + ";" for part in sql.split(";") if part.strip()]
+    if len(statements) != 7 or (
+        dialect == "sqlite" and any(not sqlite3.complete_statement(part) for part in statements)
+    ):
+        raise RuntimeError("public connector migration is incomplete")
+    return statements
+
+
+def _public_connector_pg_structure(
+    conn: Any, table: str, *, column: str | None = None
+) -> tuple[list[Any], list[Any], list[str]]:
+    columns = conn.execute(
+        "SELECT a.attname,format_type(a.atttypid,a.atttypmod) AS type,a.attnotnull,a.attidentity,a.attgenerated,"
+        "CASE WHEN a.attidentity <> '' THEN '' ELSE COALESCE(pg_get_expr(d.adbin,d.adrelid),'') END AS default_expr "
+        "FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum "
+        "WHERE a.attrelid=to_regclass(?) AND a.attnum>0 AND NOT a.attisdropped "
+        + ("AND a.attname=? " if column else "")
+        + "ORDER BY a.attnum",
+        (table, column) if column else (table,),
+    ).fetchall()
+    constraints = conn.execute(
+        "SELECT pg_get_constraintdef(c.oid) AS definition,c.convalidated,c.condeferrable,c.condeferred "
+        "FROM pg_constraint c WHERE c.conrelid=to_regclass(?) "
+        + (
+            "AND c.contype='c' AND (SELECT attnum FROM pg_attribute WHERE attrelid=c.conrelid AND attname=?)=ANY(c.conkey) "
+            if column
+            else ""
+        ),
+        (table, column) if column else (table,),
+    ).fetchall()
+    unique_indexes = (
+        []
+        if column
+        else conn.execute(
+            "SELECT pg_get_indexdef(indexrelid,0,true) AS definition FROM pg_index WHERE indrelid=to_regclass(?) AND (indisprimary OR indisunique)",
+            (table,),
+        ).fetchall()
+    )
+    return (
+        [
+            tuple(
+                row[key]
+                for key in (
+                    "attname",
+                    "type",
+                    "attnotnull",
+                    "attidentity",
+                    "attgenerated",
+                    "default_expr",
+                )
+            )
+            for row in columns
+        ],
+        sorted(
+            (
+                _d1_sql_normalized(
+                    re.sub(r"(?:pg_temp(?:_\d+)?\.)?__pc_expected_", "", str(row["definition"]))
+                ),
+                row["convalidated"],
+                row["condeferrable"],
+                row["condeferred"],
+            )
+            for row in constraints
+        ),
+        sorted(
+            _d1_sql_normalized(str(row["definition"]).split(" USING ", 1)[1])
+            for row in unique_indexes
+        ),
+    )
+
+
+def _validate_public_connector_v39(conn: Any, statements: list[str], *, dialect: str) -> None:
+    column_ddl = statements[0].split("ADD COLUMN ", 1)[1].rstrip(";")
+    tables = (
+        "project_public_connector_ids",
+        "project_public_connector_key_state",
+        "project_public_connectors",
+    )
+    if dialect == "sqlite":
+        table = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='project_spaces'"
+        ).fetchone()
+        if (
+            table is None
+            or re.search(
+                "," + re.escape(_d1_sql_normalized(column_ddl)) + r"(?:,|\))",
+                _d1_sql_normalized(str(table["sql"])),
+            )
+            is None
+        ):
+            raise RuntimeError("public connector project revision definition differs")
+        for statement, name in zip(
+            statements[1:5], (*tables, "idx_project_public_connectors_project"), strict=True
+        ):
+            row = conn.execute("SELECT sql FROM sqlite_master WHERE name=?", (name,)).fetchone()
+            if row is None or _d1_sql_normalized(str(row["sql"])) != _d1_sql_normalized(statement):
+                raise RuntimeError("public connector schema differs: " + name)
+        for name, expected_unique in zip(tables, (1, 0, 1), strict=True):
+            if (
+                sum(bool(row["unique"]) for row in conn.execute("PRAGMA index_list(" + name + ")"))
+                != expected_unique
+            ):
+                raise RuntimeError("public connector unique indexes differ: " + name)
+        if conn.execute("PRAGMA foreign_key_check").fetchone():
+            raise RuntimeError("public connector foreign key integrity failure")
+        if (
+            conn.execute(
+                "SELECT 1 FROM project_spaces WHERE typeof(public_connectors_revision)<>'integer' OR public_connectors_revision NOT BETWEEN 1 AND 9007199254740991 LIMIT 1"
+            ).fetchone()
+            or conn.execute(
+                "SELECT 1 FROM project_public_connectors WHERE typeof(grant_revision)<>'integer' OR grant_revision NOT BETWEEN 1 AND 9007199254740991 LIMIT 1"
+            ).fetchone()
+        ):
+            raise RuntimeError("public connector stored revision differs")
+    else:
+        # All canonical FKs reference temporary parents, never permanent tables.
+        conn.execute("CREATE TEMP TABLE __pc_expected_users(id INTEGER PRIMARY KEY) ON COMMIT DROP")
+        conn.execute(
+            "CREATE TEMP TABLE __pc_expected_project_spaces(project_id TEXT UNIQUE,"
+            + column_ddl
+            + ") ON COMMIT DROP"
+        )
+        if _public_connector_pg_structure(
+            conn, "project_spaces", column="public_connectors_revision"
+        ) != _public_connector_pg_structure(
+            conn, "pg_temp.__pc_expected_project_spaces", column="public_connectors_revision"
+        ):
+            raise RuntimeError("public connector PostgreSQL project revision differs")
+        for statement, name in zip(statements[1:4], tables, strict=True):
+            expected = statement.replace(
+                "CREATE TABLE " + name, "CREATE TEMP TABLE __pc_expected_" + name, 1
+            )
+            for parent in ("users", "project_spaces", "project_public_connector_ids"):
+                expected = expected.replace(
+                    "REFERENCES " + parent + "(", "REFERENCES __pc_expected_" + parent + "("
+                )
+            conn.execute(expected.rstrip(";") + " ON COMMIT DROP")
+            if _public_connector_pg_structure(conn, name) != _public_connector_pg_structure(
+                conn, "pg_temp.__pc_expected_" + name
+            ):
+                raise RuntimeError("public connector PostgreSQL table differs: " + name)
+            # The table's primary/unique indexes must also be usable.
+            if conn.execute(
+                "SELECT 1 FROM pg_index WHERE indrelid=to_regclass(?) AND (NOT indisvalid OR NOT indisready) LIMIT 1",
+                (name,),
+            ).fetchone():
+                raise RuntimeError("public connector PostgreSQL unusable index")
+        index = conn.execute(
+            "SELECT i.indisvalid,i.indisready,i.indisunique,i.indnkeyatts,i.indnatts,i.indpred IS NULL AS plain_pred,i.indexprs IS NULL AS plain_expr,pg_get_indexdef(i.indexrelid,0,true) AS definition FROM pg_index i WHERE i.indexrelid=to_regclass('idx_project_public_connectors_project') AND i.indrelid=to_regclass('project_public_connectors')"
+        ).fetchone()
+        if (
+            index is None
+            or not index["indisvalid"]
+            or not index["indisready"]
+            or index["indisunique"]
+            or index["indnkeyatts"] != 2
+            or index["indnatts"] != 2
+            or not index["plain_pred"]
+            or not index["plain_expr"]
+            or _d1_sql_normalized(str(index["definition"]).split(" USING ", 1)[1])
+            != "btree(project_id,connector_id)"
+        ):
+            raise RuntimeError("public connector PostgreSQL index differs")
+        for name in (*reversed(tables), "project_spaces", "users"):
+            conn.execute("DROP TABLE pg_temp.__pc_expected_" + name)
+    guard = conn.execute(
+        "SELECT id,purpose,initialized FROM project_public_connector_key_state"
+    ).fetchall()
+    if (
+        len(guard) != 1
+        or guard[0]["id"] != 1
+        or guard[0]["purpose"] != "octop.project_public_connector.credentials.v1"
+        or guard[0]["initialized"] not in (0, 1)
+    ):
+        raise RuntimeError("public connector initialization guard differs")
+
+
+def _apply_project_public_connectors_v39(conn: Any, sql: str, *, dialect: str) -> None:
+    statements = _public_connector_statements(sql, dialect=dialect)
+    prior = int(conn.execute("SELECT version FROM _schema_version").fetchone()[0])
+    if dialect == "sqlite":
+        has_column = any(
+            row["name"] == "public_connectors_revision"
+            for row in conn.execute("PRAGMA table_info(project_spaces)")
+        )
+        artifacts = conn.execute(
+            "SELECT name FROM sqlite_master WHERE name IN ('project_public_connector_ids','project_public_connector_key_state','project_public_connectors','idx_project_public_connectors_project')"
+        ).fetchall()
+    else:
+        has_column = bool(
+            conn.execute(
+                "SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='project_spaces' AND column_name='public_connectors_revision'"
+            ).fetchone()
+        )
+        artifacts = conn.execute(
+            "SELECT relname FROM pg_class WHERE relnamespace=current_schema()::regnamespace AND relname IN ('project_public_connector_ids','project_public_connector_key_state','project_public_connectors','idx_project_public_connectors_project')"
+        ).fetchall()
+    if prior < 39 and not has_column and not artifacts:
+        for statement in statements[:-1]:
+            conn.execute(statement)
+    _validate_public_connector_v39(conn, statements, dialect=dialect)
+    conn.execute(statements[-1])
+
+
+def _ensure_project_public_connectors_v39(db: DatabasePool, path: Path) -> None:
+    sql = path.read_text(encoding="utf-8")
+    if db.dialect == "postgresql":
+        with db.connect() as conn, conn.transaction():
+            _apply_project_public_connectors_v39(conn, sql, dialect=db.dialect)
+        return
+    with db.connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            _apply_project_public_connectors_v39(conn, sql, dialect=db.dialect)
+            conn.execute("COMMIT")
+        except BaseException:
+            if conn.in_transaction:
+                conn.execute("ROLLBACK")
+            raise
+
+
 def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
     """Apply one SQLite migration.
 
@@ -2895,6 +3123,9 @@ def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
     if version == 38:
         _ensure_thread_archive_v38(db, path)
         return
+    if version == 39:
+        _ensure_project_public_connectors_v39(db, path)
+        return
     sql = path.read_text(encoding="utf-8")
     with db.connect() as conn:
         conn.executescript(sql)
@@ -2925,6 +3156,8 @@ def run_migrations(db: DatabasePool) -> None:
                 _ensure_project_todo_d1_v37(db, path)
             elif version == 38:
                 _ensure_thread_archive_v38(db, path)
+            elif version == 39:
+                _ensure_project_public_connectors_v39(db, path)
             continue
         if db.dialect == "postgresql":
             sql = path.read_text(encoding="utf-8")
@@ -2939,6 +3172,8 @@ def run_migrations(db: DatabasePool) -> None:
                     _apply_project_todo_d1_v37(conn, sql, dialect="postgresql")
                 elif version == 38:
                     _apply_thread_archive_v38(conn, sql, dialect="postgresql")
+                elif version == 39:
+                    _apply_project_public_connectors_v39(conn, sql, dialect="postgresql")
                 else:
                     _apply_postgresql_migration(conn, sql)
             if version == 3:

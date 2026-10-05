@@ -127,7 +127,13 @@ def test_recorded_38_missing_or_wrong_schema_fails(tmp_path, monkeypatch, damage
             with pool.transaction() as conn:
                 conn.execute("UPDATE _schema_version SET version=38")
         else:
-            migrate.run_migrations(pool)
+            with monkeypatch.context() as patch:
+                patch.setattr(
+                    migrate,
+                    "_discover",
+                    lambda dialect: [(v, p) for v, p in discover(dialect) if v <= 38],
+                )
+                migrate.run_migrations(pool)
             with pool.transaction() as conn:
                 conn.execute("DROP INDEX idx_threads_user_archive")
                 conn.execute("CREATE INDEX idx_threads_user_archive ON threads(user_id,thread_id)")

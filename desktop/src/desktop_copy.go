@@ -26,10 +26,10 @@ const (
 
 var desktopCopy = map[Locale]map[string]string{
 	LocaleEN: {
-		copyStatusConnecting:       "Connecting to Octop…",
+		copyStatusConnecting:       "Connecting to Xiongbao Agent…",
 		copyStatusCheckingRuntime:  "Checking the runtime…",
-		copyStatusStartingService:  "Starting the Octop service…",
-		copyStatusReady:            "Octop is ready",
+		copyStatusStartingService:  "Starting the Xiongbao Agent service…",
+		copyStatusReady:            "Xiongbao Agent is ready",
 		copyStatusUsingRuntime:     "Using the existing runtime…",
 		copyStatusBackupDatabase:   "Desktop update %s found. Backing up the database…",
 		copyStatusInstallingUpdate: "Installing the bundled desktop update…",
@@ -42,15 +42,15 @@ var desktopCopy = map[Locale]map[string]string{
 		copyWaitNMinutes:           "%d minutes",
 		copyWait1Second:            "1 second",
 		copyWaitNSeconds:           "%d seconds",
-		copyHealthNotReady5xx:      "Octop did not become ready within %s (%s). The service responded but is not ready yet. Try again, or check the terminal logs.",
-		copyHealthNotReadyConnect:  "Octop did not become ready within %s (%s). Could not connect — make sure Octop is running.",
-		copyHealthNotReady:         "Octop did not become ready within %s (%s). Make sure Octop is running at this address, or check the terminal logs.",
+		copyHealthNotReady5xx:      "Xiongbao Agent did not become ready within %s (%s). The service responded but is not ready yet. Try again, or check the terminal logs.",
+		copyHealthNotReadyConnect:  "Xiongbao Agent did not become ready within %s (%s). Could not connect — make sure Xiongbao Agent is running.",
+		copyHealthNotReady:         "Xiongbao Agent did not become ready within %s (%s). Make sure Xiongbao Agent is running at this address, or check the terminal logs.",
 	},
 	LocaleZH: {
-		copyStatusConnecting:       "正在连接 Octop…",
+		copyStatusConnecting:       "正在连接 熊宝 Agent…",
 		copyStatusCheckingRuntime:  "正在检查运行环境…",
-		copyStatusStartingService:  "正在启动 Octop 服务…",
-		copyStatusReady:            "Octop 已就绪",
+		copyStatusStartingService:  "正在启动 熊宝 Agent 服务…",
+		copyStatusReady:            "熊宝 Agent 已就绪",
 		copyStatusUsingRuntime:     "正在使用已有运行环境…",
 		copyStatusBackupDatabase:   "发现客户端新版 %s，正在备份数据库…",
 		copyStatusInstallingUpdate: "正在安装客户端内置新版…",
@@ -63,9 +63,9 @@ var desktopCopy = map[Locale]map[string]string{
 		copyWaitNMinutes:           "%d 分钟",
 		copyWait1Second:            "1 秒",
 		copyWaitNSeconds:           "%d 秒",
-		copyHealthNotReady5xx:      "Octop 服务未在%s内就绪（%s）。服务已响应但尚未就绪，请稍后再试，或查看终端日志。",
-		copyHealthNotReadyConnect:  "Octop 服务未在%s内就绪（%s）。目前无法连接该地址，请确认 Octop 正在运行。",
-		copyHealthNotReady:         "Octop 服务未在%s内就绪（%s）。请确认本机已启动 Octop，且地址、端口正确；也可查看终端日志。",
+		copyHealthNotReady5xx:      "熊宝 Agent 服务未在%s内就绪（%s）。服务已响应但尚未就绪，请稍后再试，或查看终端日志。",
+		copyHealthNotReadyConnect:  "熊宝 Agent 服务未在%s内就绪（%s）。目前无法连接该地址，请确认 熊宝 Agent 正在运行。",
+		copyHealthNotReady:         "熊宝 Agent 服务未在%s内就绪（%s）。请确认本机已启动 熊宝 Agent，且地址、端口正确；也可查看终端日志。",
 	},
 }
 

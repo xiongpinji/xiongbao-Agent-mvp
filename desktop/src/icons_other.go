@@ -8,7 +8,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-//go:embed assets/tray-icon.png
+//go:embed assets/xiongbao-logo.png
 var trayIcon []byte
 
 func applyTrayIcon(tray *application.SystemTray) {
