@@ -14,11 +14,11 @@ VIProductVersion "${INFO_PRODUCTVERSION}.0"
 VIFileVersion    "${INFO_PRODUCTVERSION}.0"
 
 VIAddVersionKey "CompanyName"     "${INFO_COMPANYNAME}"
-VIAddVersionKey "FileDescription" "${INFO_PRODUCTNAME} Installer"
+VIAddVersionKey "FileDescription" "${DISPLAY_PRODUCT_NAME} Installer"
 VIAddVersionKey "ProductVersion"  "${INFO_PRODUCTVERSION}"
 VIAddVersionKey "FileVersion"     "${INFO_PRODUCTVERSION}"
 VIAddVersionKey "LegalCopyright"  "${INFO_COPYRIGHT}"
-VIAddVersionKey "ProductName"     "${INFO_PRODUCTNAME}"
+VIAddVersionKey "ProductName"     "${DISPLAY_PRODUCT_NAME}"
 
 ManifestDPIAware true
 
@@ -41,7 +41,7 @@ ManifestDPIAware true
 !insertmacro MUI_LANGUAGE "English"
 !insertmacro MUI_RESERVEFILE_LANGDLL
 
-Name "${INFO_PRODUCTNAME}"
+Name "${DISPLAY_PRODUCT_NAME}"
 !ifndef INSTALLER_OUTFILE
     !define INSTALLER_OUTFILE "..\..\..\bin\${INFO_PROJECTNAME}-desktop-windows-${ARCH}-${INFO_PRODUCTVERSION}.exe"
 !endif
@@ -69,8 +69,10 @@ Section
 
     !insertmacro wails.files
 
-    CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
-    CreateShortcut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
+    IfFileExists "$SMPROGRAMS\${DISPLAY_PRODUCT_NAME}.lnk" +2 0
+    CreateShortcut "$SMPROGRAMS\${DISPLAY_PRODUCT_NAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
+    IfFileExists "$DESKTOP\${DISPLAY_PRODUCT_NAME}.lnk" +2 0
+    CreateShortcut "$DESKTOP\${DISPLAY_PRODUCT_NAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
 
     !insertmacro wails.associateFiles
     !insertmacro wails.associateCustomProtocols
@@ -81,15 +83,12 @@ SectionEnd
 Section "uninstall"
     !insertmacro wails.setShellContext
 
-    RMDir /r "$AppData\${PRODUCT_EXECUTABLE}"
-
-    RMDir /r $INSTDIR
-
-    Delete "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk"
-    Delete "$DESKTOP\${INFO_PRODUCTNAME}.lnk"
+    Delete "$INSTDIR\${PRODUCT_EXECUTABLE}"
 
     !insertmacro wails.unassociateFiles
     !insertmacro wails.unassociateCustomProtocols
 
     !insertmacro wails.deleteUninstaller
+
+    RMDir "$INSTDIR"
 SectionEnd
