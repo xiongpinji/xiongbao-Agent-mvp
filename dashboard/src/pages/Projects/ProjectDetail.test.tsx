@@ -42,6 +42,12 @@ const { expertsProps } = vi.hoisted(() => ({
   },
 }));
 
+const { publicConnectorsProps } = vi.hoisted(() => ({
+  publicConnectorsProps: {
+    current: null as null | { projectId: string },
+  },
+}));
+
 const { memberPanelProps } = vi.hoisted(() => ({
   memberPanelProps: {
     current: null as null | { onChanged?: () => void },
@@ -227,6 +233,16 @@ vi.mock("./ProjectExperts", () => ({
     return (
       <section aria-label="专家">
         <div>experts-stub</div>
+      </section>
+    );
+  },
+}));
+vi.mock("./ProjectPublicConnectors", () => ({
+  default: (props: { projectId: string }) => {
+    publicConnectorsProps.current = props;
+    return (
+      <section aria-label="连接器">
+        <div>public-connectors-stub</div>
       </section>
     );
   },
@@ -837,18 +853,24 @@ describe("ProjectDetail assets tab mount", () => {
     expect(screen.getByText("项目配置")).toBeInTheDocument();
   });
 
-  it("mounts the project expert panel and keeps the other config cards unavailable", async () => {
+  it("mounts the project expert and public connector panels and keeps the remaining config cards unavailable", async () => {
     renderDetail("project-1");
 
     expect(await screen.findByText("experts-stub")).toBeInTheDocument();
+    expect(screen.getByText("public-connectors-stub")).toBeInTheDocument();
+    expect(publicConnectorsProps.current).toMatchObject({
+      projectId: "project-1",
+    });
     expect(expertsProps.current).toMatchObject({
       projectId: "project-1",
       role: "owner",
     });
     expect(screen.getByText("项目配置")).toBeInTheDocument();
-    expect(screen.getAllByText("暂未开放")).toHaveLength(3);
+    expect(screen.getAllByText("暂未开放")).toHaveLength(2);
     expect(
-      screen.getByText("暂未开放：连接器、技能与定时任务仍需后续后端支持。"),
+      screen.getByText(
+        "连接器设置已开放用于保存公共工具配置；技能与定时任务仍需后续后端支持，项目任务暂不能调用这些公共工具。",
+      ),
     ).toBeInTheDocument();
   });
 
@@ -936,9 +958,11 @@ describe("ProjectDetail assets tab mount", () => {
       expect(screen.queryByRole("button", { name: "项目配置" })).toBeNull();
       expect(screen.getByText("experts-stub")).toBeInTheDocument();
       expect(screen.getByText("members-stub")).toBeInTheDocument();
-      expect(screen.getAllByText("暂未开放")).toHaveLength(3);
+      expect(screen.getAllByText("暂未开放")).toHaveLength(2);
       expect(
-        screen.getByText("暂未开放：连接器、技能与定时任务仍需后续后端支持。"),
+        screen.getByText(
+          "连接器设置已开放用于保存公共工具配置；技能与定时任务仍需后续后端支持，项目任务暂不能调用这些公共工具。",
+        ),
       ).toBeInTheDocument();
 
       // Exactly one disabled composer survives every tab switch.
@@ -1129,8 +1153,14 @@ describe("ProjectDetail configuration cards", () => {
       ),
     ).toBeInTheDocument();
 
-    // Unavailable cards never fake an action or a count.
-    for (const name of ["连接器", "技能", "定时任务"]) {
+    expect(
+      within(screen.getByRole("region", { name: "连接器" })).getByText(
+        "public-connectors-stub",
+      ),
+    ).toBeInTheDocument();
+
+    // Still-unavailable cards never fake an action or a count.
+    for (const name of ["技能", "定时任务"]) {
       const region = screen.getByRole("region", { name });
       expect(within(region).getByText("暂未开放")).toBeInTheDocument();
       expect(within(region).queryByRole("button")).toBeNull();

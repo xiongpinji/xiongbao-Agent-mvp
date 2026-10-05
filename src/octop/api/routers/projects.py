@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
+from functools import partial
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, Path, Query, status
+from fastapi import APIRouter, Depends, Path, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from octop.api.deps import current_user, get_server
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.projects import file_tasks
+from octop.infra.projects.connectors import ProjectPublicConnectorService, PublicConnectorCollection
 from octop.infra.projects.service import (
     DEFAULT_PAGE_LIMIT,
     INVITE_DEFAULT_EXPIRES_DAYS,
@@ -33,6 +37,194 @@ from octop.infra.server import OctopServer
 from octop.infra.users.identity import User
 
 router = APIRouter(prefix="/projects")
+
+PublicConnectorRevision = Annotated[
+    int,
+    Field(
+        strict=True,
+        ge=1,
+        le=9007199254740991,
+        description="Last-read revision; stale values are refused",
+    ),
+]
+PublicConnectorCommand = Literal["create", "rename", "credentials", "revoke"]
+_PUBLIC_CONNECTOR_COMMAND_KEYS = {
+    "create": {
+        "expected_project_revision",
+        "kind",
+        "display_name",
+        "description",
+        "endpoint",
+        "bearer_token",
+    },
+    "rename": {
+        "expected_project_revision",
+        "expected_grant_revision",
+        "display_name",
+        "description",
+    },
+    "credentials": {
+        "expected_project_revision",
+        "expected_grant_revision",
+        "endpoint",
+        "bearer_token",
+    },
+    "revoke": {"expected_project_revision", "expected_grant_revision"},
+}
+_PUBLIC_CONNECTOR_STRING_CAPS = {
+    "kind": 64,
+    "display_name": 512,
+    "description": 2048,
+    "endpoint": 8192,
+    "bearer_token": 8192,
+}
+
+
+class PublicConnectorItemResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", from_attributes=True)
+    connector_id: str
+    kind: Literal["http_mcp_static_bearer"]
+    display_name: str
+    description: str
+    state: Literal["active", "revoked"]
+    grant_revision: PublicConnectorRevision
+    created_at: int
+    updated_at: int
+
+
+class PublicConnectorCollectionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", from_attributes=True)
+    project_id: str
+    public_connectors_revision: PublicConnectorRevision
+    items: list[PublicConnectorItemResponse]
+
+
+class CreatePublicConnectorCommand(BaseModel):
+    """Documentation only. Runtime commands are read without input-echo validation."""
+
+    model_config = ConfigDict(extra="forbid")
+    expected_project_revision: PublicConnectorRevision
+    kind: Literal["http_mcp_static_bearer"]
+    display_name: str = Field(
+        max_length=64, description="Safe display name; never credential material"
+    )
+    description: str = Field(max_length=256, description="Safe display description")
+    endpoint: str = Field(
+        max_length=2048,
+        description="Stored HTTPS endpoint; write-only, no provider request",
+        json_schema_extra={"writeOnly": True},
+    )
+    bearer_token: str = Field(
+        max_length=4096,
+        description="Static bearer credential; write-only",
+        json_schema_extra={"writeOnly": True},
+    )
+
+
+class RenamePublicConnectorCommand(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_project_revision: PublicConnectorRevision
+    expected_grant_revision: PublicConnectorRevision
+    display_name: str = Field(max_length=64, description="Safe display name")
+    description: str = Field(max_length=256, description="Safe display description")
+
+
+class ReplacePublicConnectorCredentialsCommand(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_project_revision: PublicConnectorRevision
+    expected_grant_revision: PublicConnectorRevision
+    endpoint: str = Field(
+        max_length=2048,
+        description="Stored HTTPS endpoint; write-only",
+        json_schema_extra={"writeOnly": True},
+    )
+    bearer_token: str = Field(
+        max_length=4096,
+        description="Static bearer credential; write-only",
+        json_schema_extra={"writeOnly": True},
+    )
+
+
+class RevokePublicConnectorCommand(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_project_revision: PublicConnectorRevision
+    expected_grant_revision: PublicConnectorRevision
+
+
+def _public_connector_request_schema(model: type[BaseModel]) -> dict[str, Any]:
+    return {
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": model.model_json_schema()}},
+        }
+    }
+
+
+def _public_connector_payload_error(
+    reason: str = "invalid_payload", status_code: int = 422
+) -> OctopError:
+    return OctopError.localized(
+        ErrorCode.PROJECT_PUBLIC_CONNECTOR_INVALID, status=status_code, details={"reason": reason}
+    )
+
+
+async def _read_public_connector_command(
+    request: Request, command: PublicConnectorCommand
+) -> dict[str, Any]:
+    """Bounded flat JSON reader; failures never expose caller values or key names."""
+    content_type = request.headers.get("content-type", "").split(";")
+    if content_type[0].strip().lower() != "application/json":
+        raise _public_connector_payload_error("unsupported_content_type", 415)
+    for parameter in content_type[1:]:
+        key, separator, value = parameter.strip().partition("=")
+        if key.lower() == "charset" and (
+            not separator or value.strip().strip('"').lower() != "utf-8"
+        ):
+            raise _public_connector_payload_error("unsupported_content_type", 415)
+    data = bytearray()
+    oversized = False
+    try:
+        async for chunk in request.stream():
+            if len(data) + len(chunk) > 65536:
+                oversized = True
+                break
+            data.extend(chunk)
+    except Exception:
+        raise _public_connector_payload_error("request_read_failed", 400) from None
+    if oversized:
+        raise _public_connector_payload_error("body_too_large", 413)
+
+    def unique(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError
+            result[key] = value
+        return result
+
+    def reject_constant(_value: str) -> None:
+        raise ValueError
+
+    try:
+        payload = json.loads(
+            data.decode("utf-8"), object_pairs_hook=unique, parse_constant=reject_constant
+        )
+        if type(payload) is not dict or set(payload) != _PUBLIC_CONNECTOR_COMMAND_KEYS[command]:
+            raise ValueError
+        for key, value in payload.items():
+            if key in ("expected_project_revision", "expected_grant_revision"):
+                if type(value) is not int or not 1 <= value <= 9007199254740991:
+                    raise ValueError
+            elif (
+                type(value) is not str
+                or len(value.encode("utf-8")) > _PUBLIC_CONNECTOR_STRING_CAPS[key]
+            ):
+                raise ValueError
+        if command == "create" and payload["kind"] != "http_mcp_static_bearer":
+            raise ValueError
+    except (ValueError, UnicodeError, RecursionError):
+        raise _public_connector_payload_error() from None
+    return payload
 
 
 class CreateProjectBody(BaseModel):
@@ -122,7 +314,12 @@ class SetExpertsBody(BaseModel):
 def _project_service(server: OctopServer) -> ProjectService:
     if server.services is None:
         raise OctopError(ErrorCode.INTERNAL_ERROR, "server services unavailable")
-    return ProjectService(server.services)
+    return ProjectService(
+        server.services,
+        public_connector_service=ProjectPublicConnectorService(
+            server.services.project_public_connector_repo
+        ),
+    )
 
 
 def _item_payload(view: ProjectView) -> dict[str, Any]:
@@ -145,6 +342,7 @@ def _detail_payload(view: ProjectDetailView) -> dict[str, Any]:
         **_item_payload(view),
         "instructions": view.instructions,
         "instructions_sha256": instructions_sha256(view.instructions),
+        "archived": view.archived,
     }
 
 
@@ -271,6 +469,135 @@ async def update_project(
         instructions=body.instructions,
     )
     return _detail_payload(view)
+
+
+@router.get(
+    "/{project_id}/public-connectors",
+    response_model=PublicConnectorCollectionResponse,
+    summary="Read safe project public connector settings",
+    description="Project members can read metadata only. Credentials and endpoints are never returned; this does not enable runtime tools.",
+)
+async def list_public_connectors(
+    project_id: str,
+    server: OctopServer = Depends(get_server),
+    user: User = Depends(current_user),
+) -> PublicConnectorCollection:
+    return await asyncio.get_running_loop().run_in_executor(
+        None,
+        partial(_project_service(server).list_public_connectors, project_id, user.id),
+    )
+
+
+@router.post(
+    "/{project_id}/public-connectors",
+    status_code=status.HTTP_201_CREATED,
+    response_model=PublicConnectorCollectionResponse,
+    summary="Store a project public connector configuration",
+    description="Project owner/admin only. Stores encrypted static bearer settings without contacting MCP or enabling runtime tools. Current project revision is required.",
+    openapi_extra=_public_connector_request_schema(CreatePublicConnectorCommand),
+)
+async def create_public_connector(
+    project_id: str,
+    request: Request,
+    server: OctopServer = Depends(get_server),
+    user: User = Depends(current_user),
+) -> PublicConnectorCollection:
+    command = await _read_public_connector_command(request, "create")
+    return await asyncio.get_running_loop().run_in_executor(
+        None,
+        partial(
+            _project_service(server).create_public_connector,
+            project_id,
+            user.id,
+            expected_project_revision=command["expected_project_revision"],
+            display_name=command["display_name"],
+            description=command["description"],
+            credential={"endpoint": command["endpoint"], "bearer_token": command["bearer_token"]},
+        ),
+    )
+
+
+@router.patch(
+    "/{project_id}/public-connectors/{connector_id}",
+    response_model=PublicConnectorCollectionResponse,
+    summary="Rename safe project public connector metadata",
+    description="Project owner/admin only; current project and grant revisions are required. Credentials and grant revision remain unchanged.",
+    openapi_extra=_public_connector_request_schema(RenamePublicConnectorCommand),
+)
+async def rename_public_connector(
+    project_id: str,
+    connector_id: str,
+    request: Request,
+    server: OctopServer = Depends(get_server),
+    user: User = Depends(current_user),
+) -> PublicConnectorCollection:
+    command = await _read_public_connector_command(request, "rename")
+    return await asyncio.get_running_loop().run_in_executor(
+        None,
+        partial(
+            _project_service(server).rename_public_connector,
+            project_id,
+            user.id,
+            connector_id,
+            **command,
+        ),
+    )
+
+
+@router.put(
+    "/{project_id}/public-connectors/{connector_id}/credentials",
+    response_model=PublicConnectorCollectionResponse,
+    summary="Replace write-only project public connector credentials",
+    description="Project owner/admin only. Current project and grant revisions are required; credentials are never read back or sent to MCP.",
+    openapi_extra=_public_connector_request_schema(ReplacePublicConnectorCredentialsCommand),
+)
+async def replace_public_connector_credentials(
+    project_id: str,
+    connector_id: str,
+    request: Request,
+    server: OctopServer = Depends(get_server),
+    user: User = Depends(current_user),
+) -> PublicConnectorCollection:
+    command = await _read_public_connector_command(request, "credentials")
+    return await asyncio.get_running_loop().run_in_executor(
+        None,
+        partial(
+            _project_service(server).replace_public_connector_credentials,
+            project_id,
+            user.id,
+            connector_id,
+            expected_project_revision=command["expected_project_revision"],
+            expected_grant_revision=command["expected_grant_revision"],
+            credential={"endpoint": command["endpoint"], "bearer_token": command["bearer_token"]},
+        ),
+    )
+
+
+@router.post(
+    "/{project_id}/public-connectors/{connector_id}/revoke",
+    response_model=PublicConnectorCollectionResponse,
+    summary="Revoke and erase project public connector credentials",
+    description="Project owner/admin only. Requires current project and grant revisions. Revocation is terminal and is allowed on archived projects.",
+    openapi_extra=_public_connector_request_schema(RevokePublicConnectorCommand),
+)
+async def revoke_public_connector(
+    project_id: str,
+    connector_id: str,
+    request: Request,
+    server: OctopServer = Depends(get_server),
+    user: User = Depends(current_user),
+) -> PublicConnectorCollection:
+    command = await _read_public_connector_command(request, "revoke")
+    return await asyncio.get_running_loop().run_in_executor(
+        None,
+        partial(
+            _project_service(server).revoke_public_connector,
+            project_id,
+            user.id,
+            connector_id,
+            **command,
+        ),
+    )
 
 
 @router.get("/{project_id}/members", summary="List project members")

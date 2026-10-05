@@ -15,10 +15,14 @@ from octop.infra.db.repos.project_public_connectors import (
     MAX_REVISION,
     PURPOSE,
     ProjectPublicConnectorRepo,
-    PublicConnectorCollection,
-    PublicConnectorFailure,
     PublicConnectorWrite,
     revision,
+)
+from octop.infra.db.repos.project_public_connectors import (
+    PublicConnectorCollection as PublicConnectorCollection,
+)
+from octop.infra.db.repos.project_public_connectors import (
+    PublicConnectorFailure as PublicConnectorFailure,
 )
 from octop.infra.utils.ulid import new_ulid
 

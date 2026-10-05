@@ -215,8 +215,8 @@ class InviteRedemption:
 class JoinRequestResolution:
     """Outcome of ``resolve_join_request``.
 
-    ``outcome`` is one of: approved, rejected, missing, resolved,
-    already_member.
+    ``outcome`` is one of: approved, rejected, missing, forbidden,
+    project_archived, resolved, already_member, applicant_unavailable, stale.
     """
 
     outcome: str
@@ -936,67 +936,140 @@ class ProjectRepo:
         resolver_user_id: int,
         approve: bool,
     ) -> JoinRequestResolution:
-        """Approve/reject a pending request; membership + status + event are
-        committed together or not at all."""
+        """Qualify and resolve atomically: members, project, users, then request.
+
+        The first request read locates the applicant only. Missing membership
+        rows are not gap locks; the project lock serializes the guarded insert.
+        """
         ts = now_ts()
         outcome = "approved" if approve else "rejected"
         try:
             with self._db.transaction() as conn:
-                row = conn.execute(
-                    "SELECT * FROM project_join_requests WHERE project_id = ? AND request_id = ?",
-                    (project_id, request_id),
-                ).fetchone()
-                if row is None:
-                    return JoinRequestResolution(outcome="missing")
-                if str(row["status"]) != "pending":
-                    raise _RequestConflict("resolved")
-                user_id = int(row["user_id"])
-                if approve:
-                    role = self._invite_role(conn, row["invite_id"])
-                    inserted = conn.execute(
-                        "INSERT INTO project_members(project_id, user_id, role, joined_at) "
-                        "VALUES (?, ?, ?, ?) ON CONFLICT (project_id, user_id) DO NOTHING",
-                        (project_id, user_id, role, ts),
+                try:
+                    locator = conn.execute(
+                        "SELECT user_id FROM project_join_requests WHERE project_id = ? AND request_id = ?",
+                        (project_id, request_id),
+                    ).fetchone()
+                    if locator is None:
+                        return JoinRequestResolution(outcome="missing")
+                    user_id = int(locator["user_id"])
+                    roles = project_plan_locks.member_roles(
+                        self._db, conn, project_id, [resolver_user_id, user_id], write=True
                     )
-                    if getattr(inserted, "rowcount", 1) == 0:
-                        raise _RequestConflict("already_member")
-                    event_type = EVENT_JOIN_APPROVED
-                    payload = json.dumps({"user_id": user_id, "role": role})
-                else:
-                    event_type = EVENT_JOIN_REJECTED
-                    payload = json.dumps({"user_id": user_id})
-                updated = conn.execute(
-                    "UPDATE project_join_requests "
-                    "SET status = ?, resolved_at = ?, resolved_by = ? "
-                    "WHERE project_id = ? AND request_id = ? AND status = 'pending'",
-                    (outcome, ts, resolver_user_id, project_id, request_id),
-                )
-                if getattr(updated, "rowcount", 1) == 0:
-                    raise _RequestConflict("resolved")
-                if approve:
-                    # Approval lifecycle events contain request IDs and stay
-                    # off the public timeline. Record the safe member join in
-                    # the same transaction so the activity feed is complete.
+                    project = project_plan_locks.project_row(self._db, conn, project_id, write=True)
+                    users = {}
+                    for locked_user_id in sorted({resolver_user_id, user_id}):
+                        users[locked_user_id] = conn.execute(
+                            "SELECT id, disabled FROM users WHERE id = ?"
+                            + project_plan_locks.lock_suffix(self._db, write=False),
+                            (locked_user_id,),
+                        ).fetchone()
+                    row = conn.execute(
+                        "SELECT * FROM project_join_requests WHERE project_id = ? AND request_id = ?"
+                        + project_plan_locks.lock_suffix(self._db, write=True),
+                        (project_id, request_id),
+                    ).fetchone()
+                    # Never follow a changed locator and acquire out-of-order locks.
+                    if (
+                        row is None
+                        or project is None
+                        or str(row["project_id"]) != project_id
+                        or str(row["request_id"]) != request_id
+                        or int(row["user_id"]) != user_id
+                    ):
+                        return JoinRequestResolution(outcome="missing")
+                    resolver = users[resolver_user_id]
+                    applicant = users[user_id]
+                    if (
+                        resolver is None
+                        or int(resolver["disabled"])
+                        or resolver_user_id not in roles
+                    ):
+                        return JoinRequestResolution(outcome="missing")
+                    if roles[resolver_user_id] not in {"owner", "admin"}:
+                        return JoinRequestResolution(outcome="forbidden")
+                    if applicant is None:
+                        return JoinRequestResolution(outcome="missing")
+                    if int(project["archived"]):
+                        return JoinRequestResolution(outcome="project_archived")
+                    if str(row["status"]) != "pending":
+                        request = conn.execute(
+                            _JOIN_REQUEST_SELECT + "WHERE r.project_id = ? AND r.request_id = ?",
+                            (project_id, request_id),
+                        ).fetchone()
+                        return JoinRequestResolution(
+                            outcome="resolved", request=ProjectJoinRequestRow.from_row(request)
+                        )
+                    if approve and user_id in roles:
+                        return JoinRequestResolution(outcome="already_member")
+                    if approve and int(applicant["disabled"]):
+                        return JoinRequestResolution(outcome="applicant_unavailable")
+                    if approve:
+                        role = self._invite_role(conn, row["invite_id"])
+                        inserted = conn.execute(
+                            "INSERT INTO project_members(project_id, user_id, role, joined_at) "
+                            "VALUES (?, ?, ?, ?) ON CONFLICT (project_id, user_id) DO NOTHING",
+                            (project_id, user_id, role, ts),
+                        )
+                        if inserted.rowcount != 1:
+                            raise _RequestConflict("stale")
+                        event_type = EVENT_JOIN_APPROVED
+                        payload = json.dumps({"user_id": user_id, "role": role})
+                    else:
+                        event_type = EVENT_JOIN_REJECTED
+                        payload = json.dumps({"user_id": user_id})
+                    updated = conn.execute(
+                        "UPDATE project_join_requests "
+                        "SET status = ?, resolved_at = ?, resolved_by = ? "
+                        "WHERE project_id = ? AND request_id = ? AND user_id = ? AND status = 'pending'",
+                        (outcome, ts, resolver_user_id, project_id, request_id, user_id),
+                    )
+                    if updated.rowcount != 1:
+                        raise _RequestConflict("stale")
+                    if approve:
+                        # Approval lifecycle events contain request IDs and stay
+                        # off the public timeline. Record the safe member join in
+                        # the same transaction so the activity feed is complete.
+                        _append_event(
+                            conn,
+                            project_id,
+                            user_id,
+                            EVENT_MEMBER_JOINED,
+                            str(user_id),
+                            json.dumps({"user_id": user_id, "role": role}),
+                            ts,
+                        )
                     _append_event(
-                        conn,
-                        project_id,
-                        user_id,
-                        EVENT_MEMBER_JOINED,
-                        str(user_id),
-                        json.dumps({"user_id": user_id, "role": role}),
-                        ts,
+                        conn, project_id, resolver_user_id, event_type, request_id, payload, ts
                     )
-                _append_event(
-                    conn, project_id, resolver_user_id, event_type, request_id, payload, ts
-                )
+                    request = conn.execute(
+                        _JOIN_REQUEST_SELECT + "WHERE r.project_id = ? AND r.request_id = ?",
+                        (project_id, request_id),
+                    ).fetchone()
+                    return JoinRequestResolution(
+                        outcome=outcome, request=ProjectJoinRequestRow.from_row(request)
+                    )
+                except BaseException as primary:
+                    # SqlitePool handles Exception; interrupted transactions need
+                    # explicit cleanup here before propagating the same primary.
+                    if self._db.dialect == "sqlite" and not isinstance(primary, Exception):
+                        try:
+                            conn.rollback()
+                        except BaseException as cleanup_error:
+                            try:
+                                conn.close()
+                            except BaseException as close_error:
+                                raise primary from BaseExceptionGroup(
+                                    "SQLite rollback failed and connection closure is uncertain",
+                                    [cleanup_error, close_error],
+                                )
+                            raise primary from cleanup_error
+                    raise
         except _RequestConflict as conflict:
             return JoinRequestResolution(
                 outcome=conflict.outcome,
                 request=self.get_join_request(project_id, request_id),
             )
-        return JoinRequestResolution(
-            outcome=outcome, request=self.get_join_request(project_id, request_id)
-        )
 
     @staticmethod
     def _invite_role(conn: Any, invite_id: object) -> str:

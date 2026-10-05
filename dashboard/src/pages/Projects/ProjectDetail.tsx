@@ -25,8 +25,9 @@
  * - fixed 项目配置 column: bounded cards for instructions, connectors,
  *   experts, skills and scheduled tasks. Real instructions render as a
  *   compact preview with a keyboard disclosure for the verbatim text and a
- *   real owner/admin edit entry into the project modal; connector / skill /
- *   scheduled-task cards stay honestly unavailable, and expert/member
+ *   real owner/admin edit entry into the project modal; connectors now expose
+ *   storage-only public tool settings, skill / scheduled-task cards stay
+ *   honestly unavailable, and expert/member
  *   operations keep using their own ACL-gated APIs. The column stays inline
  *   at every desktop width (narrow viewports are handled by the global nav
  *   collapsing to its rail, not by a disclosure)
@@ -44,7 +45,7 @@ import {
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Breadcrumb, Button, Input, Spin, Tabs, Tag, Typography } from "antd";
-import { Info, Link2, Pencil, ScrollText, Sparkles, Timer } from "lucide-react";
+import { Info, Pencil, ScrollText, Sparkles, Timer } from "lucide-react";
 import PageShell from "../../layouts/PageShell";
 import styles from "./ProjectDetail.module.less";
 import { EmptyState } from "../../components/EmptyState";
@@ -66,6 +67,7 @@ import CreateProjectModal from "./CreateProjectModal";
 import ProjectActivity from "./ProjectActivity";
 import ProjectAssets from "./ProjectAssets";
 import ProjectExperts from "./ProjectExperts";
+import ProjectPublicConnectors from "./ProjectPublicConnectors";
 import ProjectMembersPanel from "./ProjectMembersPanel";
 import ProjectPlan, { type ProjectPlanAccessLoss } from "./ProjectPlan";
 import ProjectTasks from "./ProjectTasks";
@@ -610,11 +612,13 @@ export default function ProjectDetail() {
         </div>
       </section>
 
-      {unavailableCard(
-        "connectors",
-        <Link2 size={14} aria-hidden />,
-        t("projects.config.connectors", "连接器"),
-      )}
+      {/*
+        ProjectPublicConnectors renders its own named <section aria-label="连接器">
+        landmark, so the card wrapper deliberately stays a plain styled div.
+      */}
+      <div className={styles.card}>
+        <ProjectPublicConnectors projectId={project.project_id} />
+      </div>
 
       {/*
         ProjectExperts renders its own named <section aria-label="专家">
@@ -638,8 +642,8 @@ export default function ProjectDetail() {
       )}
       <div className={styles.cardNote}>
         {t(
-          "projects.unavailable.config",
-          "暂未开放：连接器、技能与定时任务仍需后续后端支持。",
+          "projects.publicConnectors.configurationScopeNote",
+          "连接器设置已开放用于保存公共工具配置；技能与定时任务仍需后续后端支持，项目任务暂不能调用这些公共工具。",
         )}
       </div>
 
