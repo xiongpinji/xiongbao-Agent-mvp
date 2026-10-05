@@ -19,6 +19,194 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("real plan table", () => {
+  it("renders flat child rows with real parent text without adjacency or count changes", () => {
+    const onOpenParentTodo = vi.fn();
+    const props = makePlanRendererProps({ onOpenParentTodo, total: 73 });
+    props.definition = { ...props.definition, show_subtodos: true };
+    const child = makePlanTodo({
+      todo_id: "child",
+      title: "Filtered child",
+      parent_todo_id: "absent-parent",
+      parent_title: '<img src=x onerror="alert(1)">',
+      children_revision: null,
+    });
+    const root = makePlanTodo({
+      title: "Unrelated root",
+      children_count: 2,
+      done_children_count: 1,
+    });
+    props.lanes[0] = {
+      ...props.lanes[0],
+      items: [child, root],
+      serverCount: 73,
+    };
+    const { container } = render(<PlanTable {...props} />);
+    const table = screen.getByRole("table");
+    const titles = within(table).getAllByRole("button", {
+      name: /^查看待办：/,
+    });
+    expect(titles.map((button) => button.textContent)).toEqual([
+      "Filtered child",
+      "Unrelated root",
+    ]);
+    const parent = screen.getByRole("button", {
+      name: '父待办：<img src=x onerror="alert(1)">',
+    });
+    expect(parent.parentElement?.className).toContain("childTitle");
+    expect(container.querySelector("img")).toBeNull();
+    expect(screen.getByText("73 条待办")).toBeVisible();
+    expect(screen.getByText("1/2 已完成")).toBeVisible();
+    fireEvent.click(parent);
+    expect(onOpenParentTodo).toHaveBeenCalledExactlyOnceWith(
+      "absent-parent",
+      parent,
+    );
+  });
+
+  it("uses a localized generic parent action after a write lacks the query projection", () => {
+    const props = makePlanRendererProps();
+    const child = makePlanTodo({
+      parent_todo_id: "parent",
+      children_revision: null,
+      parent_title: "Former title",
+    });
+    props.definition = { ...props.definition, show_subtodos: true };
+    props.lanes[0] = { ...props.lanes[0], items: [child] };
+    const { rerender } = render(<PlanTable {...props} />);
+    expect(
+      screen.getByRole("button", { name: "父待办：Former title" }),
+    ).toBeVisible();
+    const { parent_title: _projection, ...written } = child;
+    rerender(
+      <PlanTable
+        {...props}
+        lanes={[{ ...props.lanes[0], items: [written] }]}
+      />,
+    );
+    expect(screen.queryByText("父待办：Former title")).toBeNull();
+    expect(screen.getByRole("button", { name: "查看父待办" })).toBeVisible();
+    rerender(
+      <PlanTable
+        {...props}
+        definition={{ ...props.definition, show_subtodos: false }}
+      />,
+    );
+    expect(
+      screen.queryByRole("button", { name: /^父待办：|查看父待办/ }),
+    ).toBeNull();
+  });
+
+  it("shows root subtodo counts in the title cell without changing columns or actions", () => {
+    const onOpenTodo = vi.fn();
+    const onTemporaryDefinitionChange = vi.fn();
+    const todo = makePlanTodo({ children_count: 3, done_children_count: 2 });
+    const props = makePlanRendererProps({
+      onOpenTodo,
+      onTemporaryDefinitionChange,
+    });
+    props.definition = {
+      ...props.definition,
+      fields: ["title", "due_date", "status"],
+    };
+    props.lanes[0] = { ...props.lanes[0], items: [todo] };
+    render(<PlanTable {...props} />);
+
+    const table = screen.getByRole("table");
+    const title = within(table).getByRole("button", {
+      name: "查看待办：Synthetic todo",
+    });
+    const titleCell = title.closest("td")!;
+    expect(within(titleCell).getByText("2/3 已完成")).toBeVisible();
+    expect(within(titleCell).getByText("子待办").closest("dl")).not.toBeNull();
+    expect(
+      within(table)
+        .getAllByRole("columnheader")
+        .map((header) => header.textContent),
+    ).toEqual(["选择", "标题", "截止日期", "状态", "操作"]);
+    expect(
+      within(table)
+        .getAllByRole("cell")
+        .map((cell) => cell.getAttribute("data-plan-field")),
+    ).toEqual([null, "title", "due_date", "status", null]);
+    expect(within(table).getAllByRole("row")).toHaveLength(2);
+    fireEvent.click(title);
+    expect(onOpenTodo).toHaveBeenCalledExactlyOnceWith(todo, title);
+    fireEvent.click(screen.getByRole("button", { name: "按标题排序" }));
+    expect(onTemporaryDefinitionChange).toHaveBeenCalledExactlyOnceWith({
+      ...props.definition,
+      sort: [{ field: "title", direction: "asc" }, ...props.definition.sort],
+    });
+    expect(
+      within(table).getByRole("button", { name: "修改状态" }),
+    ).toBeVisible();
+  });
+
+  it("hides subtodo counts for roots without children and for child snapshots", () => {
+    const props = makePlanRendererProps();
+    props.lanes[0] = {
+      ...props.lanes[0],
+      items: [
+        makePlanTodo({ title: "Empty root" }),
+        makePlanTodo({
+          todo_id: "child1",
+          title: "Child snapshot",
+          parent_todo_id: "parent1",
+          children_count: 3,
+          done_children_count: 2,
+        }),
+      ],
+    };
+    render(<PlanTable {...props} />);
+    expect(screen.queryByText("子待办")).toBeNull();
+    expect(screen.queryByText(/\d+\/\d+ 已完成/)).toBeNull();
+  });
+
+  it("updates root subtodo counts from newer props and opens the current snapshot", () => {
+    const onOpenTodo = vi.fn();
+    const props = makePlanRendererProps({ onOpenTodo });
+    props.lanes[0] = {
+      ...props.lanes[0],
+      items: [makePlanTodo({ children_count: 3, done_children_count: 2 })],
+    };
+    const { rerender } = render(<PlanTable {...props} />);
+    expect(screen.getByText("2/3 已完成")).toBeVisible();
+    const newer = makePlanTodo({
+      children_count: 4,
+      done_children_count: 3,
+      children_revision: 2,
+      display_revision: 2,
+    });
+    rerender(
+      <PlanTable {...props} lanes={[{ ...props.lanes[0], items: [newer] }]} />,
+    );
+    expect(screen.queryByText("2/3 已完成")).toBeNull();
+    expect(screen.getByText("3/4 已完成")).toBeVisible();
+    const title = screen.getByRole("button", {
+      name: "查看待办：Synthetic todo",
+    });
+    fireEvent.click(title);
+    expect(onOpenTodo).toHaveBeenCalledExactlyOnceWith(newer, title);
+  });
+
+  it("shows root subtodo counts to viewers while retaining manager-only controls", () => {
+    const props = makePlanRendererProps({
+      isManager: false,
+      canEdit: () => false,
+      canDelete: () => false,
+    });
+    props.lanes[0] = {
+      ...props.lanes[0],
+      items: [makePlanTodo({ children_count: 3, done_children_count: 2 })],
+    };
+    render(<PlanTable {...props} />);
+    expect(screen.getByText("2/3 已完成")).toBeVisible();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.queryByRole("button", { name: "修改状态" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "编辑" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "删除" })).toBeNull();
+    expect(screen.queryByRole("columnheader", { name: "选择" })).toBeNull();
+  });
+
   it("uses the ordered visible fields as actual columns", () => {
     const props = makePlanRendererProps();
     props.definition = {

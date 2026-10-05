@@ -516,7 +516,7 @@ def _all_pages(
         body = service.query(
             pid, user_id=actor, data={**request, **({"cursor": cursor} if cursor else {})}
         )
-        assert all(set(item) == _TODO_KEYS for item in body["items"])
+        assert all(set(item) == _TODO_KEYS | {"parent_title"} for item in body["items"])
         assert len(body["items"]) <= request.get("limit", 50)
         seen.extend(item["todo_id"] for item in body["items"])
         cursor = body["next_cursor"]
@@ -1390,4 +1390,80 @@ def test_real_committed_anchor_change_rechecks_version_deletion_and_complete_pre
         "stale_cursor_outcome": stale,
         "current_version_full_predicate_rechecked": predicate_rechecked,
         "fresh_ids": expected,
+    }
+
+
+def test_tabletrue_parent_snapshot_hierarchy_cursor_and_constant_budget(postgres_pair: Any) -> None:
+    from uuid import uuid4
+
+    from octop.infra.projects.todos import ProjectTodoService
+
+    env = postgres_pair
+    owner, _member, _admin, pid = _setup(env)
+    parent = _todo(env["first"], pid, owner, title="parent outside filter")
+    svc = ProjectTodoService(
+        SimpleNamespace(
+            project_todo_repo=ProjectTodoRepo(env["first"]),
+            config=SimpleNamespace(default_timezone="UTC"),
+        )
+    )
+
+    def create_child(index: int) -> Any:
+        row = ProjectTodoRepo(env["first"]).get(pid, parent.todo_id, user_id=owner)
+        assert row is not None
+        return svc.create_child(
+            pid,
+            parent.todo_id,
+            actor_user_id=owner,
+            expected_children_revision=row.children_revision,
+            client_request_id=str(uuid4()),
+            fields={"title": f"child {index}"},
+        )["item"]
+
+    create_child(1)
+    definition = _definition(
+        show_subtodos=True, filters=[{"field": "title", "op": "contains", "value": "child"}]
+    )
+    base = _request(env["first"], pid, owner, override_definition=definition)
+    reader = _QueryObservedPool(env["first"])
+    first = _service(reader).query(pid, user_id=owner, data=base)
+    count_first = sum(sql.lstrip().upper().startswith("SELECT") for sql in reader.statements)
+    assert first["total"] == 1 and first["items"][0]["parent_title"] == parent.title
+    for index in range(2, 7):
+        create_child(index)
+    second_reader = _QueryObservedPool(env["first"])
+    second = _service(second_reader).query(pid, user_id=owner, data=base)
+    count_second = sum(
+        sql.lstrip().upper().startswith("SELECT") for sql in second_reader.statements
+    )
+    assert second["total"] == 6 and len(second["items"]) == 6
+    assert count_first == count_second
+    _assert_rr(reader)
+    _assert_rr(second_reader)
+    first_true = _service(env["first"]).query(pid, user_id=owner, data={**base, "limit": 1})
+    false_base = {
+        **base,
+        "override_definition": _definition(sort=[{"field": "title", "direction": "asc"}]),
+    }
+    _todo(env["first"], pid, owner, title="another root")
+    first_false = _service(env["first"]).query(pid, user_id=owner, data={**false_base, "limit": 1})
+    create_child(7)
+    with pytest.raises(OctopError) as error:
+        _service(env["first"]).query(
+            pid, user_id=owner, data={**base, "cursor": first_true["next_cursor"]}
+        )
+    assert error.value.status == 409 and error.value.details == {"reason": "query_changed"}
+    # Use an unmodified root anchor, so only the hierarchy fingerprint can change.
+    with env["first"].transaction() as conn:
+        conn.execute(
+            "UPDATE project_plan_hierarchy_state SET revision=revision+1 WHERE project_id=?", (pid,)
+        )
+    false_after = _service(env["first"]).query(
+        pid, user_id=owner, data={**false_base, "cursor": first_false["next_cursor"]}
+    )
+    assert false_after["query_fingerprint"] == first_false["query_fingerprint"]
+    env["report"]["tabletrue_query_budget"] = {
+        "first_selects": count_first,
+        "second_selects": count_second,
+        "parent_snapshot": True,
     }

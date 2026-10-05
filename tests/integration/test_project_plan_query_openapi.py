@@ -84,6 +84,7 @@ async def test_actual_openapi_documents_strict_query_and_full_c1_response(
     definition_names = {item["$ref"].rsplit("/", 1)[1] for item in alternatives if "$ref" in item}
     assert definition_names == {
         "PlanDefinition",
+        "PublicTableDefinition",
         "BoardDefinition",
         "GanttDefinition",
         "CalendarDefinition",
@@ -117,7 +118,9 @@ async def test_actual_openapi_documents_strict_query_and_full_c1_response(
     result = _referenced(response_schema, schemas)
     assert set(result["properties"]) == set(result["required"]) == QUERY_KEYS
     todo = _referenced(result["properties"]["items"]["items"], schemas)
-    assert set(todo["properties"]) == set(todo["required"]) == _TODO_KEYS
+    assert set(todo["properties"]) == set(todo["required"]) == _TODO_KEYS | {"parent_title"}
+    assert _non_null(todo["properties"]["parent_title"])["type"] == "string"
+    assert "parent_title" not in schemas["TodoResponse"]["properties"]
     assert todo["properties"]["display_revision"]["type"] == "integer"
     assert todo["properties"]["display_revision"]["minimum"] == 1
     assert todo["properties"]["display_revision"]["maximum"] == 9007199254740991

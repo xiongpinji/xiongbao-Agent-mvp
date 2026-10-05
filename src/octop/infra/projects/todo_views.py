@@ -80,7 +80,8 @@ def _kind(value: object) -> ViewType:
 
 def _definition(value: object, view_type: object = UNSET) -> ViewDefinition:
     if isinstance(value, PlanDefinition):
-        value = value.model_dump(mode="json")
+        value = value.model_dump(mode="json", exclude_unset=True)
+    flag_present = isinstance(value, dict) and "show_subtodos" in value
     types: tuple[ViewType, ...] = (
         ("list", "table", "board", "gantt", "calendar")
         if view_type is UNSET
@@ -88,15 +89,22 @@ def _definition(value: object, view_type: object = UNSET) -> ViewDefinition:
     )
     compatible: list[str] = []
     canonical: dict[str, Any] | None = None
+    table_json: str | None = None
     for kind in types:
         try:
             parsed = parse_definition(kind, value).model_dump(mode="json")
         except (ValueError, TypeError):
             continue
-        if canonical is not None and parsed != canonical:
+        comparable = {key: item for key, item in parsed.items() if key != "show_subtodos"}
+        if canonical is not None and comparable != {
+            key: item for key, item in canonical.items() if key != "show_subtodos"
+        }:
             raise view_error("invalid_definition") from None
+        if kind == "table":
+            table_json = json.dumps(parsed, ensure_ascii=False, separators=(",", ":"))
         compatible.append(kind)
-        canonical = parsed
+        if canonical is None:
+            canonical = parsed
     if canonical is None:
         raise view_error("invalid_definition") from None
     assignees: set[int] = set()
@@ -116,6 +124,8 @@ def _definition(value: object, view_type: object = UNSET) -> ViewDefinition:
         tuple(sorted(assignees)),
         tuple(sorted(priorities)),
         tuple(sorted(tags)),
+        table_json,
+        flag_present,
     )
 
 

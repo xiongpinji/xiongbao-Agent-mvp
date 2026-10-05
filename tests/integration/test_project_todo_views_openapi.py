@@ -56,6 +56,7 @@ async def test_view_openapi_has_eight_methods_strict_versions_and_real_definitio
         definition_ref = body["properties"]["definition"]["$ref"].rsplit("/", 1)[1]
         assert definition_ref in (
             "PlanDefinition",
+            "PublicTableDefinition",
             "BoardDefinition",
             "GanttDefinition",
             "CalendarDefinition",
@@ -97,7 +98,13 @@ async def test_view_openapi_has_eight_methods_strict_versions_and_real_definitio
             value["properties"][required]["type"] == "integer"
             and value["properties"][required]["minimum"] == 1
         )
-    for schema in ("PlanDefinition", "BoardDefinition", "GanttDefinition", "CalendarDefinition"):
+    for schema in (
+        "PlanDefinition",
+        "PublicTableDefinition",
+        "BoardDefinition",
+        "GanttDefinition",
+        "CalendarDefinition",
+    ):
         value = schemas[schema]
         assert set(value["required"]) >= {"schema_version", "fields", "group_by", "filters", "sort"}
         assert value["additionalProperties"] is False
@@ -110,3 +117,11 @@ async def test_view_openapi_has_eight_methods_strict_versions_and_real_definitio
         "/CalendarSettings"
     )
     assert schemas["GanttDefinition"]["properties"]["gantt"]["$ref"].endswith("/GanttSettings")
+
+    table = schemas["PublicTableDefinition"]["properties"]
+    assert table["show_subtodos"]["type"] == "boolean"
+    assert table["show_subtodos"]["default"] is False
+    assert table["fields"]["maxItems"] == 10
+    assert "attachments" not in table["fields"]["items"]["enum"]
+    for name in ("PlanDefinition", "BoardDefinition", "GanttDefinition", "CalendarDefinition"):
+        assert "show_subtodos" not in schemas[name]["properties"]

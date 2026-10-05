@@ -340,6 +340,7 @@ async function queryFixture(
     body.override_definition ?? viewById(body.view_id).definition;
   const items = source.items.map((todo) => ({
     ...todo,
+    parent_title: null,
     catalog_revision: body.expected_catalog_revision,
   }));
   const groups =
@@ -1374,6 +1375,64 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "待办详情" })).toBeNull();
     await waitFor(() => expect(boardTrigger).toHaveFocus());
+  });
+  it("freshly reads an off-page parent from a child action and restores focus while preserving the deep-link callback", async () => {
+    const user = userEvent.setup();
+    const parent = {
+      ...todoOpen,
+      todo_id: "off-page-parent",
+      title: "Fresh parent detail",
+    };
+    const child = {
+      ...todoDoing,
+      todo_id: "child",
+      parent_todo_id: parent.todo_id,
+      children_revision: null,
+      children_count: 0,
+      done_children_count: 0,
+      parent_title: "Snapshot parent",
+    };
+    serverViews[0] = {
+      ...serverViews[0],
+      type: "table",
+      definition: { ...serverViews[0].definition, show_subtodos: true },
+    };
+    planViewsQuery.mockImplementation((_p: string, body: PlanQueryRequest) =>
+      Promise.resolve(
+        makePlanQueryResponse({
+          items: [child],
+          view_id: body.view_id,
+          view_version: body.expected_view_version,
+          catalog_revision: body.expected_catalog_revision,
+        }),
+      ),
+    );
+    get.mockResolvedValue(parent);
+    const onOpenTodo = vi.fn();
+    render(
+      <ProjectPlan
+        projectId="p1"
+        role="member"
+        members={members}
+        onOpenTodo={onOpenTodo}
+      />,
+    );
+    const trigger = await screen.findByRole("button", {
+      name: "父待办：Snapshot parent",
+    });
+    expect(screen.queryByText("Fresh parent detail")).toBeNull();
+    await user.click(trigger);
+    expect(
+      await screen.findByRole("dialog", { name: "待办详情" }),
+    ).toBeVisible();
+    await screen.findByText("Fresh parent detail");
+    expect(get).toHaveBeenCalledWith("p1", parent.todo_id);
+    expect(onOpenTodo).toHaveBeenCalledWith(parent.todo_id);
+    await user.click(
+      screen.getByRole("textbox", { name: "评论", exact: true }),
+    );
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
   it("renders the same todo ids in the table and the board from one response", async () => {
     renderPlan("owner");

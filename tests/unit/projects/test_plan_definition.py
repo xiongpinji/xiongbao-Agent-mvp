@@ -120,14 +120,16 @@ def test_definition_requires_every_explicit_base_field(missing):
 
 def test_minimal_definition_keeps_empty_sort_and_ordered_visible_fields():
     value = _definition(fields=["title", "source", "created_at", "status"])
-    assert _dump(value) == value
+    assert _dump(value) == dict(value, show_subtodos=False)
 
 
 @pytest.mark.parametrize("view_type", ["table", "list", "board"])
 @pytest.mark.parametrize("group_by", ["status", "assignee", "priority", "tag", "source"])
 def test_supported_grouping_is_preserved(view_type, group_by):
     value = _definition(group_by=group_by)
-    assert _dump(value, view_type) == value
+    assert _dump(value, view_type) == (
+        dict(value, show_subtodos=False) if view_type == "table" else value
+    )
 
 
 def test_board_and_date_views_enforce_type_specific_configurations():
@@ -178,7 +180,7 @@ def test_definition_preserves_only_its_actual_compatible_view_types(value, compa
             parsed = _dump(copy.deepcopy(value), view_type)
         except ValueError:
             continue
-        assert parsed == value
+        assert parsed == (dict(value, show_subtodos=False) if view_type == "table" else value)
         accepted_types.add(view_type)
     assert accepted_types == compatible_types
 
@@ -221,7 +223,7 @@ VALID_FILTERS = [
 @pytest.mark.parametrize("condition", VALID_FILTERS)
 def test_strict_filter_variants_preserve_values_including_null_and_literals(condition):
     value = _definition(filters=[condition])
-    assert _dump(value) == value
+    assert _dump(value) == dict(value, show_subtodos=False)
 
 
 @pytest.mark.parametrize("condition", VALID_FILTERS)
@@ -283,7 +285,7 @@ def test_filter_types_bounds_and_operators_are_strict(condition):
 def test_twelve_filters_allowed_and_thirteenth_rejected_without_normalizing_literal():
     condition = {"field": "title", "op": "contains", "value": "\ufdfa" * 200}
     accepted = _definition(filters=[copy.deepcopy(condition) for _ in range(12)])
-    assert _dump(accepted) == accepted
+    assert _dump(accepted) == dict(accepted, show_subtodos=False)
     with pytest.raises(ValueError):
         _dump(_definition(filters=[condition] * 13))
 
@@ -322,7 +324,7 @@ def test_filter_collection_limits_apply_to_distinct_structurally_valid_ids(field
 @pytest.mark.parametrize("direction", ["asc", "desc"])
 def test_each_allowed_sort_field_and_direction_is_preserved(field, direction):
     value = _definition(sort=[{"field": field, "direction": direction}])
-    assert _dump(value) == value
+    assert _dump(value) == dict(value, show_subtodos=False)
 
 
 @pytest.mark.parametrize(
@@ -341,7 +343,7 @@ def test_each_allowed_sort_field_and_direction_is_preserved(field, direction):
 )
 def test_two_and_three_distinct_sort_fields_keep_order_and_direction(sort):
     value = _definition(sort=sort)
-    assert _dump(value) == value
+    assert _dump(value) == dict(value, show_subtodos=False)
 
 
 def _cursor(**changes):
@@ -564,6 +566,7 @@ def test_internal_table_has_complete_strict_fields_without_public_attachment_act
     from octop.infra.projects.plan_definition import TableDefinition
 
     value = default_definition("table")
+    value.pop("show_subtodos")
     value["fields"] = [
         "title",
         "status",
@@ -608,3 +611,24 @@ def test_legacy_cursor_is_validated_for_retirement_and_never_encoded():
         parse_cursor(_token(dict(legacy, last_version=PG_MAX + 1)), max_version=PG_MAX)
     with pytest.raises(ValueError):
         parse_cursor(_token(dict(legacy, last_version=True)), max_version=PG_MAX)
+
+
+@pytest.mark.parametrize("value", [None, 0, 1, 0.0, 1.0, "true", "false", [], {}])
+def test_public_table_subtodos_is_strict_bool(value):
+    with pytest.raises(ValueError):
+        parse_definition("table", _definition(show_subtodos=value))
+
+
+@pytest.mark.parametrize("flag", [True, False])
+def test_public_table_subtodos_roundtrip_and_non_table_rejection(flag):
+    value = _definition(show_subtodos=flag)
+    assert _dump(value) == value
+    for kind in ("list", "board", "calendar", "gantt"):
+        invalid = default_definition(kind)
+        invalid["show_subtodos"] = flag
+        with pytest.raises(ValueError):
+            parse_definition(kind, invalid)
+
+
+def test_legacy_table_definition_normalizes_without_physical_backfill():
+    assert _dump(_definition())["show_subtodos"] is False

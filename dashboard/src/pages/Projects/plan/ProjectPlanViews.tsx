@@ -11,6 +11,7 @@ import { Alert, Button, Input, Modal, Select, Spin, Tag } from "antd";
 import { useTranslation } from "react-i18next";
 import {
   projectPlanViewsApi,
+  normalizePlanDefinition,
   type AnyPlanDefinition,
   type PlanQueryGroupKey,
   type PlanQueryWindow,
@@ -195,6 +196,11 @@ export interface ProjectPlanViewsProps {
     trigger: HTMLElement | null,
     scope: PlanOperationScope,
   ): void;
+  onOpenParentTodo(
+    todoId: string,
+    trigger: HTMLElement | null,
+    scope: PlanOperationScope,
+  ): void;
   onProposeTodoPatch(
     todo: ProjectTodo,
     proposal: PlanTodoPatchProposal,
@@ -229,6 +235,7 @@ export interface PlanRendererProps {
   canEdit(todo: ProjectTodo): boolean;
   canDelete(todo: ProjectTodo): boolean;
   onOpenTodo(todo: ProjectTodo, trigger: HTMLElement | null): void;
+  onOpenParentTodo(todoId: string, trigger: HTMLElement | null): void;
   onEditTodo(todo: ProjectTodo): void;
   onDeleteTodo(todo: ProjectTodo): void;
   onProposeTodoPatch(
@@ -270,6 +277,9 @@ const storage = (): PlanSelectionStorage | null => {
   }
 };
 const definitionMatches = (type: PlanViewType, definition: AnyPlanDefinition) =>
+  (type === "table"
+    ? typeof definition.show_subtodos === "boolean"
+    : !("show_subtodos" in definition)) &&
   definition.schema_version === 1 &&
   definition.fields[0] === "title" &&
   new Set(definition.fields).size === definition.fields.length &&
@@ -369,7 +379,9 @@ const ProjectPlanViewsContent = forwardRef<
   const definition =
     draft?.baseline.view.view_id === selectedViewId
       ? draft.definition
-      : view?.definition ?? null;
+      : view
+      ? normalizePlanDefinition(view.type, view.definition)
+      : null;
   const isManager = props.role === "owner" || props.role === "admin";
   const catalogReady =
     !!props.catalog &&
@@ -377,7 +389,14 @@ const ProjectPlanViewsContent = forwardRef<
     !props.catalogLoading &&
     !props.catalogError;
   const draftDirty =
-    !!draft && !same(draft.definition, draft.baseline.view.definition);
+    !!draft &&
+    !same(
+      draft.definition,
+      normalizePlanDefinition(
+        draft.baseline.view.type,
+        draft.baseline.view.definition,
+      ),
+    );
   const current = useRef({
     view,
     definition,
@@ -1176,6 +1195,13 @@ const ProjectPlanViewsContent = forwardRef<
             const scope = queryRef.current.captureOperation("detail");
             if (scope) callbacks.current.onOpenTodo(todo, trigger, scope);
           },
+          onOpenParentTodo: (todoId, trigger) => {
+            if (!boundScope || !queryRef.current.isCurrentOperation(boundScope))
+              return;
+            const scope = queryRef.current.captureOperation("detail");
+            if (scope)
+              callbacks.current.onOpenParentTodo(todoId, trigger, scope);
+          },
           onEditTodo: (todo) => {
             if (
               !boundScope ||
@@ -1566,7 +1592,9 @@ const ProjectPlanViewsContent = forwardRef<
                   collectionRevision: viewList!.revision,
                   catalogRevision: props.catalog.revision,
                 },
-                definition: copy(view.definition),
+                definition: copy(
+                  normalizePlanDefinition(view.type, view.definition),
+                ),
                 locked: false,
                 comparison: null,
               });

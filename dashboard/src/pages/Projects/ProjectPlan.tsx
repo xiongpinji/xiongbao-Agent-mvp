@@ -684,6 +684,16 @@ function ProjectPlanContent({
     attachDetail(todo.todo_id, scope, trigger);
     latestCallbacks.current.onOpenTodo?.(todo.todo_id);
   };
+  const openParentDetail = (
+    todoId: string,
+    trigger: HTMLElement | null,
+    scope: PlanOperationScope,
+  ) => {
+    if (!current(scope)) return;
+    suppressedDeepLink.current = null;
+    attachDetail(todoId, scope, trigger);
+    latestCallbacks.current.onOpenTodo?.(todoId);
+  };
 
   const loadedCallback = useRef<
     (todos: readonly ProjectTodo[], scope: PlanOperationScope) => void
@@ -1626,6 +1636,7 @@ function ProjectPlanContent({
             void deleteTodo(todo, scope);
           }}
           onOpenTodo={openDetail}
+          onOpenParentTodo={openParentDetail}
           onProposeTodoPatch={proposePatch}
           onBulkTodo={bulkTodos}
           onLoadedTodosChanged={onLoaded}

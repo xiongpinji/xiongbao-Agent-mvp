@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from octop.infra.db.pool import DatabasePool
@@ -29,6 +29,7 @@ class QueryPage:
     unscheduled_total: int | None
     groups: list[dict[str, Any]]
     has_more: bool
+    parent_titles: dict[str, str | None] = field(default_factory=dict)
 
 
 class QueryAnchorChanged(Exception):
@@ -398,9 +399,14 @@ class ProjectPlanQueryRepo:
         anchor: tuple[str, int] | None = None,
     ) -> QueryPage:
         predicate, params = self._filters(definition["filters"], today)
+        show_subtodos = view_type == "table" and definition.get("show_subtodos", False) is True
+        root_predicate = (
+            "TRUE"
+            if show_subtodos
+            else "NOT EXISTS (SELECT 1 FROM project_todo_children r WHERE r.project_id=t.project_id AND r.child_todo_id=t.todo_id)"
+        )
         where = (
-            "t.project_id=? AND t.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM project_todo_children r WHERE r.project_id=t.project_id AND r.child_todo_id=t.todo_id) AND "
-            + predicate
+            "t.project_id=? AND t.deleted_at IS NULL AND " + root_predicate + " AND " + predicate
         )
         parameters = [project_id, *params]
         # Count every authorized matching todo, including corrupt missing state.
@@ -415,6 +421,18 @@ class ProjectPlanQueryRepo:
         ).fetchone()
         if bad_state is not None:
             raise RuntimeError("todo display state is missing or outside its range")
+        if show_subtodos:
+            bad_parent = conn.execute(
+                "SELECT 1 FROM project_todos t JOIN project_todo_children r "
+                "ON r.project_id=t.project_id AND r.child_todo_id=t.todo_id "
+                "LEFT JOIN project_todos parent ON parent.project_id=r.project_id "
+                "AND parent.todo_id=r.parent_todo_id AND parent.deleted_at IS NULL WHERE "
+                + where
+                + " AND parent.todo_id IS NULL LIMIT 1",
+                parameters,
+            ).fetchone()
+            if bad_parent is not None:
+                raise RuntimeError("plan query child has no active parent in its project")
         total = int(
             conn.execute(
                 "SELECT COUNT(*) FROM project_todos t WHERE " + where, parameters
@@ -488,8 +506,11 @@ class ProjectPlanQueryRepo:
         rows = conn.execute(
             "SELECT t.*,d.revision AS display_revision"
             + locks.RELATIONSHIP_PAGE_COLUMNS
+            + ", query_parent.title AS __parent_title"
             + source
             + locks.relationship_page_joins("t")
+            + " LEFT JOIN project_todos query_parent ON query_parent.project_id=t.project_id "
+            "AND query_parent.todo_id=incoming_relation.parent_todo_id AND query_parent.deleted_at IS NULL"
             + " WHERE "
             + scoped_where
             + " AND "
@@ -520,5 +541,11 @@ class ProjectPlanQueryRepo:
             for row in rows
         ]
         return QueryPage(
-            payloads[:limit], total, matched_total, unscheduled_total, groups, len(rows) > limit
+            payloads[:limit],
+            total,
+            matched_total,
+            unscheduled_total,
+            groups,
+            len(rows) > limit,
+            {str(row["todo_id"]): row["__parent_title"] for row in rows[:limit]},
         )

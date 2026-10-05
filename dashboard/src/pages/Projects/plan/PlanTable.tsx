@@ -2,6 +2,7 @@ import type { PlanRendererProps } from "./ProjectPlanViews";
 import type {
   PlanSortSpec,
   PlanVisibleField,
+  PlanQueryTodo,
 } from "../../../api/modules/projectPlanViews";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -10,6 +11,7 @@ import {
   PlanFieldLabel,
   PlanLaneFooter,
   PlanSelectionCheckbox,
+  PlanSubtodoSummary,
   PlanTodoActions,
   PlanTodoPatchDialog,
   PlanTodoFieldValue,
@@ -20,6 +22,7 @@ import {
 } from "./PlanTodoAttributes";
 import type { PlanTodoEditRequest } from "./PlanTodoAttributes";
 import styles from "./PlanTable.module.less";
+import attributeStyles from "./PlanTodoAttributes.module.less";
 
 export default function PlanTable(props: PlanRendererProps) {
   const { t } = useTranslation();
@@ -29,6 +32,8 @@ export default function PlanTable(props: PlanRendererProps) {
   >(null);
   const nextRequest = useRef(0);
   const frame = usePlanRendererFrame(props);
+  const showSubtodos =
+    props.view.type === "table" && props.definition.show_subtodos === true;
   const selection = usePlanSelection(props);
   useEffect(() => {
     setExpanded([]);
@@ -177,15 +182,60 @@ export default function PlanTable(props: PlanRendererProps) {
                           )}
                           {props.definition.fields.map((field) => (
                             <td key={field} data-plan-field={field}>
-                              <PlanTodoFieldValue
-                                todo={todo}
-                                field={field}
-                                catalog={props.catalog}
-                                members={props.members}
-                                serverToday={props.serverToday}
-                                serverTimezone={props.serverTimezone}
-                                onOpenTodo={props.onOpenTodo}
-                              />
+                              <div
+                                className={
+                                  field === "title" &&
+                                  showSubtodos &&
+                                  todo.parent_todo_id !== null
+                                    ? styles.childTitle
+                                    : undefined
+                                }
+                              >
+                                <PlanTodoFieldValue
+                                  todo={todo}
+                                  field={field}
+                                  catalog={props.catalog}
+                                  members={props.members}
+                                  serverToday={props.serverToday}
+                                  serverTimezone={props.serverTimezone}
+                                  onOpenTodo={props.onOpenTodo}
+                                />
+                                {field === "title" &&
+                                  showSubtodos &&
+                                  todo.parent_todo_id !== null && (
+                                    <button
+                                      type="button"
+                                      className={styles.parentAction}
+                                      onClick={(event) =>
+                                        props.onOpenParentTodo(
+                                          todo.parent_todo_id!,
+                                          event.currentTarget,
+                                        )
+                                      }
+                                    >
+                                      {typeof (todo as Partial<PlanQueryTodo>)
+                                        .parent_title === "string"
+                                        ? t(
+                                            "projects.planViews.parentTodo",
+                                            "父待办：{{title}}",
+                                            {
+                                              title: (
+                                                todo as Partial<PlanQueryTodo>
+                                              ).parent_title,
+                                            },
+                                          )
+                                        : t(
+                                            "projects.planViews.viewParent",
+                                            "查看父待办",
+                                          )}
+                                    </button>
+                                  )}
+                                {field === "title" && (
+                                  <dl className={attributeStyles.attributes}>
+                                    <PlanSubtodoSummary todo={todo} />
+                                  </dl>
+                                )}
+                              </div>
                             </td>
                           ))}
                           <td>

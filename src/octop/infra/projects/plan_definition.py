@@ -203,6 +203,15 @@ class PlanDefinition(_DefinitionBase):
     fields: Annotated[list[VisibleField], Field(min_length=1, max_length=10)]
 
 
+class PublicTableDefinition(PlanDefinition):
+    """Public table settings, without dormant attachment fields."""
+
+    show_subtodos: StrictBool = Field(
+        default=False,
+        description="Include active first-level subtodos as independently filtered table rows.",
+    )
+
+
 TableVisibleField = Literal[
     "title",
     "status",
@@ -219,7 +228,7 @@ TableVisibleField = Literal[
 
 
 class TableDefinition(_DefinitionBase):
-    """Internal complete D1 table contract; public parsing remains on PlanDefinition."""
+    """Dormant internal D1 attachment contract; not used by public parsing."""
 
     fields: Annotated[list[TableVisibleField], Field(min_length=1, max_length=11)]
 
@@ -249,7 +258,7 @@ class GanttDefinition(PlanDefinition):
 
 _MODELS: dict[ViewType, type[PlanDefinition]] = {
     "list": PlanDefinition,
-    "table": PlanDefinition,
+    "table": PublicTableDefinition,
     "board": BoardDefinition,
     "calendar": CalendarDefinition,
     "gantt": GanttDefinition,
@@ -276,7 +285,9 @@ def default_definition(view_type: ViewType) -> dict[str, Any]:
         "filters": [],
         "sort": [{"field": "updated_at", "direction": "desc"}],
     }
-    if kind == "calendar":
+    if kind == "table":
+        value["show_subtodos"] = False
+    elif kind == "calendar":
         value["calendar"] = {"date_basis": "due_date", "mode": "month"}
     elif kind == "gantt":
         value["gantt"] = {"zoom": "week"}

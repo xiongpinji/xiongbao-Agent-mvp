@@ -57,7 +57,7 @@ async def _query(
 async def _ok(ctx: dict[str, Any], **values: Any) -> dict[str, Any]:
     body = (await _query(ctx, **values)).json()
     assert set(body) == QUERY_KEYS
-    assert all(set(item) == _TODO_KEYS for item in body["items"])
+    assert all(set(item) == _TODO_KEYS | {"parent_title"} for item in body["items"])
     assert type(body["total"]) is int and type(body["matched_total"]) is int
     assert body["total"] >= 0 and body["matched_total"] >= 0
     assert body["server_timezone"] == ctx["srv"].services.config.default_timezone
@@ -163,7 +163,8 @@ async def test_real_query_route_after_catalog_and_view_controls(
     assert response.status_code == 200, response.text
     body = response.json()
     assert [item["todo_id"] for item in body["items"]] == [todo["todo_id"]]
-    assert set(body["items"][0]) == _TODO_KEYS
+    assert set(body["items"][0]) == _TODO_KEYS | {"parent_title"}
+    assert body["items"][0]["parent_title"] is None
     assert body["total"] == body["matched_total"] == 1
     assert body["unscheduled_total"] is None
     assert body["next_cursor"] is None
@@ -313,7 +314,7 @@ async def test_member_override_returns_full_c1_dto_and_does_not_save_shared_stat
         fields=["title"], filters=[{"field": "title", "op": "contains", "value": "keep"}]
     )
     result = await _ok(ctx, auth=ctx["member_auth"], override_definition=definition)
-    assert result["items"] == [first]
+    assert result["items"] == [dict(first, parent_title=None)]
     assert result["total"] == result["matched_total"] == 1
     assert result["groups"] == [] and result["unscheduled_total"] is None
     assert result["view_version"] == ctx["views"]["items"][0]["version"]
@@ -1030,3 +1031,53 @@ async def test_query_errors_use_the_current_users_zh_and_en_locale(env_with_prov
     assert messages[0] != messages[1]
     assert any("\u4e00" <= character <= "\u9fff" for character in messages[0])
     assert all(not "\u4e00" <= character <= "\u9fff" for character in messages[1])
+
+
+async def test_tabletrue_query_child_has_snapshot_parent_and_legacy_http_dto_unchanged(
+    env_with_provider,
+):
+    from uuid import uuid4
+
+    ctx = await _context(env_with_provider)
+    parent = await _new_todo(ctx, title="parent outside filter")
+    root = f"/api/projects/{ctx['pid']}/todos"
+    child_response = await ctx["client"].post(
+        root + "/" + parent["todo_id"] + "/children",
+        headers=ctx["owner_auth"],
+        json={
+            "title": "only child needle",
+            "expected_children_revision": 1,
+            "client_request_id": str(uuid4()),
+        },
+    )
+    assert child_response.status_code == 201, child_response.text
+    child = child_response.json()["item"]
+    page = await _ok(
+        ctx,
+        override_definition=_definition(
+            show_subtodos=True, filters=[{"field": "title", "op": "contains", "value": "needle"}]
+        ),
+    )
+    assert [item["todo_id"] for item in page["items"]] == [child["todo_id"]]
+    assert page["items"][0]["parent_title"] == parent["title"]
+    assert page["total"] == page["matched_total"] == 1
+    hidden = await _ok(
+        ctx,
+        override_definition=_definition(
+            filters=[{"field": "title", "op": "contains", "value": "needle"}]
+        ),
+    )
+    assert hidden["items"] == [] and hidden["total"] == 0
+    legacy = await ctx["client"].get(root, headers=ctx["owner_auth"])
+    assert legacy.status_code == 200, legacy.text
+    assert all(set(item) == _TODO_KEYS for item in legacy.json()["items"])
+    assert child["todo_id"] not in {item["todo_id"] for item in legacy.json()["items"]}
+    detail = await ctx["client"].get(root + "/" + child["todo_id"], headers=ctx["owner_auth"])
+    assert detail.status_code == 200 and set(detail.json()) == _TODO_KEYS
+    unauthorized = await _query(
+        ctx,
+        override_definition=_definition(show_subtodos=True),
+        auth=ctx["outsider_auth"],
+        status=404,
+    )
+    assert parent["title"] not in unauthorized.text

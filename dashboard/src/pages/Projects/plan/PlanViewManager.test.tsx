@@ -343,6 +343,8 @@ describe("C2 shared view manager behavior", () => {
               sort: [{ field: "updated_at", direction: "desc" }],
               gantt: { zoom: "week" },
             }
+          : type === "table"
+          ? { ...tableView().definition, filters: [], show_subtodos: false }
           : { ...tableView().definition, filters: [] };
       expect(props.onCreate).toHaveBeenCalledWith({
         baseline: { revision: 7, catalogRevision: 5 },

@@ -169,7 +169,7 @@ export function PlanTodoFieldValue({
   }
 }
 
-function PlanSubtodoSummary({ todo }: { todo: ProjectTodo }) {
+export function PlanSubtodoSummary({ todo }: { todo: ProjectTodo }) {
   const { t } = useTranslation();
   if (todo.parent_todo_id !== null || todo.children_count === 0) return null;
   return (

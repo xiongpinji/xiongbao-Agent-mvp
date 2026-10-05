@@ -24,6 +24,7 @@ import type { ProjectTodoCatalog } from "../../../api/modules/projectTodoCatalog
 import type { PlanViewComparison } from "./ProjectPlanViews";
 import PlanViewSettings, {
   type PlanViewSettingsProps,
+  planDefinitionForType,
 } from "./PlanViewSettings";
 
 const localeState = vi.hoisted(() => ({ language: "zh" }));
@@ -99,6 +100,7 @@ function viewFixture(): PlanView & { type: "table" } {
     name: "项目计划",
     type: "table",
     definition: {
+      show_subtodos: false,
       schema_version: 1,
       fields: ["title", "status", "assignee", "priority", "tags"],
       group_by: null,
@@ -208,6 +210,65 @@ async function choose(
 }
 
 describe("C2 complete definition settings behavior", () => {
+  it("normalizes a legacy table off and applies explicit true then false for a member", () => {
+    const props = settingsProps({ isManager: false });
+    const { show_subtodos: _flag, ...legacy } = props.definition;
+    props.definition = legacy;
+    render(settingsTree(props));
+    const toggle = screen.getByRole("checkbox", { name: "显示子待办" });
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole("button", { name: "应用临时调整" }));
+    expect(props.onTemporaryChange).toHaveBeenLastCalledWith({
+      ...legacy,
+      show_subtodos: true,
+    });
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole("button", { name: "应用临时调整" }));
+    expect(props.onTemporaryChange).toHaveBeenLastCalledWith({
+      ...legacy,
+      show_subtodos: false,
+    });
+    expect(props.onSave).not.toHaveBeenCalled();
+  });
+
+  it("saves the explicit flag with the original shared baseline", async () => {
+    const props = settingsProps();
+    render(settingsTree(props));
+    fireEvent.click(screen.getByRole("checkbox", { name: "显示子待办" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存到共享视图" }));
+    await waitFor(() =>
+      expect(props.onSave).toHaveBeenCalledWith({
+        baseline: props.baseline,
+        definition: { ...props.definition, show_subtodos: true },
+      }),
+    );
+  });
+
+  it.each(["list", "board", "gantt", "calendar"] as const)(
+    "omits the table flag when switching to %s and rejects a forged flag",
+    (type) => {
+      const definition = planDefinitionForType(type, {
+        ...viewFixture().definition,
+        show_subtodos: true,
+      });
+      expect(definition).not.toHaveProperty("show_subtodos");
+      const view = { ...viewFixture(), type, definition } as PlanView;
+      const props = settingsProps({
+        view,
+        definition: { ...definition, show_subtodos: true },
+      });
+      render(settingsTree(props));
+      expect(screen.queryByRole("checkbox", { name: "显示子待办" })).toBeNull();
+      expect(
+        screen.getByRole("button", { name: "应用临时调整" }),
+      ).toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: "保存到共享视图" }),
+      ).toBeDisabled();
+    },
+  );
+
   it("collects the real accessible settings with separate temporary and shared actions", () => {
     render(settingsTree(settingsProps()));
     expect(
@@ -351,7 +412,7 @@ describe("C2 complete definition settings behavior", () => {
       ...viewFixture(),
       type: "calendar",
       definition: {
-        ...viewFixture().definition,
+        ...planDefinitionForType("calendar", viewFixture().definition),
         group_by: null,
         calendar: { date_basis: "due_date", mode: "month" },
       },
@@ -373,7 +434,7 @@ describe("C2 complete definition settings behavior", () => {
       ...viewFixture(),
       type: "gantt",
       definition: {
-        ...viewFixture().definition,
+        ...planDefinitionForType("gantt", viewFixture().definition),
         group_by: null,
         gantt: { zoom: "week" },
       },
@@ -393,7 +454,7 @@ describe("C2 complete definition settings behavior", () => {
     const view: PlanView = {
       ...viewFixture(),
       type: "board",
-      definition: { ...viewFixture().definition, group_by: "status" },
+      definition: planDefinitionForType("board", viewFixture().definition),
     };
     render(settingsTree(settingsProps({ view })));
     await user.click(screen.getByRole("combobox", { name: "分组方式" }));
@@ -655,7 +716,7 @@ describe("C2 complete definition settings behavior", () => {
     expect(props.onCancel).not.toHaveBeenCalled();
   });
 
-  it("renders English labels from actual resources without fake attachment or subtodo controls", () => {
+  it("renders English labels and the table subtodo toggle without attachment controls", () => {
     localeState.language = "en";
     render(settingsTree(settingsProps()));
     expect(
@@ -668,8 +729,11 @@ describe("C2 complete definition settings behavior", () => {
       screen.getByRole("checkbox", { name: "Updated" }),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("checkbox", { name: /attachment|subtodo/i }),
+      screen.queryByRole("checkbox", { name: /attachment/i }),
     ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("checkbox", { name: "Show subtodos" }),
+    ).not.toBeChecked();
   });
 });
 describe("C2 settings draft and strict-definition boundaries", () => {
@@ -853,7 +917,7 @@ describe("C2 settings draft and strict-definition boundaries", () => {
       ...viewFixture(),
       type: "board",
       version: 4,
-      definition: { ...viewFixture().definition, group_by: "status" },
+      definition: planDefinitionForType("board", viewFixture().definition),
     };
     rerender(settingsTree({ ...props, view: board, conflictLocked: true }));
     expect(screen.getByRole("checkbox", { name: "优先级" })).not.toBeChecked();

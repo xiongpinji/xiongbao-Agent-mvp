@@ -68,6 +68,225 @@ beforeEach(() => {
   getCatalog.mockReset().mockResolvedValue(makePlanCatalog());
 });
 describe("bounded query lanes and original operation scopes", () => {
+  it("invalidates false cursors and ignores late false responses after switching to true", async () => {
+    const stale = deferred<PlanQueryResponse>();
+    const child = makePlanTodo({
+      todo_id: "child",
+      parent_todo_id: "parent",
+      parent_title: "Current parent",
+      children_revision: null,
+    });
+    query.mockImplementation((_p: string, body: PlanQueryRequest) =>
+      body.override_definition?.show_subtodos === true
+        ? Promise.resolve(
+            makePlanQueryResponse({
+              items: [child],
+              next_cursor: "true-cursor",
+            }),
+          )
+        : stale.promise,
+    );
+    const { result, rerender } = renderHook(
+      ({ flag }) =>
+        useProjectPlanQuery(
+          options({
+            overrideDefinition: {
+              ...makePlanDefinition(),
+              show_subtodos: flag,
+            },
+          }),
+        ),
+      { initialProps: { flag: false } },
+    );
+    await waitFor(() => expect(query).toHaveBeenCalled());
+    const oldSignal = query.mock.calls[0][2].signal;
+    rerender({ flag: true });
+    await waitFor(() =>
+      expect(result.current.lanes[0]?.items[0]).toEqual(child),
+    );
+    expect(oldSignal.aborted).toBe(true);
+    const trueCalls = query.mock.calls.filter(
+      (call) => call[1].override_definition.show_subtodos,
+    );
+    expect(trueCalls.every((call) => call[1].cursor === undefined)).toBe(true);
+    await act(async () =>
+      stale.resolve(
+        makePlanQueryResponse({
+          items: [makePlanTodo({ title: "Late false root" })],
+          next_cursor: "false-cursor",
+        }),
+      ),
+    );
+    expect(result.current.lanes[0].items).toEqual([child]);
+    expect(result.current.lanes[0].nextCursor).toBe("true-cursor");
+  });
+
+  it.each(["account", "project", "flag"] as const)(
+    "does not leak a late true response after %s changes",
+    async (change) => {
+      const stale = deferred<PlanQueryResponse>();
+      query.mockReturnValueOnce(stale.promise).mockImplementation((p: string) =>
+        Promise.resolve(
+          makePlanQueryResponse({
+            items: [makePlanTodo({ project_id: p, title: "Fresh root" })],
+          }),
+        ),
+      );
+      const { result, rerender } = renderHook(
+        ({ accountId, projectId, flag }) =>
+          useProjectPlanQuery(
+            options({
+              accountId,
+              projectId,
+              view: makePlanView({ project_id: projectId }),
+              overrideDefinition: {
+                ...makePlanDefinition(),
+                show_subtodos: flag,
+              },
+            }),
+          ),
+        { initialProps: { accountId: 1, projectId: "p1", flag: true } },
+      );
+      await waitFor(() => expect(query).toHaveBeenCalledTimes(1));
+      rerender({
+        accountId: change === "account" ? 2 : 1,
+        projectId: change === "project" ? "p2" : "p1",
+        flag: change !== "flag",
+      });
+      await waitFor(() =>
+        expect(result.current.lanes[0]?.items[0].title).toBe("Fresh root"),
+      );
+      await act(async () =>
+        stale.resolve(
+          makePlanQueryResponse({
+            items: [
+              makePlanTodo({
+                parent_todo_id: "parent",
+                parent_title: "Private parent",
+                children_revision: null,
+              }),
+            ],
+          }),
+        ),
+      );
+      expect(result.current.lanes[0].items[0].title).toBe("Fresh root");
+      expect(result.current.lanes[0].items[0].project_id).toBe(
+        change === "project" ? "p2" : "p1",
+      );
+    },
+  );
+
+  it("drops all child parent-title projections on a local parent write, then restores fresh query text", async () => {
+    const child = makePlanTodo({
+      todo_id: "child",
+      parent_todo_id: "parent",
+      parent_title: "Old parent",
+      children_revision: null,
+    });
+    query.mockResolvedValue(makePlanQueryResponse({ items: [child] }));
+    const { result } = renderHook(() =>
+      useProjectPlanQuery(
+        options({
+          overrideDefinition: { ...makePlanDefinition(), show_subtodos: true },
+        }),
+      ),
+    );
+    await waitFor(() =>
+      expect(result.current.lanes[0]?.items[0]).toEqual(child),
+    );
+    await act(async () => {
+      expect(
+        await result.current.acceptTodo(
+          result.current.captureOperation("parent-write")!,
+          makePlanTodo({ todo_id: "parent", title: "New parent", version: 2 }),
+        ),
+      ).toBe(true);
+    });
+    expect(result.current.lanes[0].items[0]).not.toHaveProperty("parent_title");
+    query.mockResolvedValue(
+      makePlanQueryResponse({
+        items: [{ ...child, parent_title: "New parent" }],
+      }),
+    );
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.lanes[0].items[0]).toMatchObject({
+      parent_title: "New parent",
+    });
+  });
+
+  it.each([undefined, null, 42])(
+    "rejects an invalid child parent_title projection %s",
+    async (parent_title) => {
+      query.mockResolvedValue(
+        makePlanQueryResponse({
+          items: [
+            makePlanTodo({
+              parent_todo_id: "parent",
+              children_revision: null,
+              parent_title: parent_title as string,
+            }),
+          ],
+        }),
+      );
+      const { result } = renderHook(() =>
+        useProjectPlanQuery(
+          options({
+            overrideDefinition: {
+              ...makePlanDefinition(),
+              show_subtodos: true,
+            },
+          }),
+        ),
+      );
+      await waitFor(() =>
+        expect(result.current.errorKey).toBe("projects.planViews.failed"),
+      );
+      expect(result.current.lanes.flatMap((lane) => lane.items)).toEqual([]);
+    },
+  );
+
+  it("does not restore a parent title from a page request started before a local write", async () => {
+    const child = makePlanTodo({
+      todo_id: "child",
+      parent_todo_id: "parent",
+      parent_title: "Old parent",
+      children_revision: null,
+    });
+    query.mockResolvedValue(
+      makePlanQueryResponse({ items: [child], next_cursor: "old-cursor" }),
+    );
+    const { result } = renderHook(() =>
+      useProjectPlanQuery(
+        options({
+          overrideDefinition: { ...makePlanDefinition(), show_subtodos: true },
+        }),
+      ),
+    );
+    await waitFor(() =>
+      expect(result.current.lanes[0]?.nextCursor).toBe("old-cursor"),
+    );
+    const pending = deferred<PlanQueryResponse>();
+    query.mockReturnValue(pending.promise);
+    let page!: Promise<boolean>;
+    act(() => {
+      page = result.current.loadMore("all");
+    });
+    await waitFor(() => expect(result.current.lanes[0].loadingMore).toBe(true));
+    await act(async () => {
+      await result.current.acceptTodo(
+        result.current.captureOperation("parent-write")!,
+        makePlanTodo({ todo_id: "parent", title: "New parent", version: 2 }),
+      );
+    });
+    await act(async () => {
+      pending.resolve(makePlanQueryResponse({ items: [child] }));
+      expect(await page).toBe(true);
+    });
+    expect(result.current.lanes[0].items[0]).not.toHaveProperty("parent_title");
+  });
+
   it("D1 accepts a real display-only assignee projection with the same body token", async () => {
     const assigned = {
       ...makePlanTodo({ assignee_user_id: 7 }),

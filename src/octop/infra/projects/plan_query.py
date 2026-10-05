@@ -23,6 +23,7 @@ from octop.infra.projects.plan_definition import (
     GroupBy,
     LegacyQueryCursor,
     PlanDefinition,
+    PublicTableDefinition,
     QueryCursor,
     encode_cursor,
     parse_cursor,
@@ -30,7 +31,9 @@ from octop.infra.projects.plan_definition import (
 )
 from octop.infra.projects.todo_catalog import ProjectPlanError
 
-DefinitionPayload = PlanDefinition | BoardDefinition | CalendarDefinition | GanttDefinition
+DefinitionPayload = (
+    PlanDefinition | PublicTableDefinition | BoardDefinition | CalendarDefinition | GanttDefinition
+)
 
 
 class _StrictQueryModel(BaseModel):
@@ -156,7 +159,7 @@ class ProjectPlanQueryService:
         definition = None
         try:
             raw = (
-                request.override_definition.model_dump(mode="json")
+                request.override_definition.model_dump(mode="json", exclude_unset=True)
                 if request.override_definition is not None
                 else json.loads(hint.definition_json)
             )
@@ -245,6 +248,9 @@ class ProjectPlanQueryService:
         window = None if request.window is None else request.window.model_dump(mode="json")
         fingerprint_data = {
             "project_id": project_id,
+            "view_type": snapshot.view.view_type,
+            "show_subtodos": snapshot.view.view_type == "table"
+            and definition.get("show_subtodos", False),
             "view_id": request.view_id,
             "view_version": snapshot.view.version,
             "catalog_revision": snapshot.catalog_revision,
@@ -253,6 +259,8 @@ class ProjectPlanQueryService:
             "window": window,
             "bucket": request.bucket,
         }
+        if fingerprint_data["show_subtodos"]:
+            fingerprint_data["hierarchy_revision"] = locks.hierarchy_revision(conn, project_id)
         if metadata_required:
             fingerprint_data["members_digest"] = hashlib.sha256(
                 json.dumps(
@@ -298,6 +306,7 @@ class ProjectPlanQueryService:
         for row in page.rows:
             item = asdict(row)
             item.pop("deleted_at")
+            item["parent_title"] = page.parent_titles.get(row.todo_id)
             items.append(item)
         next_cursor = None
         if page.has_more:

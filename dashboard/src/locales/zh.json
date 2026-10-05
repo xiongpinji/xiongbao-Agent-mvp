@@ -1001,6 +1001,9 @@
       "trashForbidden": "项目已归档，或你没有管理该资产的权限。"
     },
     "planViews": {
+      "showSubtodos": "显示子待办",
+      "parentTodo": "父待办：{{title}}",
+      "viewParent": "查看父待办",
       "fields": {
         "title": "标题",
         "status": "状态",
@@ -1185,7 +1188,7 @@
       "sortDesc": "降序",
       "manualSource": "手动创建",
       "manualSourceHint": "目前支持手动创建的待办。",
-      "unavailableFeatures": "附件、子待办与外部数据源尚待独立实现。",
+      "unavailableFeatures": "附件与外部数据源尚待独立实现。",
       "types": {
         "list": "列表",
         "table": "表格",

@@ -1,6 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import {
   projectPlanViewsApi,
+  normalizePlanDefinition,
   type AnyPlanDefinition,
   type PlanQueryGroupKey,
   type PlanQueryRequest,
@@ -66,6 +67,7 @@ interface QueryFrame {
   operations: Map<string, { generation: number; controller: AbortController }>;
   depths: Map<string, number>;
   highWater: Map<string, ProjectTodo>;
+  parentTitleGeneration: number;
   acceptedWrites: Set<string>;
   snapshotRefreshes: Map<string, Promise<ProjectTodo>>;
   snapshotCatalogs: Map<string, ProjectTodoCatalog>;
@@ -160,12 +162,24 @@ const abortFrame = (frame: QueryFrame) => {
   for (const operation of frame.operations.values())
     operation.controller.abort();
 };
+const withoutParentTitle = (todo: ProjectTodo): ProjectTodo => {
+  if (todo.parent_todo_id === null) return todo;
+  const snapshot = { ...todo } as ProjectTodo & {
+    parent_title?: string | null;
+  };
+  delete snapshot.parent_title;
+  return snapshot;
+};
 
 export function useProjectPlanQuery(options: ProjectPlanQueryOptions) {
   const callbacks = useRef(options);
   callbacks.current = options;
-  const effectiveDefinition =
-    options.overrideDefinition ?? options.view?.definition;
+  const effectiveDefinition = options.view
+    ? normalizePlanDefinition(
+        options.view.type,
+        options.overrideDefinition ?? options.view.definition,
+      )
+    : undefined;
   const shapeKey = JSON.stringify([
     options.accountId,
     options.projectId,
@@ -222,6 +236,7 @@ export function useProjectPlanQuery(options: ProjectPlanQueryOptions) {
       metadataAccepted: false,
       depths: sameShape ? new Map(previous!.depths) : new Map(),
       highWater: sameProject ? previous!.highWater : new Map(),
+      parentTitleGeneration: sameProject ? previous!.parentTitleGeneration : 0,
       acceptedWrites:
         previous?.identityKey === identityKey
           ? previous.acceptedWrites
@@ -341,7 +356,12 @@ export function useProjectPlanQuery(options: ProjectPlanQueryOptions) {
       expected_catalog_revision: current.catalogRevision,
       limit: metadata ? 1 : 50,
       ...(current.overrideDefinition
-        ? { override_definition: current.overrideDefinition }
+        ? {
+            override_definition: normalizePlanDefinition(
+              current.view!.type,
+              current.overrideDefinition,
+            ),
+          }
         : {}),
       ...(lane?.groupKey ? { group_key: lane.groupKey } : {}),
       ...(lane?.bucket ? { bucket: lane.bucket, window: current.window! } : {}),
@@ -437,6 +457,9 @@ export function useProjectPlanQuery(options: ProjectPlanQueryOptions) {
   };
   const validResponse = (target: QueryFrame, response: PlanQueryResponse) => {
     const current = target.options;
+    const definition = current.overrideDefinition ?? current.view?.definition;
+    const showSubtodos =
+      current.view?.type === "table" && definition?.show_subtodos === true;
     return (
       response &&
       response.view_id === current.view?.view_id &&
@@ -448,8 +471,12 @@ export function useProjectPlanQuery(options: ProjectPlanQueryOptions) {
       typeof response.query_fingerprint === "string" &&
       !!response.query_fingerprint &&
       Array.isArray(response.items) &&
-      response.items.every((todo) =>
-        validTodoSnapshot(todo, current.projectId),
+      response.items.every(
+        (todo) =>
+          validTodoSnapshot(todo, current.projectId) &&
+          (todo.parent_todo_id === null
+            ? todo.parent_title === null
+            : showSubtodos && typeof todo.parent_title === "string"),
       ) &&
       [response.total, response.matched_total].every(
         (count) => Number.isSafeInteger(count) && count >= 0,
@@ -553,6 +580,7 @@ export function useProjectPlanQuery(options: ProjectPlanQueryOptions) {
       laneId ? `lane:${laneId}` : "query-metadata",
     );
     if (!scope) return false;
+    const parentTitleGeneration = target.parentTitleGeneration;
     if (laneId)
       setLane(target, laneId, (current) => ({
         ...current,
@@ -584,7 +612,13 @@ export function useProjectPlanQuery(options: ProjectPlanQueryOptions) {
       }
       const snapshots: ProjectTodo[] = [];
       for (const incoming of response.items) {
-        const accepted = await resolveTodo(target, scope, incoming);
+        const accepted = await resolveTodo(
+          target,
+          scope,
+          parentTitleGeneration === target.parentTitleGeneration
+            ? incoming
+            : withoutParentTitle(incoming),
+        );
         if (!accepted) return false;
         snapshots.push(accepted);
       }
@@ -771,10 +805,15 @@ export function useProjectPlanQuery(options: ProjectPlanQueryOptions) {
     highest: readonly ProjectTodo[],
   ) => {
     if (!isCurrentOperation(scope)) return false;
+    // Writes may also rename a parent without changing a child's revision.
+    // Only a fresh plan query can restore its authorized parent title projection.
+    current.parentTitleGeneration += 1;
+    for (const [id, todo] of current.highWater)
+      current.highWater.set(id, withoutParentTitle(todo));
     const accepted = new Map(
       highest.map((todo) => [
         todo.todo_id,
-        current.highWater.get(todo.todo_id) ?? todo,
+        current.highWater.get(todo.todo_id) ?? withoutParentTitle(todo),
       ]),
     );
     let latestCatalog: ProjectTodoCatalog | undefined;
@@ -797,7 +836,9 @@ export function useProjectPlanQuery(options: ProjectPlanQueryOptions) {
       ...value,
       lanes: value.lanes.map((lane) => ({
         ...lane,
-        items: lane.items.map((item) => accepted.get(item.todo_id) ?? item),
+        items: lane.items.map(
+          (item) => accepted.get(item.todo_id) ?? withoutParentTitle(item),
+        ),
       })),
     }));
     if (latestCatalog && isCurrentOperation(scope))

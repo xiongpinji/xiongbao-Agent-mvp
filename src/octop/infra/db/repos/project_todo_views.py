@@ -79,6 +79,15 @@ class ViewDefinition:
     assignee_ids: tuple[int, ...] = ()
     priority_ids: tuple[str, ...] = ()
     tag_ids: tuple[str, ...] = ()
+    table_definition_json: str | None = None
+    show_subtodos_present: bool | None = None
+
+    def json_for_type(self, view_type: str) -> str:
+        if view_type != "table":
+            return self.definition_json
+        value = json.loads(self.table_definition_json or self.definition_json)
+        value.setdefault("show_subtodos", False)
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
 @dataclass(frozen=True)
@@ -398,7 +407,7 @@ class ProjectTodoViewRepo:
                     name,
                     key,
                     view_type,
-                    definition.definition_json,
+                    definition.json_for_type(view_type),
                     position,
                     stamp,
                     stamp,
@@ -460,8 +469,19 @@ class ProjectTodoViewRepo:
                 if kind not in definition.compatible_types:
                     raise _ViewConflict("invalid_definition")
                 self._check_references(snapshot, definition, expected_catalog_revision)
-                if json.loads(current.definition_json) != json.loads(definition.definition_json):
-                    changes["definition_json"] = definition.definition_json
+                candidate = json.loads(definition.json_for_type(kind))
+                present = definition.show_subtodos_present
+                if present is None:
+                    present = "show_subtodos" in json.loads(definition.definition_json)
+                if kind == current.view_type == "table" and not present:
+                    stored_flag = json.loads(current.definition_json).get("show_subtodos", False)
+                    if type(stored_flag) is not bool:
+                        raise RuntimeError("stored table show_subtodos is invalid")
+                    candidate["show_subtodos"] = stored_flag
+                if json.loads(current.definition_json) != candidate:
+                    changes["definition_json"] = json.dumps(
+                        candidate, ensure_ascii=False, separators=(",", ":")
+                    )
                     fields.append("definition")
             if not changes:
                 raise _ViewConflict("no_change")

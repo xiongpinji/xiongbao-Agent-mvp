@@ -1001,6 +1001,9 @@
       "trashForbidden": "The project is archived, or you do not have permission to manage this asset."
     },
     "planViews": {
+      "showSubtodos": "Show subtodos",
+      "parentTodo": "Parent todo: {{title}}",
+      "viewParent": "View parent",
       "fields": {
         "title": "Title",
         "status": "Status",
@@ -1185,7 +1188,7 @@
       "sortDesc": "Descending",
       "manualSource": "Manually created",
       "manualSourceHint": "Manually created todos are currently supported.",
-      "unavailableFeatures": "Attachments, subtodos and external sources are planned separately.",
+      "unavailableFeatures": "Attachments and external sources are planned separately.",
       "types": {
         "list": "List",
         "table": "Table",

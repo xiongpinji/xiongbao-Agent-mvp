@@ -21,6 +21,7 @@ from octop.infra.projects.plan_definition import (
     CalendarDefinition,
     GanttDefinition,
     PlanDefinition,
+    PublicTableDefinition,
     ViewType,
 )
 from octop.infra.projects.plan_query import (
@@ -54,7 +55,9 @@ router = APIRouter(prefix="/projects/{project_id}/plan", route_class=SafePlanVie
 Revision = Annotated[int, Field(strict=True, ge=1)]
 Version = Annotated[int, Field(strict=True, ge=1)]
 ViewId = Annotated[str, Field(strict=True, min_length=1, max_length=64)]
-DefinitionPayload = PlanDefinition | BoardDefinition | GanttDefinition | CalendarDefinition
+DefinitionPayload = (
+    PlanDefinition | PublicTableDefinition | BoardDefinition | GanttDefinition | CalendarDefinition
+)
 
 
 class _StrictBody(BaseModel):
@@ -79,7 +82,7 @@ class CreateListViewBody(_CreateViewBody):
 
 class CreateTableViewBody(_CreateViewBody):
     type: Literal["table"]
-    definition: PlanDefinition
+    definition: PublicTableDefinition
 
 
 class CreateBoardViewBody(_CreateViewBody):
@@ -157,8 +160,14 @@ class PlanQueryGroupResponse(BaseModel):
     count: int
 
 
+class PlanQueryTodoResponse(TodoResponse):
+    parent_title: str | None = Field(
+        description="Current active parent title in this query snapshot; null for root todos."
+    )
+
+
 class PlanQueryResponse(BaseModel):
-    items: list[TodoResponse]
+    items: list[PlanQueryTodoResponse]
     next_cursor: str | None
     total: int
     matched_total: int
@@ -209,7 +218,7 @@ class ListViewResponse(_ViewResponse):
 
 class TableViewResponse(_ViewResponse):
     type: Literal["table"]
-    definition: PlanDefinition
+    definition: PublicTableDefinition
 
 
 class BoardViewResponse(_ViewResponse):
@@ -364,7 +373,9 @@ async def update_view(
         expected_version=body.expected_version,
         name=body.name if "name" in body.model_fields_set else UNSET,
         view_type=body.type if "type" in body.model_fields_set else UNSET,
-        definition=body.definition if "definition" in body.model_fields_set else UNSET,
+        definition=body.definition.model_dump(mode="json", exclude_unset=True)
+        if body.definition is not None
+        else UNSET,
         expected_catalog_revision=body.expected_catalog_revision
         if "expected_catalog_revision" in body.model_fields_set
         else UNSET,
