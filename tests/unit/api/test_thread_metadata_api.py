@@ -51,7 +51,9 @@ def metadata_api(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Si
         server = SimpleNamespace(
             paths=PathLayout(tmp_path),
             user_manager=SimpleNamespace(get_by_id=users.get),
-            services=SimpleNamespace(thread_message_repo=SimpleNamespace(get=_unexpected)),
+            services=SimpleNamespace(
+                thread_repo=threads, thread_message_repo=SimpleNamespace(get=_unexpected)
+            ),
             app_runtime=SimpleNamespace(
                 gateway=SimpleNamespace(thread_registry=registry),
                 agent_registry=SimpleNamespace(
@@ -162,6 +164,8 @@ async def test_metadata_equals_list_and_is_read_only(
     assert first.json()["is_active"] is True
     assert first.json()["has_messages"] is True
     assert first.json()["artifacts"] == [(api.home / "outbound" / "report.pdf").as_posix()]
+    assert first.json()["archived_at"] is None
+    assert len(first.json()) == 17
     assert _snapshot(api) == before
 
 
@@ -318,3 +322,5 @@ def test_openapi_has_typed_metadata_without_history(metadata_api: SimpleNamespac
     assert {"thread_id", "has_messages", "is_active", "artifacts", "hitl_policy"} <= set(properties)
     assert "messages" not in properties
     assert "title_search_key" not in properties
+    assert len(properties) == 17
+    assert "archived_at" in properties

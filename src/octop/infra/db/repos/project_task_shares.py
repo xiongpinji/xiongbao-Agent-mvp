@@ -86,6 +86,7 @@ class VisibleTaskSummary(ProjectTaskSummary):
             mode=base.mode,
             chat_agent_id=base.chat_agent_id,
             source_expert_id=base.source_expert_id,
+            archived_at=base.archived_at,
             access=str(row["access"]),
             can_read_text=bool(row["can_read_text"]),
         )
@@ -432,6 +433,7 @@ class ProjectTaskShareRepo:
             "AND pm.user_id = l.owner_user_id "
             f"{_CONTEXT_JOIN} "
             "WHERE l.project_id = ? AND l.owner_user_id = ?"
+            " AND t.archived_at IS NULL"
         )
         reader_sql = (
             f"SELECT {_READER_PROJECTION}, 'reader' AS access, {_READER_TEXT_COLUMN} {_READER_FROM} "

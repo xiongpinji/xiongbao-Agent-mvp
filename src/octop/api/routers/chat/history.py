@@ -18,9 +18,13 @@ from octop.api.common.agent import (
 from octop.api.common.agent_workspace import resolve_agent_workspace_dir
 from octop.api.deps import current_user, get_server
 from octop.api.routers.chat.models import (
+    ArchivedThreadSummaryResponse,
     ForkThreadBody,
     RebindSessionBody,
     RenameThreadBody,
+    ThreadArchiveBody,
+    ThreadArchivePageResponse,
+    ThreadArchiveResponse,
     ThreadMetadataResponse,
 )
 from octop.api.routers.chat.serialize import (
@@ -37,6 +41,7 @@ from octop.infra.agents.workspace_dir import agent_facing_workspace_dir_from_con
 from octop.infra.db.repos.agents import RUNTIME_KIND_PROJECT_TASK_FILES
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.gateway.hitl.coordinator import pending_hitl_payload
+from octop.infra.gateway.thread_archive import ThreadArchiveService
 from octop.infra.gateway.threads import ThreadRegistry, thread_row_has_messages
 from octop.infra.history.service import HistoryArchive
 from octop.infra.history.trajectory.service import TrajectoryService
@@ -142,6 +147,7 @@ def _thread_metadata_payload(row: Any, bound: str | None, workspace_dir: Path) -
         "pending_plan_path": row.pending_plan_path,
         "hitl_policy": _hitl_policy_payload(row),
         "artifacts": artifacts_for_response(row.artifacts, workspace_dir),
+        "archived_at": row.archived_at,
     }
 
 
@@ -191,6 +197,68 @@ async def get_thread_metadata(
     return await asyncio.get_running_loop().run_in_executor(None, load)
 
 
+@router.get(
+    "/threads/archived",
+    summary="List my archived threads",
+    description="Owned eligible records only. Personal organization does not grant project or execution access. Rejects as_user.",
+    response_model=ThreadArchivePageResponse,
+)
+async def list_archived_threads(
+    q: Annotated[str, Query(max_length=256, pattern=r"^[^\x00]*$")] = "",
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0, le=9007199254740991)] = 0,
+    as_user: str | None = None,
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> ThreadArchivePageResponse:
+    def load() -> ThreadArchivePageResponse:
+        page = ThreadArchiveService(server.services).list_archived(
+            user_id=user.id,
+            actor_is_admin=user.is_admin,
+            q=q,
+            limit=limit,
+            offset=offset,
+            as_user=as_user,
+        )
+        return ThreadArchivePageResponse(
+            items=[
+                ArchivedThreadSummaryResponse.model_validate(row, from_attributes=True)
+                for row in page.items
+            ],
+            limit=page.limit,
+            offset=page.offset,
+            has_more=page.has_more,
+        )
+
+    return await asyncio.get_running_loop().run_in_executor(None, load)
+
+
+@router.post(
+    "/threads/{thread_id}/archive",
+    summary="Set my thread archive state",
+    description="Idempotent personal visibility change. Preserves history, bindings, permissions and execution. Rejects as_user.",
+    response_model=ThreadArchiveResponse,
+)
+async def set_thread_archive(
+    thread_id: str,
+    body: ThreadArchiveBody,
+    as_user: str | None = None,
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> ThreadArchiveResponse:
+    def save() -> ThreadArchiveResponse:
+        row = ThreadArchiveService(server.services).set_archive(
+            thread_id=thread_id,
+            user_id=user.id,
+            actor_is_admin=user.is_admin,
+            archived=body.archived,
+            as_user=as_user,
+        )
+        return ThreadArchiveResponse.model_validate(row, from_attributes=True)
+
+    return await asyncio.get_running_loop().run_in_executor(None, save)
+
+
 @router.get("/agents/{agent_id}/threads", summary="List threads")
 async def list_threads(
     agent_id: str,
@@ -204,26 +272,33 @@ async def list_threads(
         ),
     ] = "",
     as_user: int | None = None,
+    archived: bool = False,
     user: Any = Depends(current_user),
     server: Any = Depends(get_server),
 ) -> list[dict[str, Any]]:
     """List conversation threads for an agent, including which thread is active for this user."""
-    agent_row = require_agent_row(agent_id, user=user, as_user=as_user, server=server)
-    # 030A B4: the bound-thread list of an internal runtime is owner-only.
-    assert_project_task_file_owner(agent_row, user, as_user=as_user)
-    thread_registry = server.app_runtime.gateway.thread_registry
-    effective_uid = as_user if as_user is not None else user.id
-    if q.strip():
-        rows = thread_registry.list_threads(
-            agent_id=agent_id, user_id=effective_uid, limit=limit, q=q
+
+    def load() -> list[dict[str, Any]]:
+        agent_row = require_agent_row(agent_id, user=user, as_user=as_user, server=server)
+        # 030A B4: the bound-thread list of an internal runtime is owner-only.
+        assert_project_task_file_owner(agent_row, user, as_user=as_user)
+        thread_registry = server.app_runtime.gateway.thread_registry
+        effective_uid = as_user if as_user is not None else user.id
+        if q.strip():
+            rows = thread_registry.list_threads(
+                agent_id=agent_id, user_id=effective_uid, limit=limit, q=q, archived=archived
+            )
+        else:
+            rows = thread_registry.list_threads(
+                agent_id=agent_id, user_id=effective_uid, limit=limit, archived=archived
+            )
+        bound = thread_registry.get_bound_thread_id(
+            ThreadRegistry.dashboard_key(agent_id=agent_id, user_id=effective_uid)
         )
-    else:
-        rows = thread_registry.list_threads(agent_id=agent_id, user_id=effective_uid, limit=limit)
-    bound = thread_registry.get_bound_thread_id(
-        ThreadRegistry.dashboard_key(agent_id=agent_id, user_id=effective_uid)
-    )
-    workspace_dir = _agent_facing_workspace_dir(server, agent_id)
-    return [_thread_metadata_payload(r, bound, workspace_dir) for r in rows]
+        workspace_dir = _agent_facing_workspace_dir(server, agent_id)
+        return [_thread_metadata_payload(r, bound, workspace_dir) for r in rows]
+
+    return await asyncio.get_running_loop().run_in_executor(None, load)
 
 
 @router.get(

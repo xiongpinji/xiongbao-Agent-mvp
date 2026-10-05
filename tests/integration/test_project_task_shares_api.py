@@ -315,6 +315,7 @@ async def test_scope_own_shared_all_and_invalid_scope(env_with_provider: Any) ->
     assert items[0]["access"] == "reader"
     assert items[0]["title"] == "OWNER-CARD"
     assert all(set(i) == _SUMMARY_KEYS for i in items)
+    assert all("archived_at" not in i for i in items)
     # The shared reader card carries the mode but redacts the private binding.
     assert items[0]["mode"] == "chat"
     assert items[0]["chat_agent_id"] is None and items[0]["source_expert_id"] is None
@@ -400,7 +401,8 @@ async def test_detail_access_reader_and_immediate_404_after_revoke(
 
     r = await client.get(url, headers=ctx["owner_auth"])
     assert r.status_code == 200 and r.json()["access"] == "owner"
-    assert set(r.json()) == _SUMMARY_KEYS
+    assert set(r.json()) == _SUMMARY_KEYS | {"archived_at"}
+    assert r.json()["archived_at"] is None
     assert r.json()["mode"] == "chat"
     assert r.json()["chat_agent_id"] == ctx["owner_agent"]
     assert r.json()["source_expert_id"] is None
@@ -416,6 +418,7 @@ async def test_detail_access_reader_and_immediate_404_after_revoke(
     assert r.status_code == 200, r.text
     body = r.json()
     assert set(body) == _SUMMARY_KEYS
+    assert "archived_at" not in body
     assert body["access"] == "reader"
     assert body["title"] == "OWNER-CARD"
     assert body["owner_user_id"] == ctx["owner_uid"]

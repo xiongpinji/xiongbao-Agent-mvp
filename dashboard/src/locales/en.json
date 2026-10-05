@@ -6813,5 +6813,33 @@
     "updateReady": "A new version is ready",
     "updateNow": "Update now",
     "later": "Later"
+  },
+  "archive": {
+    "action": "Archive",
+    "restore": "Restore",
+    "currentBanner": "This task is archived. Existing access and execution remain available.",
+    "actionNamed": "Archive {{title}}"
+  },
+  "dataManagement": {
+    "title": "Data management",
+    "description": "Manage your archived tasks and restore them to task lists.",
+    "archived": "Archived tasks",
+    "search": "Search archived tasks",
+    "searchPlaceholder": "Search task titles",
+    "clear": "Clear search",
+    "searchInvalid": "Search accepts up to 256 characters without NUL.",
+    "loading": "Loading archived tasks…",
+    "empty": "No archived tasks",
+    "loadMore": "Load more",
+    "retry": "Retry",
+    "loadFailed": "Unable to load archived tasks",
+    "restore": "Restore",
+    "restoreNamed": "Restore {{title}}",
+    "restoring": "Restoring…",
+    "restoreFailed": "Unable to restore. Try again.",
+    "untitled": "Untitled task",
+    "archivedAt": "Archived on",
+    "files": "File task",
+    "chat": "Chat task"
   }
 }

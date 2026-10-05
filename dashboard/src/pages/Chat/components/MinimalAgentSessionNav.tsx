@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { Dropdown } from "antd";
 import type { MenuProps } from "antd";
 import {
@@ -24,6 +24,10 @@ import {
   captureSessionRevision,
   mergeSessionMetadata,
   persistSessionMetadata,
+  persistSessionArchive,
+  captureArchiveRevision,
+  onArchiveSaved,
+  type ArchiveMutationResult,
   sessionMutationPending,
   forgetDeletedSession,
   type Session,
@@ -69,6 +73,9 @@ interface MinimalAgentSessionNavProps {
   activeAgentId: string | null;
   /** Live sessions for the currently active agent (keeps nav in sync). */
   activeSessions: Session[];
+  actorId?: number | null;
+  activeSessionsAuthoritative?: boolean;
+  onArchiveActive?: (id: string) => Promise<ArchiveMutationResult>;
   onSelect: (sessionId: string, agentId: string) => void;
   onAgentSelect: (agentId: string) => void;
   /** Start a fresh (unsaved) chat with the given expert. */
@@ -102,6 +109,7 @@ const PreviewSessionRow = memo(function PreviewSessionRow({
   onDelete,
   onRename,
   onPin,
+  onArchive,
   onFork,
   forkDisabled,
   forkDisabledHint,
@@ -113,12 +121,14 @@ const PreviewSessionRow = memo(function PreviewSessionRow({
   onDelete: (id: string) => void;
   onRename: (id: string, name: string) => void;
   onPin: (id: string, pinned: boolean) => void;
+  onArchive?: (id: string) => Promise<ArchiveMutationResult>;
   onFork: (id: string) => void;
   forkDisabled?: boolean;
   forkDisabledHint?: string;
 }) {
   const { t } = useTranslation();
   const [isEditing, setIsEditing] = useState(false);
+  const [archiving, setArchiving] = useState(false);
   const [editValue, setEditValue] = useState(session.name);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -149,6 +159,24 @@ const PreviewSessionRow = memo(function PreviewSessionRow({
     : forkDisabledHint;
 
   const menuItems: MenuProps["items"] = [
+    ...(onArchive
+      ? [
+          {
+            key: "archive",
+            label: t("archive.action"),
+            disabled: archiving,
+            onClick: ({
+              domEvent,
+            }: {
+              domEvent: React.MouseEvent | React.KeyboardEvent;
+            }) => {
+              domEvent.stopPropagation();
+              setArchiving(true);
+              void onArchive(session.id).finally(() => setArchiving(false));
+            },
+          },
+        ]
+      : []),
     {
       key: "pin",
       label: session.pinned
@@ -211,7 +239,8 @@ const PreviewSessionRow = memo(function PreviewSessionRow({
       role="button"
       tabIndex={0}
       onKeyDown={(e) => {
-        if (e.key === "Enter" && !isEditing) onSelect(session.id);
+        if (e.target === e.currentTarget && e.key === "Enter" && !isEditing)
+          onSelect(session.id);
       }}
     >
       {isEditing ? (
@@ -279,17 +308,31 @@ export default function MinimalAgentSessionNav({
   onDeleteActive,
   onRenameActive,
   onPinActive,
+  onArchiveActive,
+  actorId = null,
+  activeSessionsAuthoritative = false,
   onFork,
   activeForkDisabled,
   activeForkDisabledHint,
 }: MinimalAgentSessionNavProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
+  const viewOwner = useRef({ route: location.key });
+  if (viewOwner.current.route !== location.key)
+    viewOwner.current = { route: location.key };
   const [byAgent, setByAgent] = useState<Record<string, Session[]>>({});
   const byAgentRef = useRef(byAgent);
   byAgentRef.current = byAgent;
-  const live = useRef(true);
   const members = useRef(new Map<string, object>());
+  const actorOwner = useRef({ actorId });
+  if (actorOwner.current.actorId !== actorId) {
+    actorOwner.current = { actorId };
+    byAgentRef.current = {};
+    setByAgent({});
+    members.current.clear();
+  }
+  const live = useRef(true);
   const agentIds = new Set(agents.map((agent) => agent.agent_id));
   for (const id of members.current.keys())
     if (!agentIds.has(id)) members.current.delete(id);
@@ -374,10 +417,14 @@ export default function MinimalAgentSessionNav({
         sequence: number;
         revision: number;
         delegated: number;
+        actor: object;
+        archive: number;
       },
     ) => {
       if (
         !live.current ||
+        read.actor !== actorOwner.current ||
+        read.archive !== captureArchiveRevision(actorId, agentId) ||
         !read.member ||
         members.current.get(agentId) !== read.member ||
         read.sequence < (publishedPreviews.current.get(agentId) ?? 0)
@@ -428,7 +475,7 @@ export default function MinimalAgentSessionNav({
       byAgentRef.current = next;
       setByAgent(next);
     },
-    [],
+    [actorId],
   );
 
   const beginPreviewRead = useCallback(
@@ -437,8 +484,10 @@ export default function MinimalAgentSessionNav({
       sequence: ++previewSequence.current,
       revision: captureSessionRevision(),
       delegated: delegatedRevision.current,
+      actor: actorOwner.current,
+      archive: captureArchiveRevision(actorId, agentId),
     }),
-    [],
+    [actorId],
   );
 
   const refreshAgentPreview = useCallback(
@@ -514,13 +563,67 @@ export default function MinimalAgentSessionNav({
   // Skip empty lists — standalone host passes [] and must not wipe fetched previews
   // when the user selects a session (activeAgentId updates).
   useEffect(() => {
-    if (!activeAgentId || activeSessions.length === 0) return;
+    if (
+      !activeAgentId ||
+      (!activeSessionsAuthoritative && activeSessions.length === 0)
+    )
+      return;
     publishPreview(
       activeAgentId,
       activeSessions,
       beginPreviewRead(activeAgentId),
     );
-  }, [activeAgentId, activeSessions, beginPreviewRead, publishPreview]);
+  }, [
+    activeAgentId,
+    activeSessions,
+    activeSessionsAuthoritative,
+    beginPreviewRead,
+    publishPreview,
+  ]);
+
+  useEffect(
+    () =>
+      onArchiveSaved((event) => {
+        if (event.actorId !== actorId || !members.current.has(event.agentId))
+          return;
+        const next = {
+          ...byAgentRef.current,
+          [event.agentId]: (byAgentRef.current[event.agentId] ?? []).filter(
+            (row) => row.id !== event.id,
+          ),
+        };
+        byAgentRef.current = next;
+        setByAgent(next);
+        void refreshAgentPreview(event.agentId);
+      }),
+    [actorId, refreshAgentPreview],
+  );
+
+  const handleArchive = useCallback(
+    (agentId: string, id: string) => {
+      const member = members.current.get(agentId);
+      const actor = actorOwner.current;
+      const delegate = activeOwner.current;
+      const view = viewOwner.current;
+      if (agentId === activeAgentId && onArchiveActive)
+        return onArchiveActive(id);
+      return persistSessionArchive({
+        actorId,
+        agentId,
+        id,
+        archived: true,
+        isIdentityCurrent: () => live.current && actorOwner.current === actor,
+        isCurrent: () =>
+          live.current &&
+          actorOwner.current === actor &&
+          viewOwner.current === view &&
+          members.current.get(agentId) === member &&
+          activeOwner.current === delegate,
+        onError: (error) => showApiError(error, t("common.saveFailed"), t),
+      });
+    },
+    [actorId, activeAgentId, onArchiveActive, t],
+  );
 
   // Turns streamed by this browser tab keep running after the user navigates
   // away, so the nav marks those threads as busy until the stream ends.
@@ -799,6 +902,11 @@ export default function MinimalAgentSessionNav({
                       }
                       onPin={(id, pinned) =>
                         handlePin(agent.agent_id, id, pinned)
+                      }
+                      onArchive={
+                        actorId
+                          ? (id) => handleArchive(agent.agent_id, id)
+                          : undefined
                       }
                       onFork={(id) => onFork(id, agent.agent_id)}
                       forkDisabled={

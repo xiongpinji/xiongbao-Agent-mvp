@@ -1,4 +1,15 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import {
+  act,
+  render,
+  renderHook,
+  waitFor,
+  screen,
+  fireEvent,
+} from "@testing-library/react";
+import { createElement } from "react";
+import DataManagement from "../../Settings/DataManagement";
+import { CurrentUserProvider } from "../../../hooks/useCurrentUser";
+import type { OctopUser } from "../../../api/modules/auth";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   resetSessionStoreForTests,
@@ -8,6 +19,9 @@ import {
   syncSessionArtifacts,
   syncSessionConversationMode,
   syncSessionHitlPolicy,
+  persistSessionArchive,
+  onArchiveSaved,
+  archiveMutationPending,
   type Session,
 } from "./useSessions";
 import { emitSessionEvent } from "./chatStore";
@@ -15,6 +29,11 @@ import { createInstance, type TFunction } from "i18next";
 
 const listMock = vi.fn();
 const metadataMock = vi.fn();
+const archiveMock = vi.fn();
+const archivesListMock = vi.fn();
+vi.mock("../../../hooks/useServerTimezone", () => ({
+  useServerTimezone: () => "Asia/Shanghai",
+}));
 const { createMock, patchMock, renameMock, errorMock, translationState } =
   vi.hoisted(() => ({
     createMock: vi.fn(),
@@ -34,6 +53,8 @@ vi.mock("../../../api/modules/octopThreads", () => ({
   octopThreadsApi: {
     list: (...args: unknown[]) => listMock(...args),
     metadata: (...args: unknown[]) => metadataMock(...args),
+    setArchived: (...args: unknown[]) => archiveMock(...args),
+    listArchived: (...args: unknown[]) => archivesListMock(...args),
     create: (...args: unknown[]) => createMock(...args),
     delete: vi.fn(),
     patch: (...args: unknown[]) => patchMock(...args),
@@ -106,6 +127,639 @@ function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
+
+describe("archived selected metadata and live archive lane", () => {
+  beforeEach(() => {
+    resetSessionStoreForTests();
+    listMock.mockReset().mockResolvedValue([]);
+    metadataMock.mockReset();
+    archiveMock.mockReset();
+  });
+  afterEach(() => resetSessionStoreForTests());
+
+  it("keeps a real pending lane across query changes and publishes data invalidation without stale UI success", async () => {
+    const pending = deferred<{
+      thread_id: string;
+      agent_id: string;
+      archived_at: null;
+    }>();
+    archiveMock.mockReturnValue(pending.promise);
+    let current = true;
+    const saved = vi.fn();
+    const error = vi.fn();
+    const unsubscribe = onArchiveSaved(saved);
+    const request = persistSessionArchive({
+      actorId: 1,
+      agentId: "a",
+      id: "t",
+      archived: false,
+      isCurrent: () => current,
+      isIdentityCurrent: () => true,
+      onError: error,
+    });
+    current = false;
+    expect(archiveMutationPending(1, "a", "t")).toBe(true);
+    expect(
+      await persistSessionArchive({
+        actorId: 1,
+        agentId: "a",
+        id: "t",
+        archived: false,
+        isCurrent: () => true,
+        onError: error,
+      }),
+    ).toEqual({ status: "ignored", reason: "busy" });
+    pending.resolve({ thread_id: "t", agent_id: "a", archived_at: null });
+    expect(await request).toEqual({ status: "ignored", reason: "stale" });
+    expect(saved).toHaveBeenCalledOnce();
+    expect(error).not.toHaveBeenCalled();
+    expect(archiveMutationPending(1, "a", "t")).toBe(false);
+    unsubscribe();
+  });
+
+  it("does not publish an old actor receipt across actor ABA and retains its lane until settlement", async () => {
+    const pending = deferred<{
+      thread_id: string;
+      agent_id: string;
+      archived_at: number;
+    }>();
+    archiveMock.mockReturnValue(pending.promise);
+    const events = vi.fn();
+    const unsubscribe = onArchiveSaved(events);
+    const { result, rerender } = renderHook(
+      ({ actor }) => useSessions("a", { actorId: actor }),
+      { initialProps: { actor: 1 } },
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    let request!: ReturnType<typeof persistSessionArchive>;
+    act(() => {
+      request = result.current.archiveSession("t", true);
+    });
+    rerender({ actor: 2 });
+    rerender({ actor: 1 });
+    expect(archiveMutationPending(1, "a", "t")).toBe(true);
+    await act(async () => {
+      pending.resolve({ thread_id: "t", agent_id: "a", archived_at: 100 });
+      expect(await request).toEqual({ status: "ignored", reason: "stale" });
+    });
+    expect(events).not.toHaveBeenCalled();
+    expect(archiveMutationPending(1, "a", "t")).toBe(false);
+    unsubscribe();
+  });
+
+  it("retains the live write lane across unmount and rejects its receipt in a new lifetime", async () => {
+    const pending = deferred<{
+      thread_id: string;
+      agent_id: string;
+      archived_at: number;
+    }>();
+    archiveMock.mockReturnValue(pending.promise);
+    const saved = vi.fn();
+    const unsubscribe = onArchiveSaved(saved);
+    const first = renderHook(() => useSessions("a", { actorId: 1 }));
+    await waitFor(() => expect(first.result.current.loading).toBe(false));
+    let request!: ReturnType<typeof persistSessionArchive>;
+    act(() => {
+      request = first.result.current.archiveSession("t", true);
+    });
+    first.unmount();
+    const second = renderHook(() => useSessions("a", { actorId: 1 }));
+    expect(archiveMutationPending(1, "a", "t")).toBe(true);
+    await act(async () => {
+      expect(await second.result.current.archiveSession("t", true)).toEqual({
+        status: "ignored",
+        reason: "busy",
+      });
+    });
+    await act(async () => {
+      pending.resolve({ thread_id: "t", agent_id: "a", archived_at: 100 });
+      expect(await request).toEqual({ status: "ignored", reason: "stale" });
+    });
+    expect(saved).not.toHaveBeenCalled();
+    expect(archiveMutationPending(1, "a", "t")).toBe(false);
+    expect(archiveMock).toHaveBeenCalledOnce();
+    second.unmount();
+    unsubscribe();
+  });
+
+  it("settles independent rows in receipt order without unlocking the other lane", async () => {
+    const first = deferred<{
+      thread_id: string;
+      agent_id: string;
+      archived_at: number;
+    }>();
+    const second = deferred<{
+      thread_id: string;
+      agent_id: string;
+      archived_at: null;
+    }>();
+    archiveMock
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    const saved = vi.fn();
+    const unsubscribe = onArchiveSaved(saved);
+    const options = {
+      actorId: 1,
+      agentId: "a",
+      isCurrent: () => true,
+      onError: vi.fn(),
+    };
+    const p1 = persistSessionArchive({
+      ...options,
+      id: "first",
+      archived: true,
+    });
+    const p2 = persistSessionArchive({
+      ...options,
+      id: "second",
+      archived: false,
+    });
+    second.resolve({ thread_id: "second", agent_id: "a", archived_at: null });
+    expect((await p2).status).toBe("saved");
+    expect(archiveMutationPending(1, "a", "first")).toBe(true);
+    first.resolve({ thread_id: "first", agent_id: "a", archived_at: 100 });
+    expect((await p1).status).toBe("saved");
+    expect(
+      saved.mock.calls.map(([event]) => [
+        event.id,
+        event.archivedAt,
+        event.revision,
+      ]),
+    ).toEqual([
+      ["second", null, 1],
+      ["first", 100, 2],
+    ]);
+    expect(archiveMutationPending(1, "a", "first")).toBe(false);
+    unsubscribe();
+  });
+
+  it.each(["aba", "remount"] as const)(
+    "updates the actual data page after a stale %s lane settles and permits a normal retry",
+    async (mode) => {
+      const item = {
+        thread_id: "lane",
+        agent_id: "stopped",
+        title: "Lane record",
+        channel_type: "dashboard",
+        created_at: 1,
+        last_active: 1,
+        archived_at: 100,
+        mode: "chat" as const,
+      };
+      const page = { items: [item], limit: 20, offset: 0, has_more: false };
+      archivesListMock.mockReset().mockResolvedValue(page);
+      errorMock.mockClear();
+      const old = deferred<{
+        thread_id: string;
+        agent_id: string;
+        archived_at: null;
+      }>();
+      archiveMock
+        .mockReturnValueOnce(old.promise)
+        .mockRejectedValueOnce(new Error("current failure"))
+        .mockResolvedValue({
+          thread_id: "lane",
+          agent_id: "stopped",
+          archived_at: null,
+        });
+      const saved = vi.fn();
+      const unsubscribe = onArchiveSaved(saved);
+      const tree = (id: number) =>
+        createElement(CurrentUserProvider, {
+          user: { id } as OctopUser,
+          setUser: vi.fn(),
+          children: createElement(DataManagement),
+        });
+      const first = render(tree(1));
+      await screen.findByText("Lane record");
+      fireEvent.click(
+        screen.getByRole("button", { name: "dataManagement.restoreNamed" }),
+      );
+      let active = first;
+      if (mode === "aba") {
+        first.rerender(tree(2));
+        await waitFor(() => expect(archivesListMock).toHaveBeenCalledTimes(2));
+        first.rerender(tree(1));
+        await waitFor(() => expect(archivesListMock).toHaveBeenCalledTimes(3));
+      } else {
+        first.unmount();
+        active = render(tree(1));
+        await waitFor(() => expect(archivesListMock).toHaveBeenCalledTimes(2));
+      }
+      const button = await screen.findByRole("button", {
+        name: "dataManagement.restoreNamed",
+      });
+      expect(button).toBeDisabled();
+      fireEvent.click(button);
+      expect(archiveMock).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        old.resolve({
+          thread_id: "lane",
+          agent_id: "stopped",
+          archived_at: null,
+        });
+      });
+      expect(archiveMutationPending(1, "stopped", "lane")).toBe(false);
+      expect(saved).not.toHaveBeenCalled();
+      expect(errorMock).not.toHaveBeenCalled();
+      await waitFor(() =>
+        expect(
+          screen.getByRole("button", { name: "dataManagement.restoreNamed" }),
+        ).toBeEnabled(),
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: "dataManagement.restoreNamed" }),
+      );
+      await screen.findByText("dataManagement.restoreFailed");
+      expect(
+        screen.getByRole("button", { name: "dataManagement.restoreNamed" }),
+      ).toBeEnabled();
+      archivesListMock.mockResolvedValue({ ...page, items: [] });
+      fireEvent.click(
+        screen.getByRole("button", { name: "dataManagement.restoreNamed" }),
+      );
+      await waitFor(() =>
+        expect(screen.queryByText("Lane record")).not.toBeInTheDocument(),
+      );
+      expect(archiveMock).toHaveBeenCalledTimes(3);
+      expect(saved).toHaveBeenCalledOnce();
+      active.unmount();
+      unsubscribe();
+    },
+  );
+
+  it.each(["aba", "remount"] as const)(
+    "releases an old failed %s lane without publishing its failure into the actual data page",
+    async (mode) => {
+      const item = {
+        thread_id: "failed-lane",
+        agent_id: "stopped",
+        title: "Failed lane",
+        channel_type: "dashboard",
+        created_at: 1,
+        last_active: 1,
+        archived_at: 100,
+        mode: "chat" as const,
+      };
+      const page = { items: [item], limit: 20, offset: 0, has_more: false };
+      archivesListMock.mockReset().mockResolvedValue(page);
+      const old = deferred<{
+        thread_id: string;
+        agent_id: string;
+        archived_at: null;
+      }>();
+      archiveMock.mockReturnValueOnce(old.promise);
+      errorMock.mockClear();
+      const saved = vi.fn();
+      const unsubscribe = onArchiveSaved(saved);
+      const tree = (id: number) =>
+        createElement(CurrentUserProvider, {
+          user: { id } as OctopUser,
+          setUser: vi.fn(),
+          children: createElement(DataManagement),
+        });
+      const first = render(tree(1));
+      await screen.findByText("Failed lane");
+      fireEvent.click(
+        screen.getByRole("button", { name: "dataManagement.restoreNamed" }),
+      );
+      let active = first;
+      if (mode === "aba") {
+        first.rerender(tree(2));
+        await waitFor(() => expect(archivesListMock).toHaveBeenCalledTimes(2));
+        first.rerender(tree(1));
+        await waitFor(() => expect(archivesListMock).toHaveBeenCalledTimes(3));
+      } else {
+        first.unmount();
+        active = render(tree(1));
+        await waitFor(() => expect(archivesListMock).toHaveBeenCalledTimes(2));
+      }
+      expect(
+        await screen.findByRole("button", {
+          name: "dataManagement.restoreNamed",
+        }),
+      ).toBeDisabled();
+      await act(async () => {
+        old.reject(new Error("old failure"));
+      });
+      expect(archiveMutationPending(1, "stopped", "failed-lane")).toBe(false);
+      await waitFor(() =>
+        expect(
+          screen.getByRole("button", { name: "dataManagement.restoreNamed" }),
+        ).toBeEnabled(),
+      );
+      expect(saved).not.toHaveBeenCalled();
+      expect(errorMock).not.toHaveBeenCalled();
+      expect(
+        screen.queryByText("dataManagement.restoreFailed"),
+      ).not.toBeInTheDocument();
+      archiveMock.mockResolvedValue({
+        thread_id: "failed-lane",
+        agent_id: "stopped",
+        archived_at: null,
+      });
+      archivesListMock.mockResolvedValue({ ...page, items: [] });
+      fireEvent.click(
+        screen.getByRole("button", { name: "dataManagement.restoreNamed" }),
+      );
+      await waitFor(() =>
+        expect(screen.queryByText("Failed lane")).not.toBeInTheDocument(),
+      );
+      expect(archiveMock).toHaveBeenCalledTimes(2);
+      active.unmount();
+      unsubscribe();
+    },
+  );
+
+  it("observes another host starting and failing the shared lane without mounting the Chat store", async () => {
+    const item = {
+      thread_id: "external",
+      agent_id: "stopped",
+      title: "External host row",
+      channel_type: "dashboard",
+      created_at: 1,
+      last_active: 1,
+      archived_at: 100,
+      mode: "chat" as const,
+    };
+    archivesListMock.mockReset().mockResolvedValue({
+      items: [item],
+      limit: 20,
+      offset: 0,
+      has_more: false,
+    });
+    const pending = deferred<{
+      thread_id: string;
+      agent_id: string;
+      archived_at: null;
+    }>();
+    archiveMock.mockReturnValueOnce(pending.promise);
+    const mounted = render(
+      createElement(CurrentUserProvider, {
+        user: { id: 1 } as OctopUser,
+        setUser: vi.fn(),
+        children: createElement(DataManagement),
+      }),
+    );
+    await screen.findByText("External host row");
+    expect(
+      screen.getByRole("button", { name: "dataManagement.restoreNamed" }),
+    ).toBeEnabled();
+    const error = vi.fn();
+    let request!: ReturnType<typeof persistSessionArchive>;
+    act(() => {
+      request = persistSessionArchive({
+        actorId: 1,
+        agentId: "stopped",
+        id: "external",
+        archived: false,
+        isCurrent: () => true,
+        onError: error,
+      });
+    });
+    expect(
+      screen.getByRole("button", { name: "dataManagement.restoreNamed" }),
+    ).toBeDisabled();
+    await act(async () => {
+      pending.reject(new Error("external failure"));
+      expect(await request).toEqual({ status: "failed" });
+    });
+    expect(
+      screen.getByRole("button", { name: "dataManagement.restoreNamed" }),
+    ).toBeEnabled();
+    expect(error).toHaveBeenCalledOnce();
+    expect(listMock).not.toHaveBeenCalled();
+    expect(archivesListMock).toHaveBeenCalledOnce();
+    mounted.unmount();
+  });
+
+  it("integrates the actual data page with the real lane/event helper and rejects a pre-restore page", async () => {
+    const item = {
+      thread_id: "t",
+      agent_id: "stopped",
+      title: "Stopped record",
+      channel_type: "dashboard",
+      created_at: 1,
+      last_active: 1,
+      archived_at: 100,
+      mode: "chat" as const,
+    };
+    const page = { items: [item], limit: 20, offset: 0, has_more: false };
+    const before = deferred<typeof page>();
+    const fresh = deferred<typeof page>();
+    archivesListMock
+      .mockReset()
+      .mockResolvedValueOnce(page)
+      .mockReturnValueOnce(before.promise)
+      .mockReturnValueOnce(fresh.promise);
+    const pending = deferred<{
+      thread_id: string;
+      agent_id: string;
+      archived_at: null;
+    }>();
+    archiveMock.mockReturnValue(pending.promise);
+    render(
+      createElement(CurrentUserProvider, {
+        user: { id: 1 } as OctopUser,
+        setUser: vi.fn(),
+        children: createElement(DataManagement),
+      }),
+    );
+    await screen.findByText("Stopped record");
+    fireEvent.click(
+      screen.getByRole("button", { name: "dataManagement.restoreNamed" }),
+    );
+    expect(archiveMutationPending(1, "stopped", "t")).toBe(true);
+    const input = screen.getByRole("textbox", {
+      name: "dataManagement.search",
+    });
+    fireEvent.change(input, { target: { value: "Stopped" } });
+    fireEvent.click(
+      screen.getByRole("button", { name: "dataManagement.search" }),
+    );
+    await act(async () => {
+      pending.resolve({
+        thread_id: "t",
+        agent_id: "stopped",
+        archived_at: null,
+      });
+    });
+    expect(archivesListMock).toHaveBeenCalledTimes(3);
+    await act(async () => {
+      fresh.resolve({ ...page, items: [] });
+    });
+    await act(async () => {
+      before.resolve(page);
+    });
+    expect(screen.queryByText("Stopped record")).not.toBeInTheDocument();
+    expect(archiveMock).toHaveBeenCalledExactlyOnceWith("t", false);
+  });
+
+  it("keeps an archived deep link independent of the ordinary page and syncs its composer fields", async () => {
+    metadataMock.mockResolvedValue({
+      ...threadRow("archived", { title: "kept title" }),
+      archived_at: 100,
+      conversation_mode: "plan",
+      artifacts: ["plan.md"],
+    });
+    const { result } = renderHook(() =>
+      useSessions("a", { actorId: 1, selectedThreadId: "archived" }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await act(async () => {
+      expect(await result.current.ensureThreadInList("archived")).toBe("found");
+    });
+    expect(result.current.sessions).toEqual([]);
+    expect(result.current.selectedSession?.archivedAt).toBe(100);
+    act(() => {
+      syncSessionArtifacts("archived", ["new.md"]);
+      syncSessionConversationMode("archived", "craft", null);
+      syncSessionHitlPolicy("archived", {
+        mode: "allow_tools",
+        tools: ["read"],
+      });
+    });
+    expect(result.current.selectedSession).toMatchObject({
+      name: "kept title",
+      artifacts: ["new.md"],
+      conversationMode: "craft",
+      hitlPolicy: { mode: "allow_tools", tools: ["read"] },
+      archivedAt: 100,
+    });
+  });
+
+  it("keeps concurrent name and pin saves on the archived composer anchor after a restore receipt", async () => {
+    const row = {
+      ...threadRow("t", { title: "Original" }),
+      archived_at: 100,
+      pinned: false,
+      conversation_mode: "plan",
+      artifacts: ["plan.md"],
+    };
+    metadataMock.mockResolvedValue(row);
+    const { result } = renderHook(() =>
+      useSessions("a", { actorId: 1, selectedThreadId: "t" }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await act(async () => {
+      await result.current.ensureThreadInList("t");
+    });
+    const name = deferred<{ thread_id: string; title: string }>();
+    const pin = deferred<{ thread_id: string; pinned: boolean }>();
+    renameMock.mockReturnValueOnce(name.promise);
+    patchMock.mockReturnValueOnce(pin.promise);
+    let pName!: ReturnType<typeof result.current.renameSession>;
+    let pPin!: ReturnType<typeof result.current.pinSession>;
+    act(() => {
+      pName = result.current.renameSession("t", "Saved title");
+      pPin = result.current.pinSession("t", true);
+    });
+    archiveMock.mockResolvedValue({
+      thread_id: "t",
+      agent_id: "a",
+      archived_at: null,
+    });
+    metadataMock.mockResolvedValue({ ...row, archived_at: null });
+    await act(async () => {
+      expect((await result.current.archiveSession("t", false)).status).toBe(
+        "saved",
+      );
+    });
+    await act(async () => {
+      name.resolve({ thread_id: "t", title: "Saved title" });
+      pin.resolve({ thread_id: "t", pinned: true });
+      expect((await pName).status).toBe("saved");
+      expect((await pPin).status).toBe("saved");
+    });
+    expect(result.current.selectedSession).toMatchObject({
+      id: "t",
+      name: "Saved title",
+      pinned: true,
+      archivedAt: null,
+      conversationMode: "plan",
+      artifacts: ["plan.md"],
+    });
+    expect(archiveMock).toHaveBeenCalledExactlyOnceWith("t", false);
+  });
+
+  it("rejects a pre-save metadata 404 without forgetting the successful archived selection", async () => {
+    const row = { ...threadRow("t"), archived_at: 100 };
+    metadataMock.mockResolvedValue(row);
+    const { result } = renderHook(() =>
+      useSessions("a", { actorId: 1, selectedThreadId: "t" }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await act(async () => {
+      expect(await result.current.ensureThreadInList("t")).toBe("found");
+    });
+    const before = deferred<typeof row>();
+    metadataMock
+      .mockReturnValueOnce(before.promise)
+      .mockResolvedValue({ ...row, archived_at: 200 });
+    let probe!: Promise<string>;
+    act(() => {
+      probe = result.current.ensureThreadInList("t");
+    });
+    archiveMock.mockResolvedValue({
+      thread_id: "t",
+      agent_id: "a",
+      archived_at: 200,
+    });
+    await act(async () => {
+      expect((await result.current.archiveSession("t", true)).status).toBe(
+        "saved",
+      );
+    });
+    await act(async () => {
+      before.reject(new Error("Request failed: 404 Not Found"));
+      expect(await probe).toBe("unknown");
+    });
+    expect(result.current.selectedSession).toMatchObject({
+      id: "t",
+      archivedAt: 200,
+    });
+    expect(result.current.sessions).toEqual([]);
+  });
+
+  it("archives with a narrow receipt, fences old expansion, and keeps the selected thread", async () => {
+    listMock.mockResolvedValue(
+      Array.from({ length: 11 }, (_, i) => ({
+        ...threadRow(`t${i}`),
+        archived_at: null,
+      })),
+    );
+    const { result } = renderHook(() =>
+      useSessions("a", { actorId: 1, selectedThreadId: "t0" }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const old = deferred<ReturnType<typeof threadRow>[]>();
+    listMock.mockReturnValueOnce(old.promise).mockResolvedValue([]);
+    let expansion!: Promise<void>;
+    act(() => {
+      expansion = result.current.loadMoreSessions("t0");
+    });
+    archiveMock.mockResolvedValue({
+      thread_id: "t0",
+      agent_id: "a",
+      archived_at: 200,
+    });
+    await act(async () => {
+      expect((await result.current.archiveSession("t0", true)).status).toBe(
+        "saved",
+      );
+    });
+    await act(async () => {
+      old.resolve(Array.from({ length: 21 }, (_, i) => threadRow(`t${i}`)));
+      await expansion;
+    });
+    expect(result.current.sessions).toEqual([]);
+    expect(result.current.selectedSession).toMatchObject({
+      id: "t0",
+      archivedAt: 200,
+    });
+    expect(archiveMock).toHaveBeenCalledExactlyOnceWith("t0", true);
+  });
+});
 
 describe("classic server title search", () => {
   beforeEach(() => {

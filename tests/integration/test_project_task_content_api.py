@@ -384,6 +384,7 @@ async def test_messages_requires_card_and_text_and_flags_follow(
     assert r.status_code == 200
     assert set(r.json()) == _SUMMARY_KEYS
     assert r.json()["can_read_text"] is True and r.json()["access"] == "reader"
+    assert "archived_at" not in r.json()
     # A manual/chat share exposes the mode but redacts the private binding.
     assert r.json()["mode"] == "chat"
     assert r.json()["chat_agent_id"] is None and r.json()["source_expert_id"] is None
@@ -397,7 +398,8 @@ async def test_messages_requires_card_and_text_and_flags_follow(
     assert item["role"] == "reader" and item["can_read_text"] is True
     # Owner views: always can_read_text True, owner reads messages directly.
     r = await client.get(detail_url, headers=ctx["owner_auth"])
-    assert set(r.json()) == _SUMMARY_KEYS
+    assert set(r.json()) == _SUMMARY_KEYS | {"archived_at"}
+    assert r.json()["archived_at"] is None
     assert r.json()["can_read_text"] is True and r.json()["access"] == "owner"
     assert r.json()["mode"] == "chat"
     assert r.json()["chat_agent_id"] == ctx["owner_agent"]

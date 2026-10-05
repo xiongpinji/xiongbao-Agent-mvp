@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
-import { octopThreadsApi } from "../../../api/modules/octopThreads";
+import {
+  octopThreadsApi,
+  type ThreadArchiveReceipt,
+} from "../../../api/modules/octopThreads";
 import type { HitlSessionPolicy } from "../../../api/types/hitl";
 import * as chatStore from "./chatStore";
 import { onSessionEvent } from "./chatStore";
@@ -24,6 +27,8 @@ export interface Session {
   pendingPlanPath?: string | null;
   hitlPolicy?: HitlSessionPolicy | null;
   artifacts?: string[];
+  /** Undefined means unconfirmed metadata; never assume it means unarchived. */
+  archivedAt?: number | null;
 }
 
 /** Result of probing whether a thread exists for the current agent. */
@@ -39,6 +44,7 @@ export interface UseSessionsOptions {
   internal?: boolean;
   searchEnabled?: boolean;
   selectedThreadId?: string | null;
+  actorId?: number | null;
 }
 
 export interface SessionSearch {
@@ -65,6 +71,7 @@ export function toSession(row: {
   pending_plan_path?: string | null;
   hitl_policy?: HitlSessionPolicy | null;
   artifacts?: string[] | null;
+  archived_at?: number | null;
 }): Session {
   const hasActivity =
     Boolean(row.has_messages) || Boolean(row.title) || row.last_active > 0;
@@ -98,6 +105,7 @@ export function toSession(row: {
             typeof path === "string" && path.trim().length > 0,
         )
       : [],
+    archivedAt: row.archived_at,
   };
 }
 
@@ -130,6 +138,7 @@ let _hasMore = false;
 let _loadingMore = false;
 export const SESSION_PAGE_SIZE = 10;
 let _storeAgentId: string | null = null;
+let _storeActorId: number | null = null;
 const _loadedLimitByAgent = new Map<string, number>();
 const _listeners = new Set<() => void>();
 let _storeGeneration = 0;
@@ -154,6 +163,119 @@ let _searchRefreshQueued = false;
 let _selectedThreadId: string | null = null;
 let _selectionSequence = 0;
 let _selectedAnchor: Session | null = null;
+
+export type ArchiveMutationResult =
+  | { status: "saved"; receipt: ThreadArchiveReceipt }
+  | { status: "failed" }
+  | { status: "ignored"; reason: "busy" | "invalid" | "stale" };
+export interface ArchiveSavedEvent {
+  actorId: number;
+  agentId: string;
+  id: string;
+  archivedAt: number | null;
+  revision: number;
+}
+const _archiveListeners = new Set<(event: ArchiveSavedEvent) => void>();
+const _archiveWrites = new Map<string, object>();
+const _archiveRevisions = new Map<string, number>();
+const archiveScope = (actorId: number | null, agentId: string | null) =>
+  JSON.stringify([actorId, agentId]);
+export function captureArchiveRevision(
+  actorId: number | null,
+  agentId: string | null,
+) {
+  return _archiveRevisions.get(archiveScope(actorId, agentId)) ?? 0;
+}
+export function onArchiveSaved(callback: (event: ArchiveSavedEvent) => void) {
+  _archiveListeners.add(callback);
+  return () => {
+    _archiveListeners.delete(callback);
+  };
+}
+export function archiveMutationPending(
+  actorId: number | null,
+  agentId: string | null,
+  id: string,
+) {
+  return _archiveWrites.has(JSON.stringify([actorId, agentId, id]));
+}
+let _archivePendingRevision = 0;
+const _archivePendingListeners = new Set<() => void>();
+function subscribeArchivePending(listener: () => void) {
+  _archivePendingListeners.add(listener);
+  return () => {
+    _archivePendingListeners.delete(listener);
+  };
+}
+const archivePendingSnapshot = () => _archivePendingRevision;
+function notifyArchivePending() {
+  _archivePendingRevision++;
+  for (const listener of _archivePendingListeners) listener();
+}
+/** Observe the real write lane independently of the active Chat session store. */
+export function useArchiveMutationRevision(): number {
+  return useSyncExternalStore(subscribeArchivePending, archivePendingSnapshot);
+}
+
+export async function persistSessionArchive(options: {
+  actorId: number | null;
+  agentId: string | null;
+  id: string;
+  archived: boolean;
+  isCurrent: () => boolean;
+  isIdentityCurrent?: () => boolean;
+  onError: (error: unknown) => void;
+}): Promise<ArchiveMutationResult> {
+  const { actorId, agentId, id, archived, isCurrent, onError } = options;
+  const identityCurrent = options.isIdentityCurrent ?? isCurrent;
+  if (!actorId || !agentId || !id || id === "__pending__")
+    return { status: "ignored", reason: "invalid" };
+  if (!isCurrent()) return { status: "ignored", reason: "stale" };
+  const key = JSON.stringify([actorId, agentId, id]);
+  if (_archiveWrites.has(key)) return { status: "ignored", reason: "busy" };
+  const token = {};
+  _archiveWrites.set(key, token);
+  notifyArchivePending();
+  _snapshot = { ..._snapshot };
+  notifyListeners();
+  try {
+    const receipt = await octopThreadsApi.setArchived(id, archived);
+    if (!identityCurrent()) return { status: "ignored", reason: "stale" };
+    if (
+      receipt.thread_id !== id ||
+      receipt.agent_id !== agentId ||
+      (archived
+        ? !Number.isSafeInteger(receipt.archived_at) ||
+          (receipt.archived_at ?? 0) < 1
+        : receipt.archived_at !== null)
+    )
+      throw new Error("Invalid archive receipt");
+    const scope = archiveScope(actorId, agentId);
+    const revision = captureArchiveRevision(actorId, agentId) + 1;
+    _archiveRevisions.set(scope, revision);
+    const event = {
+      actorId,
+      agentId,
+      id,
+      archivedAt: receipt.archived_at,
+      revision,
+    };
+    for (const listener of _archiveListeners) listener(event);
+    if (!isCurrent()) return { status: "ignored", reason: "stale" };
+    return { status: "saved", receipt };
+  } catch (error) {
+    if (!isCurrent()) return { status: "ignored", reason: "stale" };
+    onError(error);
+    return { status: "failed" };
+  } finally {
+    if (_archiveWrites.get(key) === token) {
+      _archiveWrites.delete(key);
+      notifyArchivePending();
+    }
+    _snapshot = { ..._snapshot };
+    notifyListeners();
+  }
+}
 
 export type SessionMutationResult =
   | { status: "saved"; value: string | boolean }
@@ -339,6 +461,8 @@ export function syncSessionHitlPolicy(
 ) {
   if (!threadId) return;
   const nextPolicy = policy ? parseHitlSessionPolicy(policy) : null;
+  if (_selectedAnchor?.id === threadId)
+    _selectedAnchor = { ..._selectedAnchor, hitlPolicy: nextPolicy };
   setModuleSessions((prev) => {
     const idx = prev.findIndex((s) => s.id === threadId);
     if (idx < 0) return prev;
@@ -366,6 +490,12 @@ export function syncSessionConversationMode(
   if (!threadId) return;
   const mode = conversationMode ?? null;
   const path = (pendingPlanPath || "").trim() || null;
+  if (_selectedAnchor?.id === threadId)
+    _selectedAnchor = {
+      ..._selectedAnchor,
+      conversationMode: mode,
+      pendingPlanPath: path,
+    };
   setModuleSessions((prev) => {
     const idx = prev.findIndex((s) => s.id === threadId);
     if (idx < 0) return prev;
@@ -389,6 +519,8 @@ export function syncSessionArtifacts(threadId: string, artifacts: string[]) {
     (path): path is string =>
       typeof path === "string" && path.trim().length > 0,
   );
+  if (_selectedAnchor?.id === threadId)
+    _selectedAnchor = { ..._selectedAnchor, artifacts: normalized };
   setModuleSessions((prev) => {
     const idx = prev.findIndex((s) => s.id === threadId);
     if (idx < 0) return prev;
@@ -459,6 +591,7 @@ async function readSearch(agentId: string, limit: number) {
   const query = _search.query;
   const revision = captureSessionRevision();
   const coveredSaveRevision = _requiredSaveRevision;
+  const archive = captureArchiveRevision(_storeActorId, agentId);
   _searchToken = token;
   _requestedSearchPrefix = limit;
   publishSearch({ ..._search, loading: true, error: null });
@@ -467,7 +600,8 @@ async function readSearch(agentId: string, limit: number) {
     generation === _storeGeneration &&
     epoch === _searchEpoch &&
     token === _searchToken &&
-    coveredSaveRevision >= _requiredSaveRevision;
+    coveredSaveRevision >= _requiredSaveRevision &&
+    archive === captureArchiveRevision(_storeActorId, agentId);
   try {
     const rows = await octopThreadsApi.list(agentId, limit + 1, query);
     if (!current()) return;
@@ -515,6 +649,7 @@ function selectSessionAnchor(id: string | null) {
       _search.sessions.find((row) => row.id === id) ??
       null
     : null;
+  _snapshot = { ..._snapshot, selectedSession: _selectedAnchor };
 }
 
 function patchSessionField(
@@ -547,6 +682,7 @@ function setModuleSessions(
     hasMore: _hasMore,
     loadingMore: _loadingMore,
     search: _search,
+    selectedSession: _selectedAnchor,
   };
   notifyListeners();
 }
@@ -559,6 +695,7 @@ function setModuleLoading(value: boolean) {
     hasMore: _hasMore,
     loadingMore: _loadingMore,
     search: _search,
+    selectedSession: _selectedAnchor,
   };
   notifyListeners();
 }
@@ -577,6 +714,7 @@ let _snapshot = {
   hasMore: _hasMore,
   loadingMore: _loadingMore,
   search: _search,
+  selectedSession: _selectedAnchor as Session | null,
 };
 
 function getSessionSnapshot() {
@@ -611,7 +749,7 @@ function visibleSessionsForAgent(
   const active =
     sessions.find((s) => s.id === activeThreadId) ??
     (_selectedAnchor?.id === activeThreadId ? _selectedAnchor : null);
-  if (!active) return visible;
+  if (!active || active.archivedAt != null) return visible;
   visible = [active, ...visible.filter((s) => s.id !== activeThreadId)];
   return visible.slice(0, limit);
 }
@@ -622,12 +760,18 @@ async function fetchSessionsPage(
 ): Promise<{
   sessions: Session[];
   hasMore: boolean;
-  read: { revision: number; generation: number; sequence: number };
+  read: {
+    revision: number;
+    generation: number;
+    sequence: number;
+    archive: number;
+  };
 }> {
   const read = {
     revision: captureSessionRevision(),
     generation: _storeGeneration,
     sequence: ++_readSequence,
+    archive: captureArchiveRevision(_storeActorId, agentId),
   };
   const rows = await octopThreadsApi.list(agentId, limit + 1);
   const hasMore = rows.length > limit;
@@ -636,11 +780,12 @@ async function fetchSessionsPage(
 }
 
 function currentSessionRead(
-  read: { generation: number; sequence: number },
+  read: { generation: number; sequence: number; archive: number },
   expansionLimit?: number,
 ) {
   return (
     read.generation === _storeGeneration &&
+    read.archive === captureArchiveRevision(_storeActorId, _storeAgentId) &&
     (read.sequence >= _publishedRead ||
       Boolean(
         _storeAgentId &&
@@ -695,6 +840,7 @@ function setModuleLoadingMore(value: boolean) {
     hasMore: _hasMore,
     loadingMore: _loadingMore,
     search: _search,
+    selectedSession: _selectedAnchor,
   };
   notifyListeners();
 }
@@ -704,8 +850,12 @@ function setModuleLoadingMore(value: boolean) {
  * Clearing only in useEffect leaks stale sessions for one render, and
  * chat nav can then write `/chat/{newAgent}/{oldThread}` into the URL.
  */
-function syncStoreToAgent(agentId: string | null) {
-  if (_storeAgentId === agentId) return;
+function syncStoreToAgent(
+  agentId: string | null,
+  actorId: number | null = null,
+) {
+  if (_storeAgentId === agentId && _storeActorId === actorId) return;
+  _storeActorId = actorId;
   _storeGeneration++;
   _storeAgentId = agentId;
   _sessions = [];
@@ -734,6 +884,7 @@ function syncStoreToAgent(agentId: string | null) {
     hasMore: _hasMore,
     loadingMore: _loadingMore,
     search: _search,
+    selectedSession: _selectedAnchor,
   };
 }
 
@@ -748,6 +899,9 @@ export function resetSessionStoreForTests() {
   _sessionWrites.clear();
   _deletedSessionIds.clear();
   _storeAgentId = null;
+  _storeActorId = null;
+  _archiveWrites.clear();
+  _archiveRevisions.clear();
   _sessions = [];
   _loading = true;
   _hasMore = false;
@@ -770,6 +924,7 @@ export function resetSessionStoreForTests() {
     hasMore: _hasMore,
     loadingMore: _loadingMore,
     search: _search,
+    selectedSession: _selectedAnchor,
   };
 }
 
@@ -777,19 +932,39 @@ export function useSessions(
   agentId: string | null,
   options: UseSessionsOptions = {},
 ) {
+  const actorId = options.actorId ?? null;
+  const actorIdentityRef = useRef({ actorId, live: true });
+  if (actorIdentityRef.current.actorId !== actorId)
+    actorIdentityRef.current = { actorId, live: true };
+  const actorIdentity = actorIdentityRef.current;
+  useEffect(() => {
+    actorIdentity.live = true;
+    return () => {
+      actorIdentity.live = false;
+    };
+  }, [actorIdentity]);
   const internal = options.internal === true;
   const searchEnabled = options.searchEnabled === true && !internal;
   const { t } = useTranslation();
-  syncStoreToAgent(agentId);
+  syncStoreToAgent(agentId, actorId);
   if (options.selectedThreadId !== undefined)
     selectSessionAnchor(options.selectedThreadId);
   const ownerRef = useRef({
     agentId,
+    actorId,
     generation: _storeGeneration,
     live: true,
   });
-  if (ownerRef.current.agentId !== agentId)
-    ownerRef.current = { agentId, generation: _storeGeneration, live: true };
+  if (
+    ownerRef.current.agentId !== agentId ||
+    ownerRef.current.actorId !== actorId
+  )
+    ownerRef.current = {
+      agentId,
+      actorId,
+      generation: _storeGeneration,
+      live: true,
+    };
   const owner = ownerRef.current;
   const isCurrentOwner = useCallback(
     () =>
@@ -798,7 +973,7 @@ export function useSessions(
       _storeAgentId === agentId,
     [owner, agentId],
   );
-  const { sessions, loading, hasMore, loadingMore, search } =
+  const { sessions, loading, hasMore, loadingMore, search, selectedSession } =
     useSyncExternalStore(subscribeSessionStore, getSessionSnapshot);
 
   const setSearchQuery = useCallback(
@@ -925,15 +1100,17 @@ export function useSessions(
       if (!agentId || !threadId) return "missing";
       if (!isCurrentOwner()) return "unknown";
       if (_sessions.some((s) => s.id === threadId)) return "found";
-      if (internal) return "unknown";
+      if (internal && actorId === null) return "unknown";
       if (!_selectedThreadId) selectSessionAnchor(threadId);
       const selection = _selectionSequence;
+      const archive = captureArchiveRevision(actorId, agentId);
       try {
         const revision = captureSessionRevision();
         const row = await octopThreadsApi.metadata(agentId, threadId);
         if (
           !isCurrentOwner() ||
           selection !== _selectionSequence ||
+          archive !== captureArchiveRevision(actorId, agentId) ||
           _deletedSessionIds.has(threadId)
         )
           return "unknown";
@@ -941,13 +1118,21 @@ export function useSessions(
           row.thread_id !== threadId ||
           (typeof row.title !== "string" && row.title !== null) ||
           typeof row.last_active !== "number" ||
-          typeof row.created_at !== "number"
+          typeof row.created_at !== "number" ||
+          (actorId !== null &&
+            row.archived_at !== null &&
+            (!Number.isSafeInteger(row.archived_at) ||
+              (row.archived_at ?? 0) < 1))
         )
           return "unknown";
         const valid = mergeSessionMetadata(
           agentId,
           [toSession(row)],
-          [..._sessions, ..._search.sessions],
+          [
+            ..._sessions,
+            ..._search.sessions,
+            ...(_selectedAnchor ? [_selectedAnchor] : []),
+          ],
           revision,
         )[0];
         if (_selectedThreadId === threadId) {
@@ -958,9 +1143,14 @@ export function useSessions(
         }
         return "found";
       } catch (error) {
-        if (!isCurrentOwner() || selection !== _selectionSequence)
+        if (
+          !isCurrentOwner() ||
+          selection !== _selectionSequence ||
+          archive !== captureArchiveRevision(actorId, agentId)
+        )
           return "unknown";
         if (
+          !internal &&
           error instanceof Error &&
           /^Request failed: 404(?:\s|$)/.test(error.message)
         ) {
@@ -970,12 +1160,41 @@ export function useSessions(
         return "unknown";
       }
     },
-    [agentId, internal, isCurrentOwner],
+    [agentId, actorId, internal, isCurrentOwner],
+  );
+
+  useEffect(
+    () =>
+      onArchiveSaved((event) => {
+        if (
+          event.actorId !== actorId ||
+          event.agentId !== agentId ||
+          !isCurrentOwner()
+        )
+          return;
+        const patch = (row: Session) =>
+          row.id === event.id ? { ...row, archivedAt: event.archivedAt } : row;
+        if (_selectedAnchor?.id === event.id)
+          _selectedAnchor = patch(_selectedAnchor);
+        setModuleSessions((rows) =>
+          rows.map(patch).filter((row) => row.archivedAt == null),
+        );
+        publishSearch({
+          ..._search,
+          sessions: _search.sessions
+            .map(patch)
+            .filter((row) => row.archivedAt == null),
+        });
+        refreshSearchAfterSave(++_sessionRevision);
+        void fetchSessions();
+        if (_selectedThreadId) void ensureThreadInList(_selectedThreadId);
+      }),
+    [actorId, agentId, isCurrentOwner, fetchSessions, ensureThreadInList],
   );
 
   // Fetch only: agent switches are synced in-render via syncStoreToAgent.
   useEffect(() => {
-    syncStoreToAgent(agentId);
+    syncStoreToAgent(agentId, actorId);
     owner.live = true;
     owner.generation = _storeGeneration;
     if (!agentId || _initialFetchGeneration === _storeGeneration)
@@ -1011,7 +1230,7 @@ export function useSessions(
     return () => {
       owner.live = false;
     };
-  }, [agentId, owner, isCurrentOwner]);
+  }, [agentId, actorId, owner, isCurrentOwner]);
 
   useEffect(() => {
     return onSessionEvent((event) => {
@@ -1099,7 +1318,8 @@ export function useSessions(
     async (id: string, pinned: boolean): Promise<SessionMutationResult> => {
       const existing =
         _sessions.find((s) => s.id === id) ??
-        _search.sessions.find((s) => s.id === id);
+        _search.sessions.find((s) => s.id === id) ??
+        (_selectedAnchor?.id === id ? _selectedAnchor : undefined);
       if (!existing) return { status: "ignored", reason: "invalid" };
       return persistSessionMetadata({
         agentId,
@@ -1120,7 +1340,8 @@ export function useSessions(
       const next = formatThreadTitle(name) || name.trim();
       const existing =
         _sessions.find((s) => s.id === id) ??
-        _search.sessions.find((s) => s.id === id);
+        _search.sessions.find((s) => s.id === id) ??
+        (_selectedAnchor?.id === id ? _selectedAnchor : undefined);
       if (!next || !existing) return { status: "ignored", reason: "invalid" };
       return persistSessionMetadata({
         agentId,
@@ -1144,8 +1365,24 @@ export function useSessions(
     [],
   );
 
+  const archiveSession = useCallback(
+    (id: string, archived: boolean) =>
+      persistSessionArchive({
+        actorId,
+        agentId,
+        id,
+        archived,
+        isCurrent: isCurrentOwner,
+        isIdentityCurrent: () =>
+          actorIdentity.live && actorIdentityRef.current === actorIdentity,
+        onError: (error) => showApiError(error, t("common.saveFailed"), t),
+      }),
+    [actorId, agentId, actorIdentity, isCurrentOwner, t],
+  );
+
   return {
     sessions,
+    selectedSession,
     loading,
     hasMore,
     loadingMore,
@@ -1157,6 +1394,7 @@ export function useSessions(
     deleteSession,
     renameSession,
     pinSession,
+    archiveSession,
     fetchSessions,
     loadMoreSessions,
     fetchAllSessions,

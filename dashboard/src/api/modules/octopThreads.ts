@@ -19,6 +19,29 @@ export interface OctopThread {
   pending_plan_path?: string | null;
   hitl_policy?: HitlSessionPolicy | null;
   artifacts?: string[];
+  archived_at: number | null;
+}
+
+export interface ThreadArchiveReceipt {
+  thread_id: string;
+  agent_id: string;
+  archived_at: number | null;
+}
+
+export interface ThreadArchivePage {
+  items: Array<{
+    thread_id: string;
+    agent_id: string;
+    title: string | null;
+    channel_type: string;
+    created_at: number;
+    last_active: number;
+    archived_at: number;
+    mode: "chat" | "files";
+  }>;
+  limit: number;
+  offset: number;
+  has_more: boolean;
 }
 
 export interface OctopThreadHistory {
@@ -101,11 +124,26 @@ export interface HistoryMigrationStatus {
 export const CHAT_HISTORY_PAGE_SIZE = 25;
 
 export const octopThreadsApi = {
-  list: (agentId: string, limit = 50, q?: string) =>
+  list: (agentId: string, limit = 50, q?: string, archived = false) =>
     request<OctopThread[]>(
       `/agents/${encodeURIComponent(agentId)}/threads?limit=${limit}${
         q ? `&q=${encodeURIComponent(q)}` : ""
-      }`,
+      }${archived ? "&archived=true" : ""}`,
+    ),
+
+  listArchived: (
+    params: { q?: string; limit?: number; offset?: number } = {},
+  ) =>
+    request<ThreadArchivePage>(
+      `/threads/archived?limit=${params.limit ?? 20}&offset=${
+        params.offset ?? 0
+      }${params.q ? `&q=${encodeURIComponent(params.q)}` : ""}`,
+    ),
+
+  setArchived: (threadId: string, archived: boolean) =>
+    request<ThreadArchiveReceipt>(
+      `/threads/${encodeURIComponent(threadId)}/archive`,
+      { method: "POST", body: JSON.stringify({ archived }) },
     ),
 
   metadata: (agentId: string, threadId: string) =>

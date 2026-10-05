@@ -15,10 +15,11 @@ never the actor.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -59,7 +60,7 @@ def _task_payload(view: TaskSummaryView) -> dict[str, Any]:
     """Safe summary only: never session_key, artifacts, messages, paths, or
     model credentials; ``title`` is present because the caller owns the task
     or was explicitly granted reader access to its card."""
-    return {
+    payload = {
         "project_id": view.project_id,
         "thread_id": view.thread_id,
         "owner_user_id": view.owner_user_id,
@@ -74,6 +75,9 @@ def _task_payload(view: TaskSummaryView) -> dict[str, Any]:
         "chat_agent_id": view.chat_agent_id,
         "source_expert_id": view.source_expert_id,
     }
+    if view.access == "owner":
+        payload["archived_at"] = view.archived_at
+    return payload
 
 
 def _share_payload(view: TaskShareView) -> dict[str, Any]:
@@ -307,13 +311,25 @@ async def list_tasks(
     q: str = Query("", description="Title substring; % _ \\ are matched literally"),
     limit: int = Query(DEFAULT_PAGE_LIMIT, ge=1, le=MAX_PAGE_LIMIT),
     offset: int = Query(0, ge=0),
+    archived: bool = Query(False, description="Archived own tasks only; requires scope=own"),
 ) -> dict[str, Any]:
     """``own`` (default) keeps the private slice-1 behavior; ``shared`` lists
     cards other members granted and have not revoked; ``all`` merges both in
     one stable order. Totals, filters, and paging never reveal another
     member's unshared private tasks."""
-    page = _task_service(server).list_tasks(
-        project_id, user_id=user.id, scope=scope, q=q, limit=limit, offset=offset
+    if archived and scope != "own":
+        raise HTTPException(status_code=422, detail="archived requires scope=own")
+    page = await asyncio.get_running_loop().run_in_executor(
+        None,
+        lambda: _task_service(server).list_tasks(
+            project_id,
+            user_id=user.id,
+            scope=scope,
+            q=q,
+            limit=limit,
+            offset=offset,
+            archived=archived,
+        ),
     )
     return {
         "items": [_task_payload(view) for view in page.items],

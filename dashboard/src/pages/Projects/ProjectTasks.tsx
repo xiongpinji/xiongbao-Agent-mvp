@@ -78,6 +78,13 @@ import {
 } from "../../utils/apiError";
 import { message } from "../../utils/antdMessage";
 import { projectRoleTag } from "./index";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
+import {
+  persistSessionArchive,
+  onArchiveSaved,
+  archiveMutationPending,
+  useArchiveMutationRevision,
+} from "../Chat/hooks/useSessions";
 
 const { Text } = Typography;
 
@@ -158,6 +165,19 @@ export default function ProjectTasks({
   const navigate = useNavigate();
   const timezone = useServerTimezone();
   const { agents, activeAgentId } = useAgent();
+  const actorId = useCurrentUser()?.id ?? null;
+  const archiveIdentity = useRef({ actorId, live: true });
+  if (archiveIdentity.current.actorId !== actorId)
+    archiveIdentity.current = { actorId, live: true };
+  const identity = archiveIdentity.current;
+  useEffect(() => {
+    identity.live = true;
+    return () => {
+      identity.live = false;
+    };
+  }, [identity]);
+  useArchiveMutationRevision();
+  const [tasksIdentity, setTasksIdentity] = useState<object | null>(null);
 
   const [tasks, setTasks] = useState<ProjectTask[]>([]);
   const [tasksKey, setTasksKey] = useState<string | null>(null);
@@ -244,8 +264,15 @@ export default function ProjectTasks({
   const query = search.projectId === projectId ? search.q : "";
   const scope = scopeState.projectId === projectId ? scopeState.scope : "own";
   const listKey = `${projectId}\u0000${scope}\u0000${query}`;
+  const archiveView = useRef({ key: listKey, identity });
+  if (
+    archiveView.current.key !== listKey ||
+    archiveView.current.identity !== identity
+  )
+    archiveView.current = { key: listKey, identity };
+  const view = archiveView.current;
   /** Rows are only rendered when they belong to the current project + scope. */
-  const loaded = tasksKey === listKey;
+  const loaded = tasksKey === listKey && tasksIdentity === identity;
 
   const runningAgents = useMemo(
     () => selectEnabledExperts(agents, activeAgentId),
@@ -507,6 +534,7 @@ export default function ProjectTasks({
 
   const load = useCallback(
     async (offset: number, append: boolean) => {
+      const owner = archiveView.current;
       const key = `${projectId}\u0000${scope}\u0000${query}`;
       const seq = ++fetchSeq.current;
       if (append) {
@@ -521,7 +549,12 @@ export default function ProjectTasks({
           limit: PROJECT_TASKS_PAGE_SIZE,
           offset,
         });
-        if (seq !== fetchSeq.current) return;
+        if (
+          seq !== fetchSeq.current ||
+          archiveView.current !== owner ||
+          !owner.identity.live
+        )
+          return;
         setTasks((previous) =>
           append ? mergeUniqueTasks(previous, data.items) : data.items,
         );
@@ -529,8 +562,14 @@ export default function ProjectTasks({
         setNextOffset(offset + data.items.length);
         setListError(null);
         setTasksKey(key);
+        setTasksIdentity(owner.identity);
       } catch (err: unknown) {
-        if (seq !== fetchSeq.current) return;
+        if (
+          seq !== fetchSeq.current ||
+          archiveView.current !== owner ||
+          !owner.identity.live
+        )
+          return;
         // A failed first page cannot reuse rows from the prior project or
         // scope. Keep already confirmed rows only for a later-page failure.
         if (!append || isNotFoundApiError(err)) {
@@ -540,8 +579,13 @@ export default function ProjectTasks({
         }
         setListError(err);
         setTasksKey(key);
+        setTasksIdentity(owner.identity);
       } finally {
-        if (seq === fetchSeq.current) {
+        if (
+          seq === fetchSeq.current &&
+          archiveView.current === owner &&
+          owner.identity.live
+        ) {
           setLoading(false);
           setLoadingMore(false);
         }
@@ -552,7 +596,58 @@ export default function ProjectTasks({
 
   useEffect(() => {
     void load(0, false);
-  }, [load, reloadKey]);
+  }, [load, reloadKey, identity]);
+
+  useEffect(
+    () =>
+      onArchiveSaved((event) => {
+        if (
+          event.actorId !== actorId ||
+          archiveIdentity.current !== identity ||
+          !identity.live
+        )
+          return;
+        ++fetchSeq.current;
+        setTasks((rows) =>
+          rows.filter(
+            (row) =>
+              !(
+                row.access === "owner" &&
+                row.thread_id === event.id &&
+                event.archivedAt !== null
+              ),
+          ),
+        );
+        setReloadKey((value) => value + 1);
+      }),
+    [actorId, identity],
+  );
+
+  const archiveTask = async (task: ProjectTask) => {
+    if (task.access !== "owner" || !actorId) return;
+    const targetAgent =
+      task.mode === "files" ? task.chat_agent_id?.trim() ?? "" : task.agent_id;
+    if (
+      !targetAgent ||
+      archiveMutationPending(actorId, targetAgent, task.thread_id)
+    )
+      return;
+    const owner = view;
+    await persistSessionArchive({
+      actorId,
+      agentId: targetAgent,
+      id: task.thread_id,
+      archived: true,
+      isIdentityCurrent: () =>
+        identity.live && archiveIdentity.current === identity,
+      isCurrent: () =>
+        identity.live &&
+        archiveIdentity.current === identity &&
+        archiveView.current === owner,
+      onError: (error) =>
+        setActionError(apiErrorMessage(error, t("common.saveFailed"), t)),
+    });
+  };
 
   useEffect(() => {
     if (!pickerOpen || pickerAgentId == null) return;
@@ -1471,6 +1566,24 @@ export default function ProjectTasks({
               flexShrink: 0,
             }}
           >
+            {actorId && chatTargetAgentId && (
+              <Button
+                size="small"
+                type="text"
+                disabled={archiveMutationPending(
+                  actorId,
+                  chatTargetAgentId,
+                  task.thread_id,
+                )}
+                aria-label={t("archive.actionNamed", { title })}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void archiveTask(task);
+                }}
+              >
+                {t("archive.action")}
+              </Button>
+            )}
             <Button
               size="small"
               type="text"

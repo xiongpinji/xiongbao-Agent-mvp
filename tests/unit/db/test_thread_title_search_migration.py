@@ -39,12 +39,16 @@ def test_upgrade_full_values_and_normal_reentry_no_title_scan(
     try:
         _legacy(pool, monkeypatch)
         with pool.connect() as conn:
-            before = [tuple(r) for r in conn.execute("SELECT * FROM threads ORDER BY id")]
+            before_rows = conn.execute("SELECT * FROM threads ORDER BY id").fetchall()
+            before_columns = before_rows[0].keys()
+            before = [tuple(r) for r in before_rows]
         migrate.run_migrations(pool)
         trace: list[str] = []
         with pool.connect() as conn:
             rows = conn.execute("SELECT * FROM threads ORDER BY id").fetchall()
-            assert [tuple(r)[:-1] for r in rows] == before
+            assert set(rows[0].keys()) == set(before_columns) | {"title_search_key", "archived_at"}
+            assert [tuple(r[column] for column in before_columns) for r in rows] == before
+            assert all(r["archived_at"] is None for r in rows)
             assert [r["title_search_key"] for r in rows] == [
                 normalize_project_plan_key(r["title"] or "") for r in rows
             ]

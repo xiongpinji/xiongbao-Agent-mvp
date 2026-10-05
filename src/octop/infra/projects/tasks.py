@@ -85,6 +85,7 @@ class TaskSummaryView:
     mode: str = "chat"
     chat_agent_id: str | None = None
     source_expert_id: str | None = None
+    archived_at: int | None = None
 
 
 @dataclass(frozen=True)
@@ -343,6 +344,7 @@ class ProjectTaskService:
             mode=summary.mode,
             chat_agent_id=summary.chat_agent_id,
             source_expert_id=summary.source_expert_id,
+            archived_at=summary.archived_at if access == "owner" else None,
         )
 
     # ------------------------------------------------------------ attach
@@ -577,6 +579,7 @@ class ProjectTaskService:
         q: str = "",
         limit: int = DEFAULT_PAGE_LIMIT,
         offset: int = 0,
+        archived: bool = False,
     ) -> TaskListPage:
         """Visible task cards in one project.
 
@@ -587,6 +590,8 @@ class ProjectTaskService:
         other members never appear in any result, total, filter, or paging
         metadata.
         """
+        if archived and scope != "own":
+            raise ValueError("archive filter requires own scope")
         self._require_membership(project_id, user_id)
         if scope == "shared":
             rows = self._share_repo.list_shared(
@@ -598,7 +603,7 @@ class ProjectTaskService:
             )
         else:
             rows = self._repo.list_for_owner(
-                project_id, user_id=user_id, q=q, limit=limit, offset=offset
+                project_id, user_id=user_id, q=q, limit=limit, offset=offset, archived=archived
             )
         has_more = len(rows) > limit
         items = [self._view(row) for row in rows[:limit]]

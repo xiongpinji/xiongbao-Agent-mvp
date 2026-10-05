@@ -15,6 +15,8 @@
 
 普通门禁 V8 结果文件 SHA256 为 `9f8b741b5f938d52d2912b2b458a6e77b28349b30bbe762b103ac5ee063518d2`，2337 个输入的冻结清单 SHA256 为 `23b14dbb8d6215f8e1e61ef619776ea662492a2760fadc17b0b7f592e025e67d`。本片的原提交钩子和远端 CI 另按实际提交记录，不能挪用第三波 SHA 的 CI 结果。
 
+发布后复核：本片已推送功能分支，提交为 `754358d08cf76bd4fa7b456b0cf2aac33d412d7f`。[以此为 head 的 PR 合并检查](https://github.com/xiongpinji/xiongbao-Agent-mvp/actions/runs/37227609485) 已全部完成；三个作业实际检出的 PR 合并提交为 `7f26796fd5f2eda8f89b61b280ad9f2f268ac1a3`，包含上述 head 和 base `187c70a30c4f6ab0edba240157fd22daf07774f7`。Linux 5631 passed、190 skipped、35 warnings；Windows 5506 passed、315 skipped、21 warnings。Live 作业的 33 项全部跳过，无真实供应商调用通过证据。这些结果仅适用于该固定 PR 合并检查，不覆盖后续尚未提交的存储、归档或样式候选。
+
 ## 本地浏览器的实际部分结果
 
 本轮 V5 使用隔离 SQLite、真实 JWT、所有权校验、HTTP 路由和已构建 SPA。使用合成专家运行替身，无供应商调用授权。用户对本轮登录滑块的确认已用于一次真实拖动，随后通过正常登录进入 `qa_w09_owner_a`。

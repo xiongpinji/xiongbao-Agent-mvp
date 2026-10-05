@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { message as antMessage } from "@/utils/antdMessage";
 import { useTranslation } from "react-i18next";
+import { useCurrentUser } from "../hooks/useCurrentUser";
 import { useAgent, selectEnabledExperts } from "../context/AgentContext";
 import { octopThreadsApi } from "../api/modules/octopThreads";
 import { apiErrorMessage } from "../utils/apiError";
@@ -10,6 +11,7 @@ import { emitSessionEvent } from "../pages/Chat/hooks/chatStore";
 import { formatThreadTitle } from "../pages/Chat/utils/threadTitle";
 import {
   persistSessionMetadata,
+  persistSessionArchive,
   type SessionMutationResult,
 } from "../pages/Chat/hooks/useSessions";
 
@@ -31,6 +33,17 @@ export default function MinimalRecordsHost() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
+  const actorId = useCurrentUser()?.id ?? null;
+  const identityRef = useRef({ actorId, live: true });
+  if (identityRef.current.actorId !== actorId)
+    identityRef.current = { actorId, live: true };
+  const identity = identityRef.current;
+  useEffect(() => {
+    identity.live = true;
+    return () => {
+      identity.live = false;
+    };
+  }, [identity]);
   const { agents, activeAgentId, setActiveAgent } = useAgent();
 
   const { agentId: pathAgentId, threadId: pathThreadId } = useMemo(
@@ -38,9 +51,23 @@ export default function MinimalRecordsHost() {
     [location.pathname],
   );
   const resolvedAgentId = pathAgentId ?? activeAgentId;
-  const ownerRef = useRef({ agentId: resolvedAgentId, live: true });
-  if (ownerRef.current.agentId !== resolvedAgentId)
-    ownerRef.current = { agentId: resolvedAgentId, live: true };
+  const ownerRef = useRef({
+    agentId: resolvedAgentId,
+    actorId,
+    route: location.key,
+    live: true,
+  });
+  if (
+    ownerRef.current.agentId !== resolvedAgentId ||
+    ownerRef.current.actorId !== actorId ||
+    ownerRef.current.route !== location.key
+  )
+    ownerRef.current = {
+      agentId: resolvedAgentId,
+      actorId,
+      route: location.key,
+      live: true,
+    };
   const owner = ownerRef.current;
   useEffect(() => {
     owner.live = true;
@@ -153,6 +180,20 @@ export default function MinimalRecordsHost() {
       activeId={pathThreadId}
       activeAgentId={resolvedAgentId}
       activeSessions={[]}
+      actorId={actorId}
+      onArchiveActive={(id) =>
+        persistSessionArchive({
+          actorId,
+          agentId: resolvedAgentId,
+          id,
+          archived: true,
+          isIdentityCurrent: () =>
+            identity.live && identityRef.current === identity,
+          isCurrent: () => owner.live && ownerRef.current === owner,
+          onError: (error) =>
+            antMessage.error(apiErrorMessage(error, t("common.saveFailed"), t)),
+        })
+      }
       onSelect={handleSelect}
       onAgentSelect={handleAgentSelect}
       onNewChat={handleNewChat}

@@ -109,6 +109,8 @@ export interface ProjectTask {
   created_at: number;
   /** `reader` cards must never expose a `/chat` link or write actions. */
   access: ProjectTaskAccess;
+  /** Owner-only; readers omit personal archive state. */
+  archived_at?: number | null;
   /**
    * Owner: always true. Reader: true only with an active card share *and* a
    * separate 025 text grant. Card-only readers must never request text.
@@ -131,6 +133,7 @@ export interface ProjectTaskListParams {
   /** Server cap is 100. */
   limit?: number;
   offset?: number;
+  archived?: boolean;
 }
 
 /** Fixed share role for this slice; the server assigns it. */
@@ -233,6 +236,8 @@ export const projectTasksApi = {
     if (q) query.set("q", q);
     query.set("limit", String(params.limit ?? PROJECT_TASKS_PAGE_SIZE));
     query.set("offset", String(params.offset ?? 0));
+    if (params.archived !== undefined)
+      query.set("archived", String(params.archived));
     return request<ProjectTaskListResponse>(
       `${tasksBase(projectId)}?${query.toString()}`,
     );

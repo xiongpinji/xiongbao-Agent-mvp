@@ -502,13 +502,21 @@ class ThreadRegistry:
         return self._threads.get(thread_id)
 
     def list_threads(
-        self, *, agent_id: str, user_id: int, limit: int = 50, q: str = ""
+        self,
+        *,
+        agent_id: str,
+        user_id: int,
+        limit: int = 50,
+        q: str = "",
+        archived: bool | None = None,
     ) -> list[ThreadRow]:
         if q.strip():
             return self._threads.list_by_agent_user(
-                agent_id=agent_id, user_id=user_id, limit=limit, q=q
+                agent_id=agent_id, user_id=user_id, limit=limit, q=q, archived=archived
             )
-        return self._threads.list_by_agent_user(agent_id=agent_id, user_id=user_id, limit=limit)
+        return self._threads.list_by_agent_user(
+            agent_id=agent_id, user_id=user_id, limit=limit, archived=archived
+        )
 
     def list_threads_for_session(self, *, session_key: str, limit: int = 50) -> list[ThreadRow]:
         return self._threads.list_by_session(session_key=session_key, limit=limit)

@@ -16,7 +16,11 @@ import {
   EyeOff,
   X,
 } from "lucide-react";
-import type { Session, SessionSearch } from "../hooks/useSessions";
+import type {
+  ArchiveMutationResult,
+  Session,
+  SessionSearch,
+} from "../hooks/useSessions";
 import { apiErrorMessage } from "../../../utils/apiError";
 import type { OctopAgent } from "../../../context/AgentContext";
 import { isAgentChatReady } from "../../../utils/agentError";
@@ -48,6 +52,7 @@ interface SessionItemProps {
   onDelete: (id: string) => void;
   onRename: (id: string, name: string) => void;
   onPin: (id: string, pinned: boolean) => void;
+  onArchive?: (id: string) => Promise<ArchiveMutationResult>;
   onFork: (id: string) => void;
   forkDisabled?: boolean;
   forkDisabledHint?: string;
@@ -60,12 +65,14 @@ const SessionItem = memo(function SessionItem({
   onDelete,
   onRename,
   onPin,
+  onArchive,
   onFork,
   forkDisabled,
   forkDisabledHint,
 }: SessionItemProps) {
   const { t } = useTranslation();
   const [isEditing, setIsEditing] = useState(false);
+  const [archiving, setArchiving] = useState(false);
   const [editValue, setEditValue] = useState(session.name);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -96,6 +103,24 @@ const SessionItem = memo(function SessionItem({
     : forkDisabledHint;
 
   const menuItems: MenuProps["items"] = [
+    ...(onArchive
+      ? [
+          {
+            key: "archive",
+            label: t("archive.action"),
+            disabled: archiving,
+            onClick: ({
+              domEvent,
+            }: {
+              domEvent: React.MouseEvent | React.KeyboardEvent;
+            }) => {
+              domEvent.stopPropagation();
+              setArchiving(true);
+              void onArchive(session.id).finally(() => setArchiving(false));
+            },
+          },
+        ]
+      : []),
     {
       key: "pin",
       label: session.pinned
@@ -235,6 +260,7 @@ interface AgentCardProps {
   onDelete: (id: string) => void;
   onRename: (id: string, name: string) => void;
   onPin: (id: string, pinned: boolean) => void;
+  onArchive?: (id: string) => Promise<ArchiveMutationResult>;
   onFork: (id: string) => void;
   activeForkDisabled?: boolean;
   activeForkDisabledHint?: string;
@@ -255,6 +281,7 @@ function ActiveAgentCard({
   onDelete,
   onRename,
   onPin,
+  onArchive,
   onFork,
   activeForkDisabled,
   activeForkDisabledHint,
@@ -380,6 +407,7 @@ function ActiveAgentCard({
                 onDelete={onDelete}
                 onRename={onRename}
                 onPin={onPin}
+                onArchive={onArchive}
                 onFork={onFork}
                 forkDisabled={
                   activeId === s.id ? activeForkDisabled : undefined
@@ -523,6 +551,7 @@ interface SessionListProps {
   onDelete: (id: string) => void;
   onRename: (id: string, name: string) => void;
   onPin: (id: string, pinned: boolean) => void;
+  onArchive?: (id: string) => Promise<ArchiveMutationResult>;
   onFork: (id: string) => void;
   activeForkDisabled?: boolean;
   activeForkDisabledHint?: string;
@@ -546,6 +575,7 @@ export default function SessionList({
   onDelete,
   onRename,
   onPin,
+  onArchive,
   onFork,
   activeForkDisabled,
   activeForkDisabledHint,
@@ -696,6 +726,7 @@ export default function SessionList({
                       onDelete={onDelete}
                       onRename={onRename}
                       onPin={onPin}
+                      onArchive={onArchive}
                       onFork={onFork}
                       activeForkDisabled={activeForkDisabled}
                       activeForkDisabledHint={activeForkDisabledHint}

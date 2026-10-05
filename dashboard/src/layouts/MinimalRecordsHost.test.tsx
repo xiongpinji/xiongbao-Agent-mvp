@@ -7,15 +7,26 @@ import {
   useSessions,
 } from "../pages/Chat/hooks/useSessions";
 
-const { capture, agentState, renameMock, patchMock, errorMock } = vi.hoisted(
-  () => ({
-    capture: { current: {} as Record<string, (...args: unknown[]) => unknown> },
-    agentState: { activeAgentId: "a" },
-    renameMock: vi.fn(),
-    patchMock: vi.fn(),
-    errorMock: vi.fn(),
-  }),
-);
+const {
+  capture,
+  agentState,
+  renameMock,
+  patchMock,
+  errorMock,
+  actorState,
+  archiveMock,
+} = vi.hoisted(() => ({
+  capture: { current: {} as Record<string, (...args: unknown[]) => unknown> },
+  agentState: { activeAgentId: "a" },
+  renameMock: vi.fn(),
+  patchMock: vi.fn(),
+  errorMock: vi.fn(),
+  actorState: { id: null as number | null },
+  archiveMock: vi.fn(),
+}));
+vi.mock("../hooks/useCurrentUser", () => ({
+  useCurrentUser: () => (actorState.id === null ? null : { id: actorState.id }),
+}));
 vi.mock("../context/AgentContext", () => ({
   useAgent: () => ({
     agents: [],
@@ -34,6 +45,7 @@ vi.mock("../api/modules/octopThreads", () => ({
   octopThreadsApi: {
     rename: renameMock,
     patch: patchMock,
+    setArchived: archiveMock,
     list: async () => [
       { thread_id: "thread", title: "Old", pinned: false, last_active: 1 },
     ],
@@ -64,6 +76,40 @@ describe("standalone records metadata results", () => {
     patchMock.mockReset();
     errorMock.mockReset();
     agentState.activeAgentId = "a";
+    actorState.id = null;
+  });
+
+  it("archives through the standalone host without navigation and keeps lane ownership through actor ABA", async () => {
+    actorState.id = 1;
+    const pending = deferred<{
+      thread_id: string;
+      agent_id: string;
+      archived_at: number;
+    }>();
+    archiveMock.mockReset().mockReturnValue(pending.promise);
+    const { rerender } = mount();
+    let request: unknown;
+    act(() => {
+      request = capture.current.onArchiveActive("thread");
+    });
+    expect(archiveMock).toHaveBeenCalledExactlyOnceWith("thread", true);
+    actorState.id = 2;
+    rerender(
+      <MemoryRouter initialEntries={["/experts"]}>
+        <MinimalRecordsHost />
+      </MemoryRouter>,
+    );
+    actorState.id = 1;
+    rerender(
+      <MemoryRouter initialEntries={["/experts"]}>
+        <MinimalRecordsHost />
+      </MemoryRouter>,
+    );
+    await act(async () => {
+      pending.resolve({ thread_id: "thread", agent_id: "a", archived_at: 100 });
+      expect(await request).toEqual({ status: "ignored", reason: "stale" });
+    });
+    expect(errorMock).not.toHaveBeenCalled();
   });
 
   it.each(["onRenameActive", "onPinActive"])(

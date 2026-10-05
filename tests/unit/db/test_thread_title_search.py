@@ -166,8 +166,9 @@ def test_project_task_null_insert_and_registry_blank_preserve_old_signature(sear
     registry = ThreadRegistry(session_repo=SessionRepo(pool), thread_repo=repo)
     real = repo.list_by_agent_user
 
-    def old_signature(*, agent_id: str, user_id: int, limit: int = 50):
-        return real(agent_id=agent_id, user_id=user_id, limit=limit)
+    def old_signature(*, agent_id: str, user_id: int, limit: int = 50, archived: bool | None):
+        assert archived is None
+        return real(agent_id=agent_id, user_id=user_id, limit=limit, archived=archived)
 
     repo.list_by_agent_user = old_signature
     assert registry.list_threads(agent_id="expert", user_id=1, q=" \t") == real(

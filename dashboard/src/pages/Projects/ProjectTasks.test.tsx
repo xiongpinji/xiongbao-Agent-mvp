@@ -11,6 +11,12 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import en from "../../locales/en.json";
 import zh from "../../locales/zh.json";
+import { CurrentUserProvider } from "../../hooks/useCurrentUser";
+import type { OctopUser } from "../../api/modules/auth";
+import {
+  resetSessionStoreForTests,
+  archiveMutationPending,
+} from "../Chat/hooks/useSessions";
 
 const {
   list,
@@ -42,9 +48,10 @@ const {
   deleteFileTask: vi.fn(),
 }));
 
-const { threadsList, threadsDelete } = vi.hoisted(() => ({
+const { threadsList, threadsDelete, archiveThread } = vi.hoisted(() => ({
   threadsList: vi.fn(),
   threadsDelete: vi.fn(),
+  archiveThread: vi.fn(),
 }));
 
 const { getProjectExperts } = vi.hoisted(() => ({
@@ -91,7 +98,11 @@ vi.mock("../../api/modules/projectTasks", async (importOriginal) => {
 });
 
 vi.mock("../../api/modules/octopThreads", () => ({
-  octopThreadsApi: { list: threadsList, delete: threadsDelete },
+  octopThreadsApi: {
+    list: threadsList,
+    delete: threadsDelete,
+    setArchived: archiveThread,
+  },
 }));
 
 vi.mock("../../api/modules/projectExperts", () => ({
@@ -379,6 +390,160 @@ beforeEach(() => {
 });
 
 describe("ProjectTasks owner behavior", () => {
+  it("hides the prior actor rows before the next actor list is confirmed", async () => {
+    resetSessionStoreForTests();
+    list.mockResolvedValueOnce(page([taskFile]));
+    let resolve!: (value: ReturnType<typeof page>) => void;
+    const next = new Promise<ReturnType<typeof page>>((ok) => {
+      resolve = ok;
+    });
+    list.mockReturnValue(next);
+    const tree = (id: number) => (
+      <CurrentUserProvider user={{ id } as OctopUser} setUser={vi.fn()}>
+        {tasksTree()}
+      </CurrentUserProvider>
+    );
+    const mounted = render(tree(2));
+    await screen.findByText("文件周报");
+    mounted.rerender(tree(3));
+    expect(screen.queryByTestId("project-task-tf1")).not.toBeInTheDocument();
+    await act(async () => {
+      resolve(page([]));
+    });
+    mounted.unmount();
+  });
+  it.each(["success", "failure"] as const)(
+    "releases the real lane after old actor %s and re-enables the new actor card",
+    async (outcome) => {
+      resetSessionStoreForTests();
+      list.mockResolvedValue(page([taskFile]));
+      let resolve!: (value: {
+        thread_id: string;
+        agent_id: string;
+        archived_at: number;
+      }) => void;
+      let reject!: (error: unknown) => void;
+      archiveThread.mockReset().mockReturnValueOnce(
+        new Promise((ok, fail) => {
+          resolve = ok;
+          reject = fail;
+        }),
+      );
+      const tree = (id: number) => (
+        <CurrentUserProvider user={{ id } as OctopUser} setUser={vi.fn()}>
+          {tasksTree()}
+        </CurrentUserProvider>
+      );
+      const mounted = render(tree(2));
+      await screen.findByText("文件周报");
+      fireEvent.click(
+        screen.getByRole("button", { name: "archive.actionNamed" }),
+      );
+      mounted.rerender(tree(3));
+      await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+      mounted.rerender(tree(2));
+      await waitFor(() => expect(list).toHaveBeenCalledTimes(3));
+      const button = await screen.findByRole("button", {
+        name: "archive.actionNamed",
+      });
+      expect(button).toBeDisabled();
+      fireEvent.click(button);
+      expect(archiveThread).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        if (outcome === "success")
+          resolve({
+            thread_id: "tf1",
+            agent_id: "runtime-1",
+            archived_at: 100,
+          });
+        else reject(new Error("old failure"));
+      });
+      expect(archiveMutationPending(2, "runtime-1", "tf1")).toBe(false);
+      await waitFor(() =>
+        expect(
+          screen.getByRole("button", { name: "archive.actionNamed" }),
+        ).toBeEnabled(),
+      );
+      expect(screen.getByTestId("project-task-tf1")).toBeInTheDocument();
+      expect(screen.getByTestId("location")).toHaveTextContent("/projects/p1");
+      archiveThread.mockRejectedValueOnce(new Error("current failure"));
+      fireEvent.click(
+        screen.getByRole("button", { name: "archive.actionNamed" }),
+      );
+      await waitFor(() =>
+        expect(
+          screen.getByRole("button", { name: "archive.actionNamed" }),
+        ).toBeEnabled(),
+      );
+      expect(archiveThread).toHaveBeenCalledTimes(2);
+      list.mockResolvedValue(page([]));
+      archiveThread.mockResolvedValue({
+        thread_id: "tf1",
+        agent_id: "runtime-1",
+        archived_at: 101,
+      });
+      fireEvent.click(
+        screen.getByRole("button", { name: "archive.actionNamed" }),
+      );
+      await waitFor(() =>
+        expect(
+          screen.queryByTestId("project-task-tf1"),
+        ).not.toBeInTheDocument(),
+      );
+      expect(archiveThread).toHaveBeenCalledTimes(3);
+      expect(unlink).not.toHaveBeenCalled();
+      expect(deleteFileTask).not.toHaveBeenCalled();
+      mounted.unmount();
+    },
+  );
+  it("archives an owner files card by canonical runtime identity while preserving the reader and route", async () => {
+    list
+      .mockResolvedValueOnce(page([taskFile]))
+      .mockResolvedValue(page([taskFile, taskShared]));
+    let resolve!: (value: {
+      thread_id: string;
+      agent_id: string;
+      archived_at: number;
+    }) => void;
+    archiveThread.mockReset().mockReturnValue(
+      new Promise((ok) => {
+        resolve = ok;
+      }),
+    );
+    render(
+      <CurrentUserProvider user={{ id: 2 } as OctopUser} setUser={vi.fn()}>
+        {tasksTree()}
+      </CurrentUserProvider>,
+    );
+    await screen.findByText("文件周报");
+    fireEvent.click(screen.getByText("全部任务"));
+    await screen.findByTestId(`project-task-${taskShared.thread_id}`);
+    const card = screen.getByTestId("project-task-tf1");
+    const button = within(card).getByRole("button", {
+      name: "archive.actionNamed",
+    });
+    fireEvent.click(button);
+    expect(button).toBeDisabled();
+    expect(archiveThread).toHaveBeenCalledExactlyOnceWith("tf1", true);
+    expect(
+      within(
+        screen.getByTestId(`project-task-${taskShared.thread_id}`),
+      ).queryByRole("button", { name: "archive.actionNamed" }),
+    ).not.toBeInTheDocument();
+    list.mockResolvedValue(page([taskShared]));
+    await act(async () =>
+      resolve({ thread_id: "tf1", agent_id: "runtime-1", archived_at: 100 }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByTestId("project-task-tf1")).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.getByTestId(`project-task-${taskShared.thread_id}`),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/projects/p1");
+    expect(unlink).not.toHaveBeenCalled();
+    expect(deleteFileTask).not.toHaveBeenCalled();
+  });
   it("renders the owner's own linked task with a real chat deep link", async () => {
     renderTasks("p1");
 

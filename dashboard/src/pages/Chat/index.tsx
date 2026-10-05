@@ -89,6 +89,7 @@ import {
   dockTabIdForToolCall,
 } from "./ChatToolDockContext";
 import ChatSidebarPanel from "./components/ChatSidebarPanel";
+import ThreadArchiveBanner from "./components/ThreadArchiveBanner";
 import ChatTitleBar from "./components/ChatTitleBar";
 import TeamChatBadge from "./components/TeamChatBadge";
 import ChatComposerChrome from "./components/ChatComposerChrome";
@@ -414,6 +415,8 @@ function ChatPageInner() {
     deleteSession,
     renameSession,
     pinSession,
+    archiveSession,
+    selectedSession,
     fetchSessions,
     loadMoreSessions,
     ensureThreadInList,
@@ -423,6 +426,7 @@ function ChatPageInner() {
     retrySearch,
   } = useSessions(chatAgentId ?? null, {
     internal: isInternalTask,
+    actorId: user?.id ?? null,
     searchEnabled: !isMinimalLayout && !isInternalTask,
     selectedThreadId: activeThreadId,
   });
@@ -650,8 +654,11 @@ function ChatPageInner() {
   }, [openToolUiTab, closeToolUiPanel]);
 
   const composerSession = useMemo(
-    () => sessions.find((session) => session.id === activeThreadId) ?? null,
-    [sessions, activeThreadId],
+    () =>
+      (selectedSession?.id === activeThreadId ? selectedSession : null) ??
+      sessions.find((session) => session.id === activeThreadId) ??
+      null,
+    [sessions, selectedSession, activeThreadId],
   );
 
   // Artifacts belong to the active thread only — an empty/loading thread
@@ -1292,6 +1299,7 @@ function ChatPageInner() {
   const activeSession = useMemo(() => {
     if (!activeThreadId || showWelcome) return null;
     return (
+      (selectedSession?.id === activeThreadId ? selectedSession : null) ??
       sessions.find((s) => s.id === activeThreadId) ?? {
         id: activeThreadId,
         name: "New Chat",
@@ -1303,7 +1311,7 @@ function ChatPageInner() {
         pinned: false,
       }
     );
-  }, [activeThreadId, sessions, showWelcome]);
+  }, [activeThreadId, sessions, selectedSession, showWelcome]);
 
   const activeSessionTitle = useMemo(() => {
     if (!activeSession) return null;
@@ -1361,6 +1369,8 @@ function ChatPageInner() {
       onRenameSession={
         isInternalTask ? refuseInternalTaskManagement : renameSession
       }
+      actorId={user?.id ?? null}
+      onArchiveSession={user ? (id) => archiveSession(id, true) : undefined}
       onPinSession={isInternalTask ? refuseInternalTaskManagement : pinSession}
       onForkSession={handleForkSession}
       forkDisabled={sessionForkDisabled}
@@ -1423,6 +1433,12 @@ function ChatPageInner() {
               .filter(Boolean)
               .join(" ")}
           >
+            {composerSession?.archivedAt != null && user && activeThreadId ? (
+              <ThreadArchiveBanner
+                key={activeThreadId}
+                onRestore={() => archiveSession(activeThreadId, false)}
+              />
+            ) : null}
             {/* Mobile toolbar — session list + optional title + agent profile */}
             {isMobile && (
               <div className={styles.mobileToolbar}>

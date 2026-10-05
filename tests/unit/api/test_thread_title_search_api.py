@@ -90,14 +90,15 @@ async def test_http_matches_title_beyond_original_first_50(search_api: SimpleNam
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("q", ["", " \t\u2003\n"])
-async def test_empty_q_and_direct_helper_keep_old_kwargs(
+async def test_empty_q_and_direct_helper_omit_q_and_filter_unarchived(
     search_api: SimpleNamespace, q: str
 ) -> None:
     _insert(search_api, "one", "Hello")
     real = search_api.registry.list_threads
 
-    def old_signature(*, agent_id: str, user_id: int, limit: int = 50) -> object:
-        return real(agent_id=agent_id, user_id=user_id, limit=limit)
+    def old_signature(*, agent_id: str, user_id: int, limit: int = 50, archived: bool) -> object:
+        assert archived is False
+        return real(agent_id=agent_id, user_id=user_id, limit=limit, archived=archived)
 
     search_api.registry.list_threads = old_signature
     direct = await history.list_threads("expert", user=search_api.user, server=search_api.server)
@@ -168,6 +169,7 @@ async def test_authorized_scope_and_original_array_fields(search_api: SimpleName
         "pending_plan_path",
         "hitl_policy",
         "artifacts",
+        "archived_at",
     }
 
 

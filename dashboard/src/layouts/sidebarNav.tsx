@@ -49,6 +49,7 @@ export interface NavSection {
  * comes from {@link buildNavSections}.
  */
 export const SIDEBAR_GROUPED_NAV_KEYS = [
+  "data-management",
   "personalization",
   "channels",
   "connectors",
@@ -114,6 +115,12 @@ export function buildNavSections(
   ];
 
   const settingsItems: NavItem[] = [
+    {
+      key: "data-management",
+      path: "/settings/data",
+      labelKey: "dataManagement.title",
+      icon: <FolderKanban size={iconSize} strokeWidth={iconStroke} />,
+    },
     {
       key: "personalization",
       path: "/personalization/skills",

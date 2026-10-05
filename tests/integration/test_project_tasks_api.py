@@ -21,6 +21,7 @@ MEMBER = "ptk_member"
 OUTSIDER = "ptk_outsider"
 
 _SUMMARY_KEYS = {
+    "archived_at",
     "project_id",
     "thread_id",
     "owner_user_id",
@@ -141,6 +142,7 @@ async def test_attach_own_task_returns_safe_summary_and_is_idempotent(
     assert r.status_code == 201, r.text
     payload = r.json()
     assert set(payload) == _SUMMARY_KEYS
+    assert payload["archived_at"] is None
     assert payload["project_id"] == ctx["pid"]
     assert payload["thread_id"] == tid
     assert payload["owner_user_id"] == ctx["owner_uid"]
@@ -252,6 +254,7 @@ async def test_list_is_owner_scoped_with_literal_search_and_paging(env_with_prov
     assert "MEMBER-SECRET" not in r.text
     assert all(i["owner_user_id"] == ctx["owner_uid"] for i in body["items"])
     assert all(set(i) == _SUMMARY_KEYS for i in body["items"])
+    assert all(i["archived_at"] is None for i in body["items"])
 
     r = await client.get(f"/api/projects/{ctx['pid']}/tasks", headers=ctx["member_auth"])
     assert r.status_code == 200
@@ -323,6 +326,7 @@ async def test_detail_is_owner_scoped(env_with_provider: Any) -> None:
     r = await client.get(f"/api/projects/{ctx['pid']}/tasks/{owner_tid}", headers=ctx["owner_auth"])
     assert r.status_code == 200, r.text
     assert set(r.json()) == _SUMMARY_KEYS
+    assert r.json()["archived_at"] is None
     assert r.json()["title"] == "OWNER-SECRET"
 
     # Fellow member requesting the owner's task: uniform 404, no title leak.

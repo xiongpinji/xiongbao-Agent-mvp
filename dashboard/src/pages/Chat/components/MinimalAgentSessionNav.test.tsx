@@ -5,7 +5,8 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import MinimalAgentSessionNav from "./MinimalAgentSessionNav";
 import {
@@ -16,14 +17,22 @@ import {
 import { emitSessionEvent } from "../hooks/chatStore";
 import type { OctopAgent } from "../../../context/AgentContext";
 
-const { listMock, renameMock, patchMock, errorMock } = vi.hoisted(() => ({
-  listMock: vi.fn(),
-  renameMock: vi.fn(),
-  patchMock: vi.fn(),
-  errorMock: vi.fn(),
-}));
+const { listMock, renameMock, patchMock, errorMock, archiveMock } = vi.hoisted(
+  () => ({
+    listMock: vi.fn(),
+    renameMock: vi.fn(),
+    patchMock: vi.fn(),
+    errorMock: vi.fn(),
+    archiveMock: vi.fn(),
+  }),
+);
 vi.mock("../../../api/modules/octopThreads", () => ({
-  octopThreadsApi: { list: listMock, rename: renameMock, patch: patchMock },
+  octopThreadsApi: {
+    list: listMock,
+    rename: renameMock,
+    patch: patchMock,
+    setArchived: archiveMock,
+  },
 }));
 vi.mock("../../../utils/antdMessage", () => ({
   message: { error: errorMock },
@@ -107,6 +116,130 @@ describe("minimal history metadata", () => {
     renameMock.mockReset();
     patchMock.mockReset();
     localStorage.clear();
+  });
+
+  it.each(["[Enter]", "[Space]"])(
+    "opens More with %s and archives via the keyboard without selecting the row",
+    async (key) => {
+      const save = deferred<{
+        thread_id: string;
+        agent_id: string;
+        archived_at: number;
+      }>();
+      archiveMock.mockReset().mockReturnValue(save.promise);
+      const props = { ...navProps(), actorId: 1 };
+      const user = userEvent.setup();
+      function Location() {
+        return (
+          <span data-testid="keyboard-path">{useLocation().pathname}</span>
+        );
+      }
+      render(
+        <MemoryRouter initialEntries={["/experts"]}>
+          <MinimalAgentSessionNav {...props} />
+          <Location />
+        </MemoryRouter>,
+      );
+      await screen.findByText("Original");
+      const rowElement = screen
+        .getByText("Original")
+        .closest('[role="button"]')!;
+      const more = rowElement.querySelector("button")!;
+      more.focus();
+      await user.keyboard(key);
+      await screen.findByRole("menuitem", { name: "archive.action" });
+      expect(props.onSelect).not.toHaveBeenCalled();
+      expect(props.onAgentSelect).not.toHaveBeenCalled();
+      expect(screen.getByTestId("keyboard-path")).toHaveTextContent("/experts");
+      // rc-menu reads legacy which; JSDOM does not synthesize it from key.
+      const archiveItem = screen.getByRole("menuitem", {
+        name: "archive.action",
+      });
+      archiveItem.focus();
+      fireEvent.keyDown(archiveItem, {
+        key: "Enter",
+        code: "Enter",
+        keyCode: 13,
+        which: 13,
+      });
+      expect(archiveMock).toHaveBeenCalledExactlyOnceWith("thread-a", true);
+      expect(props.onDeleteActive).not.toHaveBeenCalled();
+      expect(props.onFork).not.toHaveBeenCalled();
+      expect(props.onSelect).not.toHaveBeenCalled();
+      listMock.mockResolvedValue([]);
+      await act(async () => {
+        save.resolve({
+          thread_id: "thread-a",
+          agent_id: "a",
+          archived_at: 100,
+        });
+      });
+      expect(screen.getByTestId("keyboard-path")).toHaveTextContent("/experts");
+    },
+  );
+  it("still selects the row itself with Enter without invoking its archive menu", async () => {
+    const props = { ...navProps(), actorId: 1 };
+    archiveMock.mockClear();
+    const user = userEvent.setup();
+    mount(props);
+    await screen.findByText("Original");
+    const element = screen.getByText("Original").closest('[role="button"]')!;
+    (element as HTMLElement).focus();
+    await user.keyboard("[Enter]");
+    expect(props.onSelect).toHaveBeenCalledExactlyOnceWith("thread-a", "a");
+    expect(archiveMock).not.toHaveBeenCalled();
+    expect(props.onDeleteActive).not.toHaveBeenCalled();
+  });
+
+  it("archives a noncurrent preview with a real lane and ignores a pre-save refresh", async () => {
+    const save = deferred<{
+      thread_id: string;
+      agent_id: string;
+      archived_at: number;
+    }>();
+    archiveMock.mockReset().mockReturnValue(save.promise);
+    const old = deferred<(typeof row)[]>();
+    listMock
+      .mockResolvedValueOnce([row])
+      .mockReturnValueOnce(old.promise)
+      .mockResolvedValue([]);
+    const props = { ...navProps(), actorId: 1 };
+    mount(props);
+    await screen.findByText("Original");
+    act(() =>
+      emitSessionEvent({
+        kind: "sessionsChanged",
+        sessionId: "thread-a",
+        agentId: "a",
+      }),
+    );
+    await menu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "archive.action" }));
+    expect(archiveMock).toHaveBeenCalledExactlyOnceWith("thread-a", true);
+    await act(async () =>
+      save.resolve({ thread_id: "thread-a", agent_id: "a", archived_at: 100 }),
+    );
+    await act(async () => old.resolve([row]));
+    expect(screen.queryByText("Original")).not.toBeInTheDocument();
+    expect(props.onSelect).not.toHaveBeenCalled();
+    expect(props.onDeleteActive).not.toHaveBeenCalled();
+  });
+
+  it("treats the Chat last-row empty snapshot as authoritative without wiping standalone previews", async () => {
+    const props = {
+      ...navProps(),
+      activeAgentId: "a",
+      activeSessions: [toSession(row)],
+      activeSessionsAuthoritative: true,
+    };
+    const { rerender } = mount(props);
+    await screen.findByText("Original");
+    rerender(
+      <MemoryRouter>
+        <MinimalAgentSessionNav {...props} activeSessions={[]} />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByText("Original")).not.toBeInTheDocument();
   });
 
   it("rolls back inactive pin, reports once and allows retry without selecting", async () => {

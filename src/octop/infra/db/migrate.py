@@ -2542,6 +2542,176 @@ def _ensure_project_todo_d1_v37(db: DatabasePool, path: Path) -> None:
             raise
 
 
+def _archive_statements(sql: str, *, dialect: str) -> list[str]:
+    suffix = ".pg.sql" if dialect == "postgresql" else ".sql"
+    expected = (_MIGRATIONS_DIR / ("038_thread_archive" + suffix)).read_text(encoding="utf-8")
+    if sql != expected:
+        raise RuntimeError("thread archive canonical migration differs")
+    statements = [part.strip() + ";" for part in sql.split(";") if part.strip()]
+    if len(statements) != 3 or (
+        dialect == "sqlite" and any(not sqlite3.complete_statement(part) for part in statements)
+    ):
+        raise RuntimeError("thread archive migration is incomplete")
+    return statements
+
+
+def _validate_thread_archive(conn: Any, *, dialect: str, statements: list[str]) -> None:
+    if dialect == "sqlite":
+        columns = {row["name"]: row for row in conn.execute("PRAGMA table_info(threads)")}
+        column = columns.get("archived_at")
+        table = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='threads'"
+        ).fetchone()
+        expected_column = _d1_sql_normalized(statements[0].split("ADD COLUMN ", 1)[1])
+        # The canonical column is appended by ALTER TABLE. Match its complete
+        # definition, including its CHECK, rather than finding a CHECK elsewhere.
+        table_sql = _d1_sql_normalized(str(table["sql"])) if table else ""
+        if (
+            column is None
+            or column["type"] != "INTEGER"
+            or column["notnull"] != 0
+            or str(column["dflt_value"]).upper() != "NULL"
+            or column["pk"] != 0
+            or re.search("," + re.escape(expected_column) + r"(?:,|\))", table_sql) is None
+        ):
+            raise RuntimeError("thread archive column/check differs")
+        index = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_threads_user_archive'"
+        ).fetchone()
+        if index is None or _d1_sql_normalized(str(index["sql"])) != _d1_sql_normalized(
+            statements[1]
+        ):
+            raise RuntimeError("thread archive index differs")
+        if conn.execute(
+            "SELECT 1 FROM threads WHERE archived_at IS NOT NULL AND "
+            "(typeof(archived_at) <> 'integer' OR archived_at <= 0 OR archived_at > 9007199254740991) LIMIT 1"
+        ).fetchone():
+            raise RuntimeError("thread archive stored timestamp differs")
+        return
+    column = conn.execute(
+        "SELECT a.attnum, format_type(a.atttypid,a.atttypmod) AS type, a.attnotnull, "
+        "a.attidentity, a.attgenerated, pg_get_expr(d.adbin,d.adrelid) AS default_value "
+        "FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum "
+        "WHERE a.attrelid='threads'::regclass AND a.attname='archived_at' AND NOT a.attisdropped"
+    ).fetchone()
+    if (
+        column is None
+        or column["type"] != "bigint"
+        or column["attnotnull"]
+        or column["attidentity"]
+        or column["attgenerated"]
+        or column["default_value"] not in (None, "NULL::bigint")
+    ):
+        raise RuntimeError("thread archive PostgreSQL column differs")
+    checks = conn.execute(
+        "SELECT pg_get_expr(conbin,conrelid) AS expression, convalidated, conkey "
+        "FROM pg_constraint WHERE conrelid='threads'::regclass AND contype='c' "
+        "AND ? = ANY(conkey)",
+        (column["attnum"],),
+    ).fetchall()
+    expected_check = "archived_atisnullorarchived_at>0andarchived_at<=9007199254740991"
+
+    def normalized_check(value: str) -> str:
+        return re.sub(r"[()\s']|::bigint|::integer", "", value.lower())
+
+    if (
+        len(checks) != 1
+        or not checks[0]["convalidated"]
+        or list(checks[0]["conkey"]) != [column["attnum"]]
+        or normalized_check(str(checks[0]["expression"])) != expected_check
+    ):
+        raise RuntimeError("thread archive PostgreSQL check differs")
+    index = conn.execute(
+        "SELECT i.indisvalid,i.indisready,i.indisunique,i.indnkeyatts,i.indnatts, "
+        "i.indpred IS NULL AS unconditional, i.indexprs IS NULL AS plain, "
+        "pg_get_indexdef(i.indexrelid,0,true) AS definition FROM pg_index i "
+        "JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_namespace n ON n.oid=c.relnamespace "
+        "WHERE n.nspname=current_schema() AND c.relname='idx_threads_user_archive' "
+        "AND i.indrelid='threads'::regclass"
+    ).fetchone()
+    expected_index = "createindexidx_threads_user_archiveonthreadsusingbtree(user_id,archived_atdesc,thread_iddesc)"
+    actual_index = _d1_sql_normalized(str(index["definition"])) if index else ""
+    actual_index = actual_index.replace(
+        str(conn.execute("SELECT current_schema()").fetchone()[0]).lower() + ".", ""
+    )
+    if (
+        index is None
+        or not index["indisvalid"]
+        or not index["indisready"]
+        or index["indisunique"]
+        or index["indnkeyatts"] != 3
+        or index["indnatts"] != 3
+        or not index["unconditional"]
+        or not index["plain"]
+        or actual_index != expected_index
+    ):
+        raise RuntimeError("thread archive PostgreSQL index differs")
+
+
+def _apply_thread_archive_v38(conn: Any, sql: str, *, dialect: str) -> None:
+    statements = _archive_statements(sql, dialect=dialect)
+    prior = int(conn.execute("SELECT version FROM _schema_version").fetchone()[0])
+    if dialect == "sqlite":
+        history_tables = {
+            row["name"]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('users','agents','threads')"
+            )
+        }
+        if "threads" not in history_tables:
+            # Supported users-only legacy installs never had conversation tables.
+            if (
+                history_tables != {"users"}
+                or conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE name='idx_threads_user_archive'"
+                ).fetchone()
+            ):
+                raise RuntimeError("thread archive history table is missing")
+            conn.execute(statements[2])
+            return
+        has_column = any(
+            row["name"] == "archived_at" for row in conn.execute("PRAGMA table_info(threads)")
+        )
+        has_index = (
+            conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE name='idx_threads_user_archive'"
+            ).fetchone()
+            is not None
+        )
+    else:
+        has_column = (
+            conn.execute(
+                "SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='threads' AND column_name='archived_at'"
+            ).fetchone()
+            is not None
+        )
+        has_index = (
+            conn.execute("SELECT to_regclass('idx_threads_user_archive')").fetchone()[0] is not None
+        )
+    if prior < 38 and not has_column and not has_index:
+        for statement in statements[:2]:
+            conn.execute(statement)
+    _validate_thread_archive(conn, dialect=dialect, statements=statements)
+    conn.execute(statements[2])
+
+
+def _ensure_thread_archive_v38(db: DatabasePool, path: Path) -> None:
+    sql = path.read_text(encoding="utf-8")
+    if db.dialect == "postgresql":
+        with db.connect() as conn, conn.transaction():
+            _apply_thread_archive_v38(conn, sql, dialect=db.dialect)
+        return
+    with db.connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            _apply_thread_archive_v38(conn, sql, dialect=db.dialect)
+            conn.execute("COMMIT")
+        except BaseException:
+            if conn.in_transaction:
+                conn.execute("ROLLBACK")
+            raise
+
+
 def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
     """Apply one SQLite migration.
 
@@ -2722,6 +2892,9 @@ def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
     if version == 37:
         _ensure_project_todo_d1_v37(db, path)
         return
+    if version == 38:
+        _ensure_thread_archive_v38(db, path)
+        return
     sql = path.read_text(encoding="utf-8")
     with db.connect() as conn:
         conn.executescript(sql)
@@ -2750,6 +2923,8 @@ def run_migrations(db: DatabasePool) -> None:
                 _ensure_thread_title_search_key_v36(db, path, only_if_missing=True)
             elif version == 37:
                 _ensure_project_todo_d1_v37(db, path)
+            elif version == 38:
+                _ensure_thread_archive_v38(db, path)
             continue
         if db.dialect == "postgresql":
             sql = path.read_text(encoding="utf-8")
@@ -2762,6 +2937,8 @@ def run_migrations(db: DatabasePool) -> None:
                     _apply_thread_title_search_key_v36(conn, sql, dialect="postgresql")
                 elif version == 37:
                     _apply_project_todo_d1_v37(conn, sql, dialect="postgresql")
+                elif version == 38:
+                    _apply_thread_archive_v38(conn, sql, dialect="postgresql")
                 else:
                     _apply_postgresql_migration(conn, sql)
             if version == 3:

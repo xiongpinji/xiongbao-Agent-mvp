@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import SessionList from "./SessionList";
@@ -73,6 +73,39 @@ function mount(value = props()) {
 }
 
 describe("classic search rows", () => {
+  it("archives through the row menu once and does not select, fork or delete", async () => {
+    let settle!: (value: {
+      status: "saved";
+      receipt: { thread_id: string; agent_id: string; archived_at: number };
+    }) => void;
+    const pending = new Promise<{
+      status: "saved";
+      receipt: { thread_id: string; agent_id: string; archived_at: number };
+    }>((resolve) => {
+      settle = resolve;
+    });
+    const value = { ...props(), onArchive: vi.fn(() => pending) };
+    mount(value);
+    fireEvent.click(
+      screen
+        .getByText("Straße")
+        .closest('[role="button"]')!
+        .querySelector("button")!,
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "archive.action" }),
+    );
+    expect(value.onArchive).toHaveBeenCalledExactlyOnceWith("thread-56");
+    expect(value.onSelect).not.toHaveBeenCalled();
+    expect(value.onDelete).not.toHaveBeenCalled();
+    expect(value.onFork).not.toHaveBeenCalled();
+    await act(async () =>
+      settle({
+        status: "saved",
+        receipt: { thread_id: "thread-56", agent_id: "a", archived_at: 100 },
+      }),
+    );
+  });
   it("keeps valid server Unicode matches and expands only the current expert", () => {
     const value = props({
       ...emptySearch(),

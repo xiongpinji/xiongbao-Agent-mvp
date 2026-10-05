@@ -4,11 +4,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StrictMode, useCallback, type ReactNode } from "react";
 import { useChatNavigation, useChatNavigationOwner } from "./useChatNavigation";
 import { useChatSessionActions } from "./useChatSessionActions";
-import type { Session } from "./useSessions";
+import {
+  useSessions,
+  resetSessionStoreForTests,
+  type Session,
+} from "./useSessions";
 import { octopAgentsApi } from "../../../api/modules/octopAgents";
 
 const navigateMock = vi.fn();
 const rebindMock = vi.fn().mockResolvedValue({});
+const listMock = vi.fn();
+const metadataMock = vi.fn();
+const archiveMock = vi.fn();
 const { routing } = vi.hoisted(() => ({ routing: { forward: false } }));
 
 vi.mock("react-router-dom", async () => {
@@ -33,6 +40,9 @@ vi.mock("react-router-dom", async () => {
 vi.mock("../../../api/modules/octopThreads", () => ({
   octopThreadsApi: {
     rebind: (...args: unknown[]) => rebindMock(...args),
+    list: (...args: unknown[]) => listMock(...args),
+    metadata: (...args: unknown[]) => metadataMock(...args),
+    setArchived: (...args: unknown[]) => archiveMock(...args),
   },
 }));
 
@@ -617,5 +627,106 @@ describe("missing probe with actual route and lifetime ownership", () => {
     });
     expect(rebindMock).not.toHaveBeenCalled();
     expect(navigateMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("archived navigation with the actual session store", () => {
+  beforeEach(() => {
+    resetSessionStoreForTests();
+    navigateMock.mockReset();
+    rebindMock.mockReset();
+    listMock.mockReset().mockResolvedValue([]);
+    metadataMock.mockReset().mockResolvedValue({
+      thread_id: "archived",
+      title: "Kept",
+      created_at: 1,
+      last_active: 2,
+      channel_type: "dashboard",
+      has_messages: true,
+      archived_at: 100,
+      conversation_mode: "plan",
+      artifacts: ["plan.md"],
+    });
+    archiveMock.mockReset().mockResolvedValue({
+      thread_id: "archived",
+      agent_id: "a",
+      archived_at: null,
+    });
+  });
+  afterEach(() => resetSessionStoreForTests());
+  it("preserves an archived explicit route, history and composer metadata through normal refresh and restore", async () => {
+    const loadHistory = vi.fn().mockResolvedValue(undefined);
+    const clearMessages = vi.fn();
+    const refreshAgents = vi.fn().mockResolvedValue(undefined);
+    const prefillInputRef = { current: "kept draft" };
+    function routeWrapper({ children }: { children: ReactNode }) {
+      return (
+        <MemoryRouter initialEntries={["/chat/a/archived"]}>
+          {children}
+        </MemoryRouter>
+      );
+    }
+    const { result } = renderHook(
+      () => {
+        const sessions = useSessions("a", {
+          actorId: 1,
+          selectedThreadId: "archived",
+        });
+        useTestNavigation({
+          routeAgentId: "a",
+          threadId: "archived",
+          resolvedAgentId: "a",
+          activeThreadId: "archived",
+          sessions: sessions.sessions,
+          sessionsLoading: sessions.loading,
+          prefillInputRef,
+          loadHistory,
+          clearMessages,
+          ensureThreadInList: sessions.ensureThreadInList,
+          fetchSessions: sessions.fetchSessions,
+          refreshAgents,
+        });
+        return { ...sessions, path: useLocation().pathname };
+      },
+      { wrapper: routeWrapper },
+    );
+    await waitFor(() =>
+      expect(result.current.selectedSession?.archivedAt).toBe(100),
+    );
+    expect(result.current.sessions).toEqual([]);
+    expect(result.current.path).toBe("/chat/a/archived");
+    expect(loadHistory).toHaveBeenCalledWith("archived");
+    expect(navigateMock).not.toHaveBeenCalled();
+    await act(async () => {
+      await result.current.fetchSessions("archived");
+    });
+    expect(result.current.selectedSession).toMatchObject({
+      name: "Kept",
+      conversationMode: "plan",
+      artifacts: ["plan.md"],
+      archivedAt: 100,
+    });
+    metadataMock.mockResolvedValue({
+      thread_id: "archived",
+      title: "Kept",
+      created_at: 1,
+      last_active: 2,
+      channel_type: "dashboard",
+      has_messages: true,
+      archived_at: null,
+      conversation_mode: "plan",
+      artifacts: ["plan.md"],
+    });
+    await act(async () => {
+      expect(
+        (await result.current.archiveSession("archived", false)).status,
+      ).toBe("saved");
+    });
+    expect(result.current.selectedSession?.archivedAt).toBeNull();
+    expect(prefillInputRef.current).toBe("kept draft");
+    expect(result.current.path).toBe("/chat/a/archived");
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(rebindMock).not.toHaveBeenCalled();
+    expect(clearMessages).not.toHaveBeenCalled();
   });
 });

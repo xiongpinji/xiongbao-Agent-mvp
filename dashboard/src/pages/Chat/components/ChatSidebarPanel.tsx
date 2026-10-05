@@ -6,6 +6,7 @@ import MinimalAgentSessionNav from "./MinimalAgentSessionNav";
 import type {
   Session,
   SessionMutationResult,
+  ArchiveMutationResult,
   SessionSearch,
 } from "../hooks/useSessions";
 import type { OctopAgent } from "../../../context/AgentContext";
@@ -38,6 +39,8 @@ interface ChatSidebarPanelProps {
   onNewChatWithAgent: (agentId: string) => void;
   onDeleteSession: (id: string) => void;
   onRenameSession: (id: string, name: string) => Promise<SessionMutationResult>;
+  actorId?: number | null;
+  onArchiveSession?: (id: string) => Promise<ArchiveMutationResult>;
   onPinSession: (id: string, pinned: boolean) => Promise<SessionMutationResult>;
   onForkSession: (id: string, agentId?: string | null) => void;
   forkDisabled?: boolean;
@@ -76,6 +79,8 @@ export default function ChatSidebarPanel({
   onDeleteSession,
   onRenameSession,
   onPinSession,
+  actorId = null,
+  onArchiveSession,
   onForkSession,
   forkDisabled,
   forkDisabledHint,
@@ -102,6 +107,9 @@ export default function ChatSidebarPanel({
       activeId={activeThreadId}
       activeAgentId={resolvedAgentId ?? null}
       activeSessions={sessions}
+      activeSessionsAuthoritative
+      actorId={actorId}
+      onArchiveActive={onArchiveSession}
       onSelect={onSelectSession}
       onAgentSelect={onAgentSelect}
       onNewChat={onNewChatWithAgent}
@@ -131,6 +139,7 @@ export default function ChatSidebarPanel({
       onDelete={onDeleteSession}
       onRename={onRenameSession}
       onPin={onPinSession}
+      onArchive={onArchiveSession}
       onFork={onForkSession}
       activeForkDisabled={forkDisabled}
       activeForkDisabledHint={forkDisabledHint}

@@ -6952,5 +6952,33 @@
     "updateReady": "新版本已就绪",
     "updateNow": "立即更新",
     "later": "稍后更新"
+  },
+  "archive": {
+    "action": "归档",
+    "restore": "恢复",
+    "currentBanner": "当前任务已归档，仍可按原权限继续使用。",
+    "actionNamed": "归档 {{title}}"
+  },
+  "dataManagement": {
+    "title": "数据管理",
+    "description": "管理本人归档的任务，恢复后可重新出现在任务列表。",
+    "archived": "归档任务",
+    "search": "搜索归档任务",
+    "searchPlaceholder": "搜索任务标题",
+    "clear": "清空搜索",
+    "searchInvalid": "搜索最多256个字符，不能包含空字符。",
+    "loading": "正在加载归档任务…",
+    "empty": "没有归档任务",
+    "loadMore": "加载更多",
+    "retry": "重试",
+    "loadFailed": "归档任务加载失败",
+    "restore": "恢复",
+    "restoreNamed": "恢复 {{title}}",
+    "restoring": "恢复中…",
+    "restoreFailed": "恢复失败，请重试。",
+    "untitled": "未命名任务",
+    "archivedAt": "归档于",
+    "files": "文件任务",
+    "chat": "对话任务"
   }
 }
