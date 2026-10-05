@@ -20,6 +20,10 @@ ADMIN_MEMBER = "pt_adminmember"
 OUTSIDER = "pt_outsider"
 
 _TODO_KEYS = {
+    "parent_todo_id",
+    "children_count",
+    "done_children_count",
+    "children_revision",
     "todo_id",
     "project_id",
     "title",

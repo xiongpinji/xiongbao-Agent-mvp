@@ -20,8 +20,14 @@ no i18n/dashboard error-code parity files change:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import base64
+import binascii
+import hashlib
+import json
+import re
+from dataclasses import asdict, dataclass
 from typing import Any
+from uuid import UUID
 
 from octop.infra.db.repos._base import UNSET
 from octop.infra.db.repos.project_plan_locks import DISPLAY_REVISION_MAX as DISPLAY_REVISION_MAX
@@ -84,6 +90,10 @@ class TodoView:
     tag_ids: list[str]
     catalog_revision: int
     display_revision: int
+    parent_todo_id: str | None
+    children_count: int
+    done_children_count: int
+    children_revision: int | None
 
 
 @dataclass(frozen=True)
@@ -153,7 +163,7 @@ class ProjectTodoService:
 
     def _raise_for_outcome(self, outcome: str, *, todo_id: str = "") -> None:
         """Map a repo outcome onto the HTTP error contract (success → return)."""
-        if outcome in ("created", "updated", "deleted"):
+        if outcome in ("created", "updated", "deleted", "replayed", "listed"):
             return
         if outcome == "not_member":
             raise OctopError(ErrorCode.NOT_FOUND, "project not found")
@@ -174,6 +184,20 @@ class ProjectTodoService:
             "invalid_catalog_revision",
         ):
             raise plan_error(outcome)
+        if outcome in {
+            "query_changed",
+            "child_result_invalidated",
+            "idempotency_conflict",
+            "children_revision_conflict",
+            "children_confirmation_required",
+            "children_active_limit",
+            "children_retained_limit",
+        }:
+            raise plan_error(outcome, status=409)
+        if outcome == "invalid_cursor":
+            raise plan_error(outcome, status=422)
+        if outcome == "project_archived":
+            raise plan_error(outcome, status=403)
         if outcome == "no_change":
             raise OctopError(
                 ErrorCode.INVITE_INVALID,
@@ -196,6 +220,10 @@ class ProjectTodoService:
             assignee_user_id=row.assignee_user_id,
             version=row.version,
             display_revision=row.display_revision,
+            parent_todo_id=row.parent_todo_id,
+            children_count=row.children_count,
+            done_children_count=row.done_children_count,
+            children_revision=row.children_revision,
             created_at=row.created_at,
             updated_at=row.updated_at,
             start_date=row.start_date,
@@ -404,3 +432,168 @@ class ProjectTodoService:
         if mutation.outcome != "updated":
             self._raise_for_outcome(mutation.outcome, todo_id=mutation.todo_id)
         return [self._view(row) for row in mutation.rows]
+
+    def create_child(
+        self,
+        project_id: str,
+        parent_todo_id: str,
+        *,
+        actor_user_id: int,
+        expected_children_revision: int,
+        client_request_id: str,
+        fields: dict[str, Any],
+    ) -> dict[str, Any]:
+        parsed = UUID(client_request_id)
+        if parsed.version != 4 or str(parsed) != client_request_id.lower():
+            raise ValueError("client_request_id must be UUIDv4")
+        if (
+            type(expected_children_revision) is not int
+            or not 1 <= expected_children_revision <= DISPLAY_REVISION_MAX
+        ):
+            raise ValueError("invalid children revision")
+        clean = {
+            "description": "",
+            "description_format": "plain",
+            "status": "todo",
+            "assignee_user_id": None,
+            "start_date": None,
+            "due_date": None,
+            "priority_id": None,
+            "tag_ids": [],
+            **fields,
+        }
+        clean["title"] = validate_todo_title(clean["title"])
+        clean["description"] = validate_todo_description(clean.get("description", ""))
+        clean["description_format"] = validate_todo_description_format(
+            clean.get("description_format", "plain")
+        )
+        clean["tag_ids"] = sorted(set(clean.get("tag_ids", [])))
+        if clean.get("status", "todo") not in TODO_STATUSES:
+            raise ValueError("invalid todo status")
+        # Include catalog field presence/value; exclude only the collection token.
+        fingerprint = hashlib.sha256(
+            json.dumps(clean, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+        result = self._repo.create_child(
+            project_id=project_id,
+            parent_todo_id=parent_todo_id,
+            actor_user_id=actor_user_id,
+            expected_children_revision=expected_children_revision,
+            client_request_id=str(parsed),
+            request_fingerprint=fingerprint,
+            fields=clean,
+            timezone=self._timezone,
+        )
+        self._raise_for_outcome(result.outcome)
+        data = dict(result.data)
+        data["item"] = asdict(self._view(data["item"]))
+        return data
+
+    def list_children(
+        self,
+        project_id: str,
+        parent_todo_id: str,
+        *,
+        actor_user_id: int,
+        limit: int = 50,
+        cursor: str | None = None,
+    ) -> dict[str, Any]:
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError("limit must be between 1 and 100")
+        value = None
+        invalid = False
+        if cursor is not None:
+            try:
+                if (
+                    not 1 <= len(cursor.encode("utf-8")) <= 2048
+                    or re.fullmatch(r"[A-Za-z0-9_-]+", cursor) is None
+                ):
+                    raise ValueError("invalid cursor")
+                decoded = base64.b64decode(
+                    cursor + "=" * (-len(cursor) % 4), altchars=b"-_", validate=True
+                )
+                if base64.urlsafe_b64encode(decoded).decode("ascii").rstrip("=") != cursor:
+                    raise ValueError("noncanonical cursor")
+
+                def unique(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+                    result: dict[str, Any] = {}
+                    for key, item in pairs:
+                        if key in result:
+                            raise ValueError("duplicate key")
+                        result[key] = item
+                    return result
+
+                value = json.loads(decoded.decode("utf-8"), object_pairs_hook=unique)
+                if type(value) is not dict or set(value) != {
+                    "v",
+                    "project_id",
+                    "parent_todo_id",
+                    "last_created_at",
+                    "last_todo_id",
+                    "children_revision",
+                    "parent_display_revision",
+                }:
+                    raise ValueError("invalid cursor schema")
+                if (
+                    type(value["v"]) is not int
+                    or value["v"] != 1
+                    or type(value["last_created_at"]) is not int
+                ):
+                    raise ValueError("invalid cursor version or time")
+                for key in ("children_revision", "parent_display_revision"):
+                    if type(value[key]) is not int or not 1 <= value[key] <= DISPLAY_REVISION_MAX:
+                        raise ValueError("invalid revision")
+                for key in ("project_id", "parent_todo_id", "last_todo_id"):
+                    if (
+                        type(value[key]) is not str
+                        or not 1 <= len(value[key]) <= 64
+                        or any(ord(char) < 32 for char in value[key])
+                    ):
+                        raise ValueError("invalid cursor identity")
+            except (ValueError, UnicodeError, binascii.Error, RecursionError):
+                invalid = True
+                value = None
+        result = self._repo.list_children(
+            project_id=project_id,
+            parent_todo_id=parent_todo_id,
+            actor_user_id=actor_user_id,
+            limit=limit,
+            cursor=value,
+            invalid_cursor=invalid,
+        )
+        self._raise_for_outcome(result.outcome)
+        data = dict(result.data)
+        data["items"] = [asdict(self._view(row)) for row in data["items"]]
+        data["next_cursor"] = (
+            None
+            if data["next_cursor"] is None
+            else base64.urlsafe_b64encode(
+                json.dumps(data["next_cursor"], separators=(",", ":")).encode("utf-8")
+            )
+            .decode("ascii")
+            .rstrip("=")
+        )
+        return data
+
+    def delete_tree(
+        self,
+        project_id: str,
+        parent_todo_id: str,
+        *,
+        actor_user_id: int,
+        expected_version: int,
+        expected_children_revision: int,
+        children: list[tuple[str, int]],
+    ) -> dict[str, Any]:
+        result = self._repo.delete_tree(
+            project_id=project_id,
+            parent_todo_id=parent_todo_id,
+            actor_user_id=actor_user_id,
+            expected_version=expected_version,
+            expected_children_revision=expected_children_revision,
+            children=children,
+        )
+        self._raise_for_outcome(result.outcome)
+        return dict(result.data)

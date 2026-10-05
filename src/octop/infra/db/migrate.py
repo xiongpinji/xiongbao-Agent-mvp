@@ -2940,6 +2940,153 @@ def _ensure_project_public_connectors_v39(db: DatabasePool, path: Path) -> None:
             raise
 
 
+def validate_project_todo_d2_in_connection(conn: Any) -> None:
+    """Validate current structure/data, not historical revision increments."""
+    for source, state, keys in (
+        (
+            "project_todos",
+            "project_todo_children_state",
+            "s.project_id=t.project_id AND s.todo_id=t.todo_id",
+        ),
+        ("project_spaces", "project_plan_hierarchy_state", "s.project_id=t.project_id"),
+    ):
+        if conn.execute(
+            f"SELECT 1 FROM {source} t LEFT JOIN {state} s ON {keys} "
+            "WHERE s.revision IS NULL OR s.revision<1 OR s.revision>9007199254740991 LIMIT 1"
+        ).fetchone():
+            raise RuntimeError("D2 state is missing or outside its range")
+    if conn.execute(
+        "SELECT 1 FROM project_todo_children r LEFT JOIN project_todos p ON p.project_id=r.project_id AND p.todo_id=r.parent_todo_id "
+        "LEFT JOIN project_todos c ON c.project_id=r.project_id AND c.todo_id=r.child_todo_id "
+        "WHERE p.todo_id IS NULL OR c.todo_id IS NULL OR (p.deleted_at IS NOT NULL AND c.deleted_at IS NULL) OR r.parent_todo_id=r.child_todo_id OR EXISTS "
+        "(SELECT 1 FROM project_todo_children x WHERE x.project_id=r.project_id AND x.child_todo_id=r.parent_todo_id) LIMIT 1"
+    ).fetchone():
+        raise RuntimeError("D2 relationship integrity failure")
+    if conn.execute(
+        "SELECT 1 FROM project_todo_child_create_requests q WHERE q.result_state='recorded' AND NOT EXISTS "
+        "(SELECT 1 FROM project_todo_children r JOIN project_todos c ON c.project_id=r.project_id AND c.todo_id=r.child_todo_id "
+        "JOIN users u ON u.id=q.actor_user_id WHERE r.project_id=q.project_id AND r.parent_todo_id=q.parent_todo_id "
+        "AND r.child_todo_id=q.child_todo_id AND c.creator_user_id=q.actor_user_id) LIMIT 1"
+    ).fetchone():
+        raise RuntimeError("D2 recorded result integrity failure")
+    if conn.execute(
+        "SELECT 1 FROM project_todo_children r JOIN project_todos c "
+        "ON c.project_id=r.project_id AND c.todo_id=r.child_todo_id "
+        "GROUP BY r.project_id,r.parent_todo_id HAVING COUNT(*)>500 OR "
+        "SUM(CASE WHEN c.deleted_at IS NULL THEN 1 ELSE 0 END)>100 LIMIT 1"
+    ).fetchone():
+        raise RuntimeError("D2 relationship quota exceeded")
+
+
+def _apply_project_todo_d2_v40(conn: Any, sql: str, *, dialect: str) -> None:
+    suffix = ".pg.sql" if dialect == "postgresql" else ".sql"
+    canonical = (_MIGRATIONS_DIR / ("040_project_todo_relationships" + suffix)).read_text(
+        encoding="utf-8"
+    )
+    if sql != canonical:
+        raise RuntimeError("D2 canonical migration differs")
+    statements = [part.strip() for part in sql.split("\n-- D2_STATEMENT_BOUNDARY\n")]
+    if dialect == "sqlite" and any(not sqlite3.complete_statement(part) for part in statements):
+        raise RuntimeError("D2 incomplete SQLite statement")
+    prior = int(conn.execute("SELECT version FROM _schema_version").fetchone()[0])
+    if dialect == "sqlite":
+        present = conn.execute(
+            "SELECT name FROM sqlite_master WHERE name='project_todo_children'"
+        ).fetchone()
+    else:
+        present = conn.execute("SELECT to_regclass('project_todo_children') AS name").fetchone()[0]
+    if prior < 40 and not present:
+        for statement in statements:
+            conn.execute(statement)
+    if dialect == "sqlite":
+        _validate_d1_sqlite_schema(conn, statements)
+    else:
+        # Canonical FKs in expected tables must reference temporary parents.
+        conn.execute("CREATE TEMP TABLE __pc_expected_users(id INTEGER PRIMARY KEY) ON COMMIT DROP")
+        conn.execute(
+            "CREATE TEMP TABLE __pc_expected_project_spaces(project_id TEXT PRIMARY KEY) ON COMMIT DROP"
+        )
+        conn.execute(
+            "CREATE TEMP TABLE __pc_expected_project_todos(project_id TEXT,todo_id TEXT UNIQUE,UNIQUE(project_id,todo_id)) ON COMMIT DROP"
+        )
+        for statement in statements:
+            table = re.match(r"CREATE TABLE IF NOT EXISTS (\w+)", statement)
+            if table:
+                name = table[1]
+                expected = statement.replace(
+                    "CREATE TABLE IF NOT EXISTS " + name,
+                    "CREATE TEMP TABLE __pc_expected_" + name,
+                    1,
+                )
+                for parent in ("users", "project_spaces", "project_todos"):
+                    expected = expected.replace(
+                        "REFERENCES " + parent + "(", "REFERENCES __pc_expected_" + parent + "("
+                    )
+                conn.execute(expected.rstrip(";") + " ON COMMIT DROP")
+                if _public_connector_pg_structure(conn, name) != _public_connector_pg_structure(
+                    conn, "pg_temp.__pc_expected_" + name
+                ):
+                    raise RuntimeError("D2 PostgreSQL table differs: " + name)
+                if conn.execute(
+                    "SELECT 1 FROM pg_index WHERE indrelid=to_regclass(?) AND (NOT indisvalid OR NOT indisready) LIMIT 1",
+                    (name,),
+                ).fetchone():
+                    raise RuntimeError("D2 PostgreSQL unusable index: " + name)
+                conn.execute("DROP TABLE pg_temp.__pc_expected_" + name)
+            function = re.match(r"CREATE OR REPLACE FUNCTION (\w+)\(\)", statement)
+            if function:
+                name = function[1]
+                body = statement.split("$d2$")[1].strip()
+                actual = conn.execute(
+                    "SELECT p.oid,p.prosrc,p.prorettype,p.prosecdef,p.proconfig,p.provolatile,l.lanname FROM pg_proc p JOIN pg_language l ON l.oid=p.prolang WHERE p.oid=to_regprocedure(?)",
+                    (name + "()",),
+                ).fetchone()
+                if (
+                    actual is None
+                    or actual["prosrc"].strip() != body
+                    or actual["prorettype"] != 2279
+                    or actual["prosecdef"]
+                    or actual["proconfig"] is not None
+                    or actual["provolatile"] != "v"
+                    or actual["lanname"] != "plpgsql"
+                ):
+                    raise RuntimeError("D2 PostgreSQL function differs: " + name)
+            trigger = re.match(
+                r"CREATE TRIGGER (\w+) (BEFORE|AFTER) (INSERT|UPDATE|DELETE) ON (\w+).*FUNCTION (\w+)\(\)",
+                statement,
+            )
+            if trigger:
+                name, timing, event, table_name, function_name = trigger.groups()
+                expected_type = (
+                    1
+                    + (2 if timing == "BEFORE" else 0)
+                    + {"INSERT": 4, "UPDATE": 16, "DELETE": 8}[event]
+                )
+                actual = conn.execute(
+                    "SELECT tgtype,tgenabled,tgfoid=to_regprocedure(?) AS correct_function,tgnargs,tgqual IS NULL AS no_qual,tgconstraint FROM pg_trigger WHERE tgrelid=to_regclass(?) AND tgname=? AND NOT tgisinternal",
+                    (function_name + "()", table_name, name),
+                ).fetchone()
+                if (
+                    actual is None
+                    or actual["tgtype"] != expected_type
+                    or actual["tgenabled"] != "O"
+                    or not actual["correct_function"]
+                    or actual["tgnargs"] != 0
+                    or not actual["no_qual"]
+                    or actual["tgconstraint"] != 0
+                ):
+                    raise RuntimeError("D2 PostgreSQL trigger differs: " + name)
+        for name in ("project_todos", "project_spaces", "users"):
+            conn.execute("DROP TABLE pg_temp.__pc_expected_" + name)
+    validate_project_todo_d2_in_connection(conn)
+    conn.execute(statements[-1])
+
+
+def _ensure_project_todo_d2_v40(db: DatabasePool, path: Path) -> None:
+    with db.transaction() as conn:
+        _apply_project_todo_d2_v40(conn, path.read_text(encoding="utf-8"), dialect=db.dialect)
+
+
 def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
     """Apply one SQLite migration.
 
@@ -3126,6 +3273,9 @@ def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
     if version == 39:
         _ensure_project_public_connectors_v39(db, path)
         return
+    if version == 40:
+        _ensure_project_todo_d2_v40(db, path)
+        return
     sql = path.read_text(encoding="utf-8")
     with db.connect() as conn:
         conn.executescript(sql)
@@ -3158,6 +3308,8 @@ def run_migrations(db: DatabasePool) -> None:
                 _ensure_thread_archive_v38(db, path)
             elif version == 39:
                 _ensure_project_public_connectors_v39(db, path)
+            elif version == 40:
+                _ensure_project_todo_d2_v40(db, path)
             continue
         if db.dialect == "postgresql":
             sql = path.read_text(encoding="utf-8")
@@ -3174,6 +3326,8 @@ def run_migrations(db: DatabasePool) -> None:
                     _apply_thread_archive_v38(conn, sql, dialect="postgresql")
                 elif version == 39:
                     _apply_project_public_connectors_v39(conn, sql, dialect="postgresql")
+                elif version == 40:
+                    _apply_project_todo_d2_v40(conn, sql, dialect="postgresql")
                 else:
                     _apply_postgresql_migration(conn, sql)
             if version == 3:

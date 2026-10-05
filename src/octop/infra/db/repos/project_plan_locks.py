@@ -106,6 +106,96 @@ def bump_display(conn: Any, project_id: str, todo_id: str, timestamp: int) -> No
         raise RuntimeError("todo display state is missing or exhausted")
 
 
+def relationship_projection(
+    conn: Any, project_id: str, todo_id: str
+) -> tuple[str | None, int, int, int | None]:
+    state = conn.execute(
+        "SELECT revision FROM project_todo_children_state WHERE project_id=? AND todo_id=?",
+        (project_id, todo_id),
+    ).fetchone()
+    revision = checked_display_revision(None if state is None else state["revision"])
+    relation = conn.execute(
+        "SELECT parent_todo_id FROM project_todo_children WHERE project_id=? AND child_todo_id=?",
+        (project_id, todo_id),
+    ).fetchone()
+    if relation is not None:
+        return str(relation["parent_todo_id"]), 0, 0, None
+    counts = conn.execute(
+        "SELECT COUNT(*) AS active,SUM(CASE WHEN c.status='done' THEN 1 ELSE 0 END) AS done FROM project_todo_children r JOIN project_todos c ON c.project_id=r.project_id AND c.todo_id=r.child_todo_id JOIN project_todos p ON p.project_id=r.project_id AND p.todo_id=r.parent_todo_id WHERE r.project_id=? AND r.parent_todo_id=? AND p.deleted_at IS NULL AND c.deleted_at IS NULL",
+        (project_id, todo_id),
+    ).fetchone()
+    active, done = int(counts["active"]), int(counts["done"] or 0)
+    if not 0 <= done <= active <= 100:
+        raise RuntimeError("D2 active child counts are outside their range")
+    return None, active, done, revision
+
+
+RELATIONSHIP_PAGE_COLUMNS = (
+    ", relation_state.revision AS __children_revision"
+    ", incoming_relation.parent_todo_id AS __parent_todo_id"
+    ", COALESCE(child_counts.active,0) AS __children_count"
+    ", COALESCE(child_counts.done,0) AS __done_children_count"
+)
+
+
+def relationship_page_joins(todo_alias: str) -> str:
+    """Join one project's relation projection into the existing page SELECT.
+
+    The caller supplies a fixed SQL alias and one project-ID bind before its
+    following WHERE binds. Missing required state remains NULL for validation.
+    """
+    return (
+        " LEFT JOIN project_todo_children_state relation_state ON "
+        f"relation_state.project_id={todo_alias}.project_id AND relation_state.todo_id={todo_alias}.todo_id"
+        " LEFT JOIN project_todo_children incoming_relation ON "
+        f"incoming_relation.project_id={todo_alias}.project_id AND incoming_relation.child_todo_id={todo_alias}.todo_id"
+        " LEFT JOIN (SELECT r.project_id,r.parent_todo_id,COUNT(*) AS active,"
+        "SUM(CASE WHEN c.status='done' THEN 1 ELSE 0 END) AS done "
+        "FROM project_todo_children r "
+        "JOIN project_todos c ON c.project_id=r.project_id AND c.todo_id=r.child_todo_id "
+        "JOIN project_todos parent ON parent.project_id=r.project_id AND parent.todo_id=r.parent_todo_id "
+        "WHERE r.project_id=? AND c.deleted_at IS NULL AND parent.deleted_at IS NULL "
+        "GROUP BY r.project_id,r.parent_todo_id) child_counts ON "
+        f"child_counts.project_id={todo_alias}.project_id AND child_counts.parent_todo_id={todo_alias}.todo_id"
+    )
+
+
+def relationship_from_page_row(row: Any) -> tuple[str | None, int, int, int | None]:
+    """Validate the same relationship DTO contract without another SQL read."""
+    revision = checked_display_revision(row["__children_revision"])
+    if row["__parent_todo_id"] is not None:
+        return str(row["__parent_todo_id"]), 0, 0, None
+    active, done = int(row["__children_count"]), int(row["__done_children_count"])
+    if not 0 <= done <= active <= 100:
+        raise RuntimeError("D2 active child counts are outside their range")
+    return None, active, done, revision
+
+
+def bump_children(conn: Any, project_id: str, todo_id: str, timestamp: int) -> None:
+    changed = conn.execute(
+        "UPDATE project_todo_children_state SET revision=revision+1,updated_at=? WHERE project_id=? AND todo_id=? AND revision BETWEEN 1 AND ?",
+        (timestamp, project_id, todo_id, DISPLAY_REVISION_MAX - 1),
+    )
+    if changed.rowcount != 1:
+        raise RuntimeError("D2 children state is missing or exhausted")
+
+
+def hierarchy_revision(conn: Any, project_id: str) -> int:
+    row = conn.execute(
+        "SELECT revision FROM project_plan_hierarchy_state WHERE project_id=?", (project_id,)
+    ).fetchone()
+    return checked_display_revision(None if row is None else row["revision"])
+
+
+def bump_hierarchy(conn: Any, project_id: str, timestamp: int) -> None:
+    changed = conn.execute(
+        "UPDATE project_plan_hierarchy_state SET revision=revision+1,updated_at=? WHERE project_id=? AND revision BETWEEN 1 AND ?",
+        (timestamp, project_id, DISPLAY_REVISION_MAX - 1),
+    )
+    if changed.rowcount != 1:
+        raise RuntimeError("D2 hierarchy state is missing or exhausted")
+
+
 def _user_delete_targets(conn: Any, user_ids: Sequence[int]) -> dict[str, set[Any]]:
     marks = ",".join("?" for _ in user_ids)
     todos = conn.execute(
@@ -134,6 +224,70 @@ def _user_delete_targets(conn: Any, user_ids: Sequence[int]) -> dict[str, set[An
             ).fetchall()
         }
     todo_ids = {(str(row["todo_id"]), str(row["project_id"])) for row in todos}
+    doomed = {
+        str(row["todo_id"])
+        for row in conn.execute(
+            "SELECT todo_id FROM project_todos WHERE creator_user_id IN (" + marks + ")", user_ids
+        ).fetchall()
+    }
+    relations: set[Any] = set()
+    results: set[Any] = set()
+    for row in conn.execute(
+        "SELECT project_id,parent_todo_id,child_todo_id,created_by FROM project_todo_children r WHERE created_by IN ("
+        + marks
+        + ") OR EXISTS (SELECT 1 FROM project_todos t WHERE t.creator_user_id IN ("
+        + marks
+        + ") AND (t.todo_id=r.parent_todo_id OR t.todo_id=r.child_todo_id))",
+        (*user_ids, *user_ids),
+    ).fetchall():
+        if (
+            str(row["parent_todo_id"]) in doomed
+            or str(row["child_todo_id"]) in doomed
+            or row["created_by"] in user_ids
+        ):
+            pid = str(row["project_id"])
+            relations.add((pid, str(row["parent_todo_id"]), str(row["child_todo_id"])))
+            projects.add(pid)
+            todo_ids.update((str(row[key]), pid) for key in ("parent_todo_id", "child_todo_id"))
+    for row in conn.execute(
+        "SELECT project_id,parent_todo_id,child_todo_id,actor_user_id,client_request_id FROM project_todo_child_create_requests q WHERE actor_user_id IN ("
+        + marks
+        + ") OR EXISTS (SELECT 1 FROM project_todos t WHERE t.creator_user_id IN ("
+        + marks
+        + ") AND (t.todo_id=q.parent_todo_id OR t.todo_id=q.child_todo_id))",
+        (*user_ids, *user_ids),
+    ).fetchall():
+        if (
+            row["actor_user_id"] in user_ids
+            or str(row["parent_todo_id"]) in doomed
+            or str(row["child_todo_id"]) in doomed
+        ):
+            pid = str(row["project_id"])
+            projects.add(pid)
+            results.add(
+                (
+                    pid,
+                    str(row["parent_todo_id"]),
+                    int(row["actor_user_id"]),
+                    str(row["client_request_id"]),
+                )
+            )
+            for key in ("parent_todo_id", "child_todo_id"):
+                if conn.execute(
+                    "SELECT todo_id FROM project_todos WHERE project_id=? AND todo_id=?",
+                    (pid, row[key]),
+                ).fetchone():
+                    todo_ids.add((str(row[key]), pid))
+    if projects:
+        memberships = {
+            (int(row["user_id"]), str(row["project_id"]))
+            for row in conn.execute(
+                "SELECT user_id,project_id FROM project_members WHERE project_id IN ("
+                + ",".join("?" for _ in projects)
+                + ")",
+                sorted(projects),
+            ).fetchall()
+        }
     metadata: set[Any] = set()
     for todo_id, project_id in sorted(todo_ids):
         metadata.update(
@@ -143,7 +297,14 @@ def _user_delete_targets(conn: Any, user_ids: Sequence[int]) -> dict[str, set[An
                 (project_id, todo_id),
             ).fetchall()
         )
-    return {"projects": projects, "members": memberships, "todos": todo_ids, "metadata": metadata}
+    return {
+        "projects": projects,
+        "members": memberships,
+        "todos": todo_ids,
+        "metadata": metadata,
+        "relations": relations,
+        "results": results,
+    }
 
 
 def prepare_user_delete_in_connection(db: DatabasePool, conn: Any, user_ids: Sequence[int]) -> None:
@@ -181,6 +342,25 @@ def prepare_user_delete_in_connection(db: DatabasePool, conn: Any, user_ids: Seq
         ).fetchone()
     for todo_id, project_id in sorted(targets["todos"]):
         display_revision(db, conn, project_id, todo_id, write=True)
+    for project_id, parent, child in sorted(targets["relations"]):
+        conn.execute(
+            "SELECT child_todo_id FROM project_todo_children WHERE project_id=? AND parent_todo_id=? AND child_todo_id=?"
+            + suffix,
+            (project_id, parent, child),
+        ).fetchone()
+    for todo_id, project_id in sorted(targets["todos"]):
+        row = conn.execute(
+            "SELECT revision FROM project_todo_children_state WHERE project_id=? AND todo_id=?"
+            + suffix,
+            (project_id, todo_id),
+        ).fetchone()
+        checked_display_revision(None if row is None else row["revision"])
+    for project_id in sorted(targets["projects"]):
+        row = conn.execute(
+            "SELECT revision FROM project_plan_hierarchy_state WHERE project_id=?" + suffix,
+            (project_id,),
+        ).fetchone()
+        checked_display_revision(None if row is None else row["revision"])
     for project_id in sorted(targets["projects"]):
         row = conn.execute(
             "SELECT project_id FROM project_todo_attachment_usage WHERE project_id=?" + suffix,
@@ -207,8 +387,65 @@ def prepare_user_delete_in_connection(db: DatabasePool, conn: Any, user_ids: Seq
             + suffix,
             (key,),
         ).fetchone()
+    for key in sorted(targets["results"]):
+        conn.execute(
+            "SELECT result_state FROM project_todo_child_create_requests WHERE project_id=? AND parent_todo_id=? AND actor_user_id=? AND client_request_id=?"
+            + suffix,
+            key,
+        ).fetchone()
     for user_id in ids:
         conn.execute("SELECT id FROM users WHERE id=?" + suffix, (user_id,)).fetchone()
     located = _user_delete_targets(conn, ids)
     if any(not located[key].issubset(targets[key]) for key in targets):
         raise RuntimeError("user delete resource set expanded; transaction must be retried")
+
+    # Plan once for the entire prune/delete batch, before the unchanged users DELETE.
+    marks = ",".join("?" for _ in ids)
+    doomed = {
+        (str(row["todo_id"]), str(row["project_id"]))
+        for row in conn.execute(
+            "SELECT todo_id,project_id FROM project_todos WHERE creator_user_id IN (" + marks + ")",
+            ids,
+        ).fetchall()
+    }
+    assignee_survivors = {
+        (str(row["todo_id"]), str(row["project_id"]))
+        for row in conn.execute(
+            "SELECT todo_id,project_id FROM project_todos WHERE assignee_user_id IN ("
+            + marks
+            + ") AND creator_user_id NOT IN ("
+            + marks
+            + ")",
+            (*ids, *ids),
+        ).fetchall()
+    }
+    removed = {
+        (pid, parent, child)
+        for pid, parent, child in targets["relations"]
+        if (parent, pid) in doomed or (child, pid) in doomed
+    }
+    surviving_parents = {(parent, pid) for pid, parent, _ in removed if (parent, pid) not in doomed}
+    promotions = {
+        (child, pid)
+        for pid, parent, child in removed
+        if (parent, pid) in doomed and (child, pid) not in doomed
+    }
+    stamp = int(datetime.now().timestamp())
+    for key in sorted(targets["results"]):
+        conn.execute(
+            "UPDATE project_todo_child_create_requests SET result_state='invalidated',invalidated_at=? WHERE project_id=? AND parent_todo_id=? AND actor_user_id=? AND client_request_id=? AND result_state='recorded'",
+            (stamp, *key),
+        )
+    for pid, parent, child in sorted(removed):
+        changed = conn.execute(
+            "DELETE FROM project_todo_children WHERE project_id=? AND parent_todo_id=? AND child_todo_id=?",
+            (pid, parent, child),
+        )
+        if changed.rowcount != 1:
+            raise RuntimeError("D2 user delete relationship changed")
+    for parent, pid in sorted(surviving_parents):
+        bump_children(conn, pid, parent, stamp)
+    for pid in sorted({row[0] for row in removed}):
+        bump_hierarchy(conn, pid, stamp)
+    for tid, pid in sorted((promotions | surviving_parents) - assignee_survivors):
+        bump_display(conn, pid, tid, stamp)

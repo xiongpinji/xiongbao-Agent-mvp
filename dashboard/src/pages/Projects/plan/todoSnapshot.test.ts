@@ -48,6 +48,42 @@ describe("public todo snapshot partial order", () => {
       "invalid",
     );
   });
+
+  it("requires explicit D2 relationship fields and child zero/null semantics", () => {
+    expect(validTodoSnapshot(makePlanTodo())).toBe(true);
+    expect(validTodoSnapshot(makePlanTodo({ children_count: 101 }))).toBe(
+      false,
+    );
+    expect(validTodoSnapshot({ ...accepted, children_count: undefined })).toBe(
+      false,
+    );
+    expect(
+      validTodoSnapshot(
+        makePlanTodo({ done_children_count: 2, children_count: 1 }),
+      ),
+    ).toBe(false);
+    expect(
+      validTodoSnapshot(
+        makePlanTodo({
+          parent_todo_id: "root",
+          children_count: 0,
+          done_children_count: 0,
+          children_revision: null,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      validTodoSnapshot(
+        makePlanTodo({
+          parent_todo_id: "root",
+          children_count: 1,
+          done_children_count: 0,
+          children_revision: null,
+        }),
+      ),
+    ).toBe(false);
+  });
+
   it("rejects incomplete data and different identity", () => {
     expect(validTodoSnapshot({ ...accepted, title: undefined })).toBe(false);
     expect(

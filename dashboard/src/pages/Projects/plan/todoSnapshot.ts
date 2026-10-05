@@ -4,6 +4,8 @@ import { isPlanDate } from "../planDates";
 export type TodoSnapshotOrder = "accept" | "keep" | "incomparable" | "invalid";
 const positiveInteger = (value: unknown) =>
   typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+const nonNegativeInteger = (value: unknown) =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 
 export function validTodoSnapshot(
   value: unknown,
@@ -22,6 +24,19 @@ export function validTodoSnapshot(
     positiveInteger(todo.display_revision) &&
     positiveInteger(todo.catalog_revision) &&
     positiveInteger(todo.version) &&
+    (todo.parent_todo_id === null ||
+      (typeof todo.parent_todo_id === "string" && !!todo.parent_todo_id)) &&
+    nonNegativeInteger(todo.children_count) &&
+    todo.children_count <= 100 &&
+    nonNegativeInteger(todo.done_children_count) &&
+    todo.done_children_count <= todo.children_count &&
+    (todo.children_revision === null ||
+      positiveInteger(todo.children_revision)) &&
+    (todo.parent_todo_id === null
+      ? positiveInteger(todo.children_revision)
+      : todo.children_revision === null &&
+        todo.children_count === 0 &&
+        todo.done_children_count === 0) &&
     positiveInteger(todo.creator_user_id) &&
     (todo.assignee_user_id === null ||
       positiveInteger(todo.assignee_user_id)) &&

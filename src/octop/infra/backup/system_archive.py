@@ -50,6 +50,7 @@ from octop.infra.db.migrate import (
     _max_discovered_version,
     run_migrations,
     validate_project_todo_d1_in_connection,
+    validate_project_todo_d2_in_connection,
 )
 from octop.infra.db.pool import DatabasePool, SqlitePool
 from octop.infra.db.repos.agents import AgentRepo
@@ -1013,6 +1014,7 @@ def restore_system_backup(
             with pool.transaction() as conn:
                 repair_project_plan_keys_in_connection(conn)
                 validate_project_todo_d1_in_connection(conn)
+                validate_project_todo_d2_in_connection(conn)
         except BaseException as original_error:
             failed_resources: list[str] = []
             if database_attempted:

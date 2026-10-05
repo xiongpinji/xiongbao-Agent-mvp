@@ -40,6 +40,10 @@ export interface ProjectTodo {
   creator_user_id: number;
   assignee_user_id: number | null;
   version: number;
+  parent_todo_id: string | null;
+  children_count: number;
+  done_children_count: number;
+  children_revision: number | null;
   /** Unix epoch seconds, matching the backend's now_ts() convention. */
   created_at: number;
   updated_at: number;
@@ -108,6 +112,53 @@ export interface ProjectTodoCreateBody {
   expected_catalog_revision?: number;
 }
 
+export interface ProjectTodoChildrenListParams {
+  limit?: number;
+  cursor?: string;
+}
+
+export interface ProjectTodoChildrenResponse {
+  items: ProjectTodo[];
+  limit: number;
+  has_more: boolean;
+  next_cursor: string | null;
+  children_revision: number;
+  parent_display_revision: number;
+  active_count: number;
+  done_count: number;
+}
+
+export interface ProjectTodoCreateChildBody extends ProjectTodoCreateBody {
+  expected_children_revision: number;
+  client_request_id: string;
+}
+
+export interface ProjectTodoCreateChildResponse {
+  item: ProjectTodo;
+  children_revision: number;
+  parent_display_revision: number;
+  active_count: number;
+  done_count: number;
+  replayed: boolean;
+}
+
+export interface ProjectTodoTreeDeleteChild {
+  todo_id: string;
+  expected_version: number;
+}
+
+export interface ProjectTodoTreeDeleteBody {
+  expected_version: number;
+  expected_children_revision: number;
+  children: ProjectTodoTreeDeleteChild[];
+}
+
+export interface ProjectTodoTreeDeleteResponse {
+  deleted_todo_ids: string[];
+  children_revision: number;
+  hierarchy_revision: number;
+}
+
 export interface ProjectTodoUpdateBody {
   /** Optimistic concurrency token from the last read of this record. */
   expected_version: number;
@@ -167,6 +218,9 @@ const todoPath = (projectId: string, todoId: string) =>
 const commentsPath = (projectId: string, todoId: string) =>
   `${todoPath(projectId, todoId)}/comments`;
 
+const childrenPath = (projectId: string, todoId: string) =>
+  `${todoPath(projectId, todoId)}/children`;
+
 export const projectTodosApi = {
   list: (projectId: string, params: ProjectTodoListParams = {}) => {
     const query = new URLSearchParams();
@@ -195,6 +249,45 @@ export const projectTodosApi = {
           body: undefined,
         })
       : request<ProjectTodo>(todoPath(projectId, todoId)),
+  listChildren: (
+    projectId: string,
+    todoId: string,
+    params: ProjectTodoChildrenListParams = {},
+    options?: RequestInit,
+  ) => {
+    const query = new URLSearchParams();
+    query.set("limit", String(params.limit ?? 50));
+    if (params.cursor) query.set("cursor", params.cursor);
+    return request<ProjectTodoChildrenResponse>(
+      `${childrenPath(projectId, todoId)}?${query.toString()}`,
+      options,
+    );
+  },
+  createChild: (
+    projectId: string,
+    todoId: string,
+    body: ProjectTodoCreateChildBody,
+    options?: RequestInit,
+  ) =>
+    request<ProjectTodoCreateChildResponse>(childrenPath(projectId, todoId), {
+      ...options,
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  deleteTree: (
+    projectId: string,
+    todoId: string,
+    body: ProjectTodoTreeDeleteBody,
+    options?: RequestInit,
+  ) =>
+    request<ProjectTodoTreeDeleteResponse>(
+      `${todoPath(projectId, todoId)}/delete-tree`,
+      {
+        ...options,
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    ),
   listComments: (
     projectId: string,
     todoId: string,

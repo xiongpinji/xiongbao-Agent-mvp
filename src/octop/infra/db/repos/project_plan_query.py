@@ -398,16 +398,20 @@ class ProjectPlanQueryRepo:
         anchor: tuple[str, int] | None = None,
     ) -> QueryPage:
         predicate, params = self._filters(definition["filters"], today)
-        where = "t.project_id=? AND t.deleted_at IS NULL AND " + predicate
+        where = (
+            "t.project_id=? AND t.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM project_todo_children r WHERE r.project_id=t.project_id AND r.child_todo_id=t.todo_id) AND "
+            + predicate
+        )
         parameters = [project_id, *params]
         # Count every authorized matching todo, including corrupt missing state.
         # Fail the snapshot instead of filtering such rows out of totals/items.
         bad_state = conn.execute(
             "SELECT 1 FROM project_todos t LEFT JOIN project_todo_display_state d "
-            "ON d.project_id=t.project_id AND d.todo_id=t.todo_id WHERE "
+            "ON d.project_id=t.project_id AND d.todo_id=t.todo_id "
+            "LEFT JOIN project_todo_children_state c ON c.project_id=t.project_id AND c.todo_id=t.todo_id WHERE "
             + where
-            + " AND (d.revision IS NULL OR d.revision<1 OR d.revision>?) LIMIT 1",
-            [*parameters, locks.DISPLAY_REVISION_MAX],
+            + " AND (d.revision IS NULL OR d.revision<1 OR d.revision>? OR c.revision IS NULL OR c.revision<1 OR c.revision>?) LIMIT 1",
+            [*parameters, locks.DISPLAY_REVISION_MAX, locks.DISPLAY_REVISION_MAX],
         ).fetchone()
         if bad_state is not None:
             raise RuntimeError("todo display state is missing or outside its range")
@@ -483,7 +487,9 @@ class ProjectPlanQueryRepo:
         order = ",".join(part.expression + " " + part.direction for part in parts)
         rows = conn.execute(
             "SELECT t.*,d.revision AS display_revision"
+            + locks.RELATIONSHIP_PAGE_COLUMNS
             + source
+            + locks.relationship_page_joins("t")
             + " WHERE "
             + scoped_where
             + " AND "
@@ -491,7 +497,7 @@ class ProjectPlanQueryRepo:
             + " ORDER BY "
             + order
             + " LIMIT ?",
-            [*scoped_params, *seek_params, limit + 1],
+            [project_id, *scoped_params, *seek_params, limit + 1],
         ).fetchall()
         page_tags: dict[str, list[str]] = {str(row["todo_id"]): [] for row in rows}
         if page_tags:
@@ -508,6 +514,7 @@ class ProjectPlanQueryRepo:
                 row,
                 tag_ids=page_tags[str(row["todo_id"])],
                 catalog_revision=catalog_revision,
+                relationship=locks.relationship_from_page_row(row),
                 display_revision=locks.checked_display_revision(row["display_revision"]),
             )
             for row in rows

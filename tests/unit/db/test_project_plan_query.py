@@ -639,7 +639,14 @@ def test_page_materializes_full_c1_dto_and_tags_once_without_any_persistent_chan
             "tag_ids",
             "catalog_revision",
             "display_revision",
+            "parent_todo_id",
+            "children_count",
+            "done_children_count",
+            "children_revision",
         }
+        assert item["parent_todo_id"] is None
+        assert item["children_count"] == item["done_children_count"] == 0
+        assert item["children_revision"] == 1
         assert item["tag_ids"] == sorted(item["tag_ids"])
         assert item["catalog_revision"] == query_case["revision"]
 
@@ -692,3 +699,39 @@ def test_unrelated_view_collection_revision_does_not_invalidate_target_cursor(qu
 def test_literal_nul_is_not_a_like_pattern_terminator(query_case, op, expected):
     page = query(query_case, filters=[{"field": "title", "op": op, "value": "\x00"}])
     assert {item["title"] for item in page["items"]} == expected
+
+
+@pytest.mark.parametrize("kind", ["table", "board", "list", "calendar", "gantt"])
+def test_all_existing_views_exclude_children_before_query_projection(query_case, kind):
+    from uuid import uuid4
+
+    from octop.infra.projects.todos import ProjectTodoService
+
+    parent = query_case["rows"]["A"]
+    svc = ProjectTodoService(
+        SimpleNamespace(
+            project_todo_repo=query_case["todos"], config=SimpleNamespace(default_timezone="UTC")
+        )
+    )
+    child = svc.create_child(
+        query_case["pid"],
+        parent.todo_id,
+        actor_user_id=query_case["owner"],
+        expected_children_revision=1,
+        client_request_id=str(uuid4()),
+        fields={"title": "only child needle", "start_date": "2026-10-05", "due_date": "2099-10-05"},
+    )["item"]
+    kwargs = {"view_id": create_view(query_case, kind)}
+    if kind in {"calendar", "gantt"}:
+        kwargs.update(
+            window={"start_date": "2026-10-05", "end_date": "2026-10-06"}, bucket="scheduled"
+        )
+    page = query(query_case, kind=kind, group_by=default_definition(kind)["group_by"], **kwargs)
+    assert page["total"] == 4
+    ids = {row["todo_id"] for row in page["items"]}
+    assert child["todo_id"] not in ids
+    assert all(row["parent_todo_id"] is None for row in page["items"])
+    root = next((row for row in page["items"] if row["todo_id"] == parent.todo_id), None)
+    if root is not None:
+        assert root["children_count"] == 1
+        assert root["children_revision"] == 2

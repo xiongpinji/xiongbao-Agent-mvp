@@ -74,6 +74,10 @@ const todo: ProjectTodo = {
   assignee_user_id: 2,
   version: 3,
   display_revision: 3,
+  parent_todo_id: null,
+  children_count: 0,
+  done_children_count: 0,
+  children_revision: 1,
   created_at: 1_700_000_000,
   updated_at: 1_700_000_000,
 };
@@ -107,6 +111,7 @@ function detail(projectId = "p1", todoId = "t1", accountId = 2) {
       onClose={vi.fn()}
       onChanged={changed}
       onAccessLost={accessLost}
+      onOpenChild={vi.fn()}
     />
   );
 }

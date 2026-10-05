@@ -135,6 +135,8 @@ const {
   update,
   remove,
   bulk,
+  listChildren,
+  deleteTree,
 } = vi.hoisted(() => ({
   legacyList: vi.fn(),
   planRows: vi.fn(),
@@ -146,6 +148,8 @@ const {
   update: vi.fn(),
   remove: vi.fn(),
   bulk: vi.fn(),
+  listChildren: vi.fn(),
+  deleteTree: vi.fn(),
 }));
 
 const { currentUserId } = vi.hoisted(() => ({
@@ -167,6 +171,8 @@ vi.mock("../../api/modules/projectTodos", async (importOriginal) => {
       update,
       remove,
       bulk,
+      listChildren,
+      deleteTree,
     },
   };
 });
@@ -246,6 +252,10 @@ const todoOpen: ProjectTodo = {
   assignee_user_id: 2,
   version: 3,
   display_revision: 3,
+  parent_todo_id: null,
+  children_count: 0,
+  done_children_count: 0,
+  children_revision: 1,
   created_at: 1_700_000_000,
   updated_at: 1_700_000_000,
 };
@@ -266,6 +276,10 @@ const todoDoing: ProjectTodo = {
   assignee_user_id: null,
   version: 1,
   display_revision: 1,
+  parent_todo_id: null,
+  children_count: 0,
+  done_children_count: 0,
+  children_revision: 1,
   created_at: 1_700_000_000,
   updated_at: 1_700_000_000,
 };
@@ -286,6 +300,10 @@ const todoOther: ProjectTodo = {
   assignee_user_id: null,
   version: 1,
   display_revision: 1,
+  parent_todo_id: null,
+  children_count: 0,
+  done_children_count: 0,
+  children_revision: 1,
   created_at: 1_700_000_000,
   updated_at: 1_700_000_000,
 };
@@ -454,6 +472,8 @@ beforeEach(() => {
   update.mockReset();
   remove.mockReset();
   bulk.mockReset();
+  listChildren.mockReset();
+  deleteTree.mockReset();
   currentUserId.value = 2;
   vi.stubGlobal(
     "IntersectionObserver",
@@ -2203,4 +2223,219 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
     await waitFor(() => expect(remove).toHaveBeenCalledWith("p1", "t1", 3));
     await waitFor(() => expect(screen.queryByText("写周报")).toBeNull());
   });
+
+  it("confirms a complete child version set and removes exact tree receipt ids without GET of the deleted parent", async () => {
+    const user = userEvent.setup();
+    const root = { ...todoOpen, children_count: 1, children_revision: 2 };
+    const child = {
+      ...todoDoing,
+      todo_id: "child-tree",
+      parent_todo_id: root.todo_id,
+      children_revision: null,
+      children_count: 0,
+      done_children_count: 0,
+    };
+    planRows.mockResolvedValue(planRowsResponse([root, todoOther]));
+    remove.mockRejectedValue(
+      new Error(
+        '409 - {"error":{"code":"CONFLICT","details":{"reason":"children_confirmation_required"}}}',
+      ),
+    );
+    listChildren.mockResolvedValue({
+      items: [child],
+      limit: 100,
+      has_more: false,
+      next_cursor: null,
+      children_revision: 2,
+      parent_display_revision: 3,
+      active_count: 1,
+      done_count: 0,
+    });
+    deleteTree.mockImplementation(async () => {
+      planRows.mockResolvedValue(planRowsResponse([todoOther]));
+      return {
+        deleted_todo_ids: [root.todo_id, child.todo_id],
+        children_revision: 3,
+        hierarchy_revision: 2,
+      };
+    });
+    renderPlan("owner");
+    await screen.findByText("写周报");
+    await user.click(
+      within(rowFor("写周报")).getByRole("button", { name: "删除待办" }),
+    );
+    await user.click(await screen.findByRole("button", { name: "确认删除" }));
+    await user.click(
+      await screen.findByRole("button", { name: "删除待办和子待办" }),
+    );
+    await waitFor(() =>
+      expect(deleteTree).toHaveBeenCalledWith("p1", "t1", {
+        expected_version: 3,
+        expected_children_revision: 2,
+        children: [{ todo_id: "child-tree", expected_version: 1 }],
+      }),
+    );
+    await waitFor(() => expect(screen.queryByText("写周报")).toBeNull());
+    expect(get).not.toHaveBeenCalled();
+    expect(screen.getByText("alice 的待办")).toBeVisible();
+  });
+
+  it("blocks tree confirmation when its child page is incomplete", async () => {
+    const user = userEvent.setup();
+    const root = { ...todoOpen, children_count: 1, children_revision: 2 };
+    planRows.mockResolvedValue(planRowsResponse([root]));
+    remove.mockRejectedValue(
+      new Error(
+        '409 - {"error":{"code":"CONFLICT","details":{"reason":"children_confirmation_required"}}}',
+      ),
+    );
+    listChildren.mockResolvedValue({
+      items: [],
+      limit: 100,
+      has_more: true,
+      next_cursor: "opaque",
+      children_revision: 2,
+      parent_display_revision: 3,
+      active_count: 1,
+      done_count: 0,
+    });
+    renderPlan("owner");
+    await screen.findByText("写周报");
+    await user.click(
+      within(rowFor("写周报")).getByRole("button", { name: "删除待办" }),
+    );
+    await user.click(await screen.findByRole("button", { name: "确认删除" }));
+    await screen.findByText("删除待办树失败");
+    expect(deleteTree).not.toHaveBeenCalled();
+    expect(screen.getByText("写周报")).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "删除待办和子待办" }),
+    ).toBeNull();
+  });
+
+  it("keeps root rows visible when confirmed tree deletion is rejected", async () => {
+    const user = userEvent.setup();
+    const root = { ...todoOpen, children_count: 1, children_revision: 2 };
+    const child = {
+      ...todoDoing,
+      todo_id: "child-tree",
+      parent_todo_id: root.todo_id,
+      children_revision: null,
+      children_count: 0,
+      done_children_count: 0,
+    };
+    planRows.mockResolvedValue(planRowsResponse([root]));
+    remove.mockRejectedValue(
+      new Error(
+        '409 - {"error":{"code":"CONFLICT","details":{"reason":"children_confirmation_required"}}}',
+      ),
+    );
+    listChildren.mockResolvedValue({
+      items: [child],
+      limit: 100,
+      has_more: false,
+      next_cursor: null,
+      children_revision: 2,
+      parent_display_revision: 3,
+      active_count: 1,
+      done_count: 0,
+    });
+    deleteTree.mockRejectedValue(
+      new Error(
+        '409 - {"error":{"code":"CONFLICT","details":{"reason":"version_conflict"}}}',
+      ),
+    );
+    renderPlan("owner");
+    await screen.findByText("写周报");
+    await user.click(
+      within(rowFor("写周报")).getByRole("button", { name: "删除待办" }),
+    );
+    await user.click(await screen.findByRole("button", { name: "确认删除" }));
+    await user.click(
+      await screen.findByRole("button", { name: "删除待办和子待办" }),
+    );
+    await screen.findByText("删除待办树失败");
+    expect(screen.getByText("写周报")).toBeVisible();
+    expect(get).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: /^取\s*消$/ }));
+  });
+
+  it.each([false, true])(
+    "closes tree confirmation on same-actor project revocation and drops late receipt (pending=%s)",
+    async (pending) => {
+      const user = userEvent.setup();
+      const loss = vi.fn();
+      const root = { ...todoOpen, children_count: 1, children_revision: 2 };
+      const child = {
+        ...todoDoing,
+        todo_id: "child-tree",
+        parent_todo_id: root.todo_id,
+        children_revision: null,
+        children_count: 0,
+        done_children_count: 0,
+      };
+      let resolve!: (receipt: {
+        deleted_todo_ids: string[];
+        children_revision: number;
+        hierarchy_revision: number;
+      }) => void;
+      deleteTree.mockReturnValue(
+        new Promise((resolution) => {
+          resolve = resolution;
+        }),
+      );
+      planRows.mockResolvedValue(planRowsResponse([root]));
+      remove.mockRejectedValue(
+        new Error(
+          '409 - {"error":{"code":"CONFLICT","details":{"reason":"children_confirmation_required"}}}',
+        ),
+      );
+      listChildren.mockResolvedValue({
+        items: [child],
+        limit: 100,
+        has_more: false,
+        next_cursor: null,
+        children_revision: 2,
+        parent_display_revision: 3,
+        active_count: 1,
+        done_count: 0,
+      });
+      renderPlan("owner", loss);
+      await screen.findByText("写周报");
+      await user.click(
+        within(rowFor("写周报")).getByRole("button", { name: "删除待办" }),
+      );
+      await user.click(await screen.findByRole("button", { name: "确认删除" }));
+      const confirmation = await screen.findByRole("button", {
+        name: "删除待办和子待办",
+      });
+      if (pending) {
+        await user.click(confirmation);
+        await waitFor(() => expect(deleteTree).toHaveBeenCalledTimes(1));
+      }
+      const denied = new Error('404 - {"error":{"code":"NOT_FOUND"}}');
+      planRows.mockRejectedValue(denied);
+      projectRead.mockRejectedValue(denied);
+      fireEvent.click(screen.getByRole("button", { name: /^刷\s*新$/ }));
+      await waitFor(() => expect(loss).toHaveBeenCalledTimes(1));
+      expect(loss.mock.calls[0][0].account_id).toBe(2);
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("button", { name: "删除待办和子待办" }),
+        ).toBeNull(),
+      );
+      if (pending)
+        await act(async () =>
+          resolve({
+            deleted_todo_ids: [root.todo_id, child.todo_id],
+            children_revision: 3,
+            hierarchy_revision: 2,
+          }),
+        );
+      else expect(deleteTree).not.toHaveBeenCalled();
+      expect(screen.queryByText("待办已删除")).toBeNull();
+      expect(screen.queryByText("写周报")).toBeNull();
+      expect(get).not.toHaveBeenCalled();
+    },
+  );
 });

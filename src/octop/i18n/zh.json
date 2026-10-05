@@ -824,6 +824,14 @@
   },
   "project_plan": {
     "errors": {
+      "query_changed": "计划查询已变化，请刷新视图并比较条件后再继续。",
+      "invalid_cursor": "子待办列表游标无效。",
+      "child_result_invalidated": "这次子待办创建结果已失效。",
+      "idempotency_conflict": "该请求标识已用于不同内容。",
+      "children_revision_conflict": "子待办集合已变化，请刷新后重新确认。",
+      "children_confirmation_required": "删除此待办前请确认完整子待办集合。",
+      "children_active_limit": "此待办已达到100个活跃子待办的上限。",
+      "children_retained_limit": "此待办已达到500个保留子关系的上限。",
       "catalog_revision_conflict": "项目目录已变化。请刷新目录并比较草稿后再保存。",
       "project_archived": "项目已归档，不能修改目录配置。",
       "name_conflict": "已有有效选项使用此名称。",

@@ -59,10 +59,20 @@ class ProjectTodoRow:
     tag_ids: list[str]
     catalog_revision: int
     display_revision: int
+    parent_todo_id: str | None
+    children_count: int
+    done_children_count: int
+    children_revision: int | None
 
     @classmethod
     def from_row(
-        cls, row: DbRow, *, tag_ids: list[str], catalog_revision: int, display_revision: int
+        cls,
+        row: DbRow,
+        *,
+        tag_ids: list[str],
+        catalog_revision: int,
+        display_revision: int,
+        relationship: tuple[str | None, int, int, int | None],
     ) -> ProjectTodoRow:
         return cls(
             todo_id=str(row["todo_id"]),
@@ -85,6 +95,10 @@ class ProjectTodoRow:
             tag_ids=tag_ids,
             catalog_revision=catalog_revision,
             display_revision=locks.checked_display_revision(display_revision),
+            parent_todo_id=relationship[0],
+            children_count=relationship[1],
+            done_children_count=relationship[2],
+            children_revision=relationship[3],
         )
 
 
@@ -112,6 +126,12 @@ class BulkTodoMutation:
     outcome: str
     todo_id: str = ""
     rows: list[ProjectTodoRow] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class RelationshipMutation:
+    outcome: str
+    data: dict[str, Any] = field(default_factory=dict)
 
 
 class _TodoConflict(Exception):
@@ -188,6 +208,9 @@ class ProjectTodoRepo:
             row,
             tag_ids=[str(tag["tag_id"]) for tag in tags],
             catalog_revision=revision,
+            relationship=locks.relationship_projection(
+                conn, str(row["project_id"]), str(row["todo_id"])
+            ),
             display_revision=locks.display_revision(
                 self._db, conn, str(row["project_id"]), str(row["todo_id"]), write=False
             ),
@@ -304,6 +327,62 @@ class ProjectTodoRepo:
                 return todo_id
         raise RuntimeError("failed to allocate unique todo id")
 
+    def _lock_relationships(self, conn: Any, project_id: str, todo_ids: Sequence[str]) -> None:
+        ids = sorted(set(todo_ids))
+        marks = ",".join("?" for _ in ids)
+        relations = conn.execute(
+            "SELECT parent_todo_id,child_todo_id FROM project_todo_children WHERE project_id=? AND (parent_todo_id IN ("
+            + marks
+            + ") OR child_todo_id IN ("
+            + marks
+            + "))",
+            (project_id, *ids, *ids),
+        ).fetchall()
+        targets = sorted(
+            set(ids)
+            | {str(row[key]) for row in relations for key in ("parent_todo_id", "child_todo_id")}
+        )
+        existing = []
+        for tid in targets:
+            if conn.execute(
+                "SELECT todo_id FROM project_todos WHERE project_id=? AND todo_id=?"
+                + self._lock_suffix(),
+                (project_id, tid),
+            ).fetchone():
+                existing.append(tid)
+        for tid in existing:
+            locks.display_revision(self._db, conn, project_id, tid, write=True)
+        conn.execute(
+            "SELECT parent_todo_id,child_todo_id FROM project_todo_children WHERE project_id=? AND (parent_todo_id IN ("
+            + marks
+            + ") OR child_todo_id IN ("
+            + marks
+            + ")) ORDER BY parent_todo_id,child_todo_id"
+            + self._lock_suffix(),
+            (project_id, *ids, *ids),
+        ).fetchall()
+        for tid in existing:
+            row = conn.execute(
+                "SELECT revision FROM project_todo_children_state WHERE project_id=? AND todo_id=?"
+                + self._lock_suffix(),
+                (project_id, tid),
+            ).fetchone()
+            locks.checked_display_revision(None if row is None else row["revision"])
+        row = conn.execute(
+            "SELECT revision FROM project_plan_hierarchy_state WHERE project_id=?"
+            + self._lock_suffix(),
+            (project_id,),
+        ).fetchone()
+        locks.checked_display_revision(None if row is None else row["revision"])
+
+    @staticmethod
+    def _active_parent(conn: Any, project_id: str, todo_id: str) -> str | None:
+        row = conn.execute(
+            "SELECT r.parent_todo_id FROM project_todo_children r JOIN project_todos p ON p.project_id=r.project_id AND p.todo_id=r.parent_todo_id JOIN project_todos c ON c.project_id=r.project_id AND c.todo_id=r.child_todo_id WHERE r.project_id=? AND r.child_todo_id=? AND p.deleted_at IS NULL AND c.deleted_at IS NULL",
+            (project_id, todo_id),
+        ).fetchone()
+        return None if row is None else str(row["parent_todo_id"])
+
     # ------------------------------------------------------------ read paths
 
     def get(
@@ -337,7 +416,11 @@ class ProjectTodoRepo:
         ``has_more``. ``q`` matches the title only, with LIKE wildcards
         escaped so user text stays literal.
         """
-        where = ["project_id = ?", "deleted_at IS NULL"]
+        where = [
+            "project_id = ?",
+            "deleted_at IS NULL",
+            "NOT EXISTS (SELECT 1 FROM project_todo_children r WHERE r.project_id=project_todos.project_id AND r.child_todo_id=project_todos.todo_id)",
+        ]
         params: list[object] = [project_id]
         needle = normalize_project_plan_key(q.strip())
         if needle:
@@ -357,17 +440,20 @@ class ProjectTodoRepo:
             + "LIMIT ? OFFSET ?"
         )
         sql = (
-            "SELECT page.*, display.revision AS display_revision FROM ("
+            "SELECT page.*, display.revision AS display_revision"
+            + locks.RELATIONSHIP_PAGE_COLUMNS
+            + " FROM ("
             + sql
             + ") AS page LEFT JOIN project_todo_display_state AS display "
             "ON display.project_id=page.project_id AND display.todo_id=page.todo_id "
-            "ORDER BY page.updated_at DESC,page.todo_id DESC"
+            + locks.relationship_page_joins("page")
+            + " ORDER BY page.updated_at DESC,page.todo_id DESC"
         )
         with self._db.transaction() as conn:
             revision = self._read_revision(conn, project_id, user_id)
             if revision is None:
                 return None
-            rows = conn.execute(sql, params).fetchall()
+            rows = conn.execute(sql, [*params, project_id]).fetchall()
             if not rows:
                 return []
             tag_ids_by_todo: dict[str, list[str]] = {str(row["todo_id"]): [] for row in rows}
@@ -384,12 +470,79 @@ class ProjectTodoRepo:
                     row,
                     tag_ids=tag_ids_by_todo[str(row["todo_id"])],
                     catalog_revision=revision,
+                    relationship=locks.relationship_from_page_row(row),
                     display_revision=locks.checked_display_revision(row["display_revision"]),
                 )
                 for row in rows
             ]
 
     # ------------------------------------------------------------ mutations
+
+    def _insert_in_connection(
+        self,
+        conn: Any,
+        *,
+        project_id: str,
+        todo_id: str,
+        creator_user_id: int,
+        assignee_user_id: int | None,
+        title: str,
+        description: str,
+        description_format: str,
+        status: str,
+        stamp: int,
+        start_date: str | None,
+        due_date: str | None,
+        priority_id: str | None,
+        requested_tags: list[str],
+        revision: int,
+        emit_event: bool = True,
+    ) -> ProjectTodoRow:
+        conn.execute(
+            "INSERT INTO project_todos("
+            "todo_id, project_id, creator_user_id, assignee_user_id, title, "
+            "description, description_format, status, version, created_at, updated_at, "
+            "start_date, due_date, priority_id, title_search_key"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)",
+            (
+                todo_id,
+                project_id,
+                creator_user_id,
+                assignee_user_id,
+                title,
+                description,
+                description_format,
+                status,
+                stamp,
+                stamp,
+                start_date,
+                due_date,
+                priority_id,
+                normalize_project_plan_key(title),
+            ),
+        )
+        for state in ("project_todo_display_state", "project_todo_attachment_state"):
+            conn.execute(
+                "INSERT INTO "
+                + state
+                + "(project_id,todo_id,revision,updated_at) VALUES (?,?,1,?)",
+                (project_id, todo_id, stamp),
+            )
+        self._replace_tags(conn, project_id, todo_id, requested_tags)
+        payload = json.dumps(
+            {
+                "creator_user_id": creator_user_id,
+                "assignee_user_id": assignee_user_id,
+            }
+        )
+        if emit_event:
+            _append_todo_event(
+                conn, project_id, creator_user_id, EVENT_TODO_CREATED, todo_id, payload, stamp
+            )
+        row = self._select_todo(conn, project_id, todo_id, lock=False, catalog_revision=revision)
+        if row is None:
+            raise RuntimeError("inserted todo is missing")
+        return row
 
     def create(
         self,
@@ -438,48 +591,22 @@ class ProjectTodoRepo:
                 self._check_catalog_revision(revision, expected_catalog_revision)
                 requested_tags = self._check_references(priorities, tags, priority_id, tag_ids)
                 self._check_dates(start_date, due_date, None, timezone)
-                conn.execute(
-                    "INSERT INTO project_todos("
-                    "todo_id, project_id, creator_user_id, assignee_user_id, title, "
-                    "description, description_format, status, version, created_at, updated_at, "
-                    "start_date, due_date, priority_id, title_search_key"
-                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)",
-                    (
-                        todo_id,
-                        project_id,
-                        creator_user_id,
-                        assignee_user_id,
-                        title,
-                        description,
-                        description_format,
-                        status,
-                        stamp,
-                        stamp,
-                        start_date,
-                        due_date,
-                        priority_id,
-                        normalize_project_plan_key(title),
-                    ),
-                )
-                for state in ("project_todo_display_state", "project_todo_attachment_state"):
-                    conn.execute(
-                        "INSERT INTO "
-                        + state
-                        + "(project_id,todo_id,revision,updated_at) VALUES (?,?,1,?)",
-                        (project_id, todo_id, stamp),
-                    )
-                self._replace_tags(conn, project_id, todo_id, requested_tags)
-                payload = json.dumps(
-                    {
-                        "creator_user_id": creator_user_id,
-                        "assignee_user_id": assignee_user_id,
-                    }
-                )
-                _append_todo_event(
-                    conn, project_id, creator_user_id, EVENT_TODO_CREATED, todo_id, payload, stamp
-                )
-                row = self._select_todo(
-                    conn, project_id, todo_id, lock=False, catalog_revision=revision
+                row = self._insert_in_connection(
+                    conn,
+                    project_id=project_id,
+                    todo_id=todo_id,
+                    creator_user_id=creator_user_id,
+                    assignee_user_id=assignee_user_id,
+                    title=title,
+                    description=description,
+                    description_format=description_format,
+                    status=status,
+                    stamp=stamp,
+                    start_date=start_date,
+                    due_date=due_date,
+                    priority_id=priority_id,
+                    requested_tags=requested_tags,
+                    revision=revision,
                 )
         except _TodoConflict as conflict:
             return TodoMutation(outcome=conflict.outcome)
@@ -534,6 +661,7 @@ class ProjectTodoRepo:
                 if requested_assignee is not None and requested_assignee not in roles:
                     raise _TodoConflict("invalid_assignee")
                 revision, priorities, tags = self._catalog_locked(conn, project_id)
+                self._lock_relationships(conn, project_id, [todo_id])
                 todo = self._select_todo(
                     conn, project_id, todo_id, lock=True, catalog_revision=revision
                 )
@@ -587,6 +715,12 @@ class ProjectTodoRepo:
                 if not changes and not tags_changed:
                     raise _TodoConflict("no_change")
 
+                count_parent = (
+                    self._active_parent(conn, project_id, todo_id)
+                    if "status" in changes
+                    and ((todo.status == "done") != (changes["status"] == "done"))
+                    else None
+                )
                 stored_changes = dict(changes)
                 if "title" in changes:
                     stored_changes["title_search_key"] = normalize_project_plan_key(
@@ -601,6 +735,8 @@ class ProjectTodoRepo:
                 if getattr(updated, "rowcount", 1) != 1:
                     raise _TodoConflict(self._diagnose(conn, project_id, todo_id))
                 locks.bump_display(conn, project_id, todo_id, stamp)
+                if count_parent is not None:
+                    locks.bump_display(conn, project_id, count_parent, stamp)
                 if tags_changed:
                     self._replace_tags(conn, project_id, todo_id, requested_tags)
                 payload = json.dumps(
@@ -654,6 +790,7 @@ class ProjectTodoRepo:
                 if role is None:
                     raise _TodoConflict("not_member")
                 revision, _priorities, _tags = self._catalog_locked(conn, project_id)
+                self._lock_relationships(conn, project_id, [todo_id])
                 todo = self._select_todo(
                     conn, project_id, todo_id, lock=True, catalog_revision=revision
                 )
@@ -663,6 +800,9 @@ class ProjectTodoRepo:
                     raise _TodoConflict("stale")
                 if role not in MANAGER_ROLES and todo.creator_user_id != actor_user_id:
                     raise _TodoConflict("forbidden")
+                if todo.parent_todo_id is None and todo.children_count:
+                    raise _TodoConflict("children_confirmation_required")
+                count_parent = self._active_parent(conn, project_id, todo_id)
                 deleted = conn.execute(
                     "UPDATE project_todos "
                     "SET deleted_at = ?, version = version + 1, updated_at = ? "
@@ -672,6 +812,10 @@ class ProjectTodoRepo:
                 if getattr(deleted, "rowcount", 1) != 1:
                     raise _TodoConflict(self._diagnose(conn, project_id, todo_id))
                 locks.bump_display(conn, project_id, todo_id, stamp)
+                if count_parent is not None:
+                    locks.bump_children(conn, project_id, count_parent, stamp)
+                    locks.bump_hierarchy(conn, project_id, stamp)
+                    locks.bump_display(conn, project_id, count_parent, stamp)
                 payload = json.dumps(
                     {
                         "fields": ["deleted_at"],
@@ -743,6 +887,7 @@ class ProjectTodoRepo:
                     fields_changed.append("assignee_user_id")
                 event_fields = sorted(fields_changed)
 
+                self._lock_relationships(conn, project_id, [item[0] for item in items])
                 locked_todos: dict[str, ProjectTodoRow] = {}
                 locked_rows: list[DbRow] = []
                 for item_todo_id, expected_version in sorted(items):
@@ -758,6 +903,13 @@ class ProjectTodoRepo:
                 for raw in locked_rows:
                     todo = self._row_with_refs(conn, raw, revision)
                     locked_todos[todo.todo_id] = todo
+                count_parents = {
+                    parent
+                    for todo in locked_todos.values()
+                    if status is not UNSET
+                    and ((todo.status == "done") != (status == "done"))
+                    and (parent := self._active_parent(conn, project_id, todo.todo_id)) is not None
+                }
                 for item_todo_id, expected_version in sorted(items):
                     todo = locked_todos[item_todo_id]
                     set_parts: list[str] = []
@@ -800,6 +952,8 @@ class ProjectTodoRepo:
                         payload,
                         stamp,
                     )
+                for parent in sorted(count_parents - set(locked_todos)):
+                    locks.bump_display(conn, project_id, parent, stamp)
                 # Re-read inside the transaction so the response reflects it.
                 for item_todo_id, _expected in items:
                     row = self._select_todo(
@@ -811,3 +965,322 @@ class ProjectTodoRepo:
         except _TodoConflict as conflict:
             return BulkTodoMutation(outcome=conflict.outcome, todo_id=conflict.todo_id)
         return BulkTodoMutation(outcome="updated", rows=rows)
+
+    @staticmethod
+    def _collection_receipt(parent: ProjectTodoRow) -> dict[str, Any]:
+        return {
+            "children_revision": parent.children_revision,
+            "parent_display_revision": parent.display_revision,
+            "active_count": parent.children_count,
+            "done_count": parent.done_children_count,
+        }
+
+    def _relationship_parent(
+        self, conn: Any, project_id: str, parent_id: str, revision: int
+    ) -> ProjectTodoRow:
+        parent = self._select_todo(
+            conn, project_id, parent_id, lock=False, catalog_revision=revision
+        )
+        if parent is None or parent.deleted_at is not None or parent.parent_todo_id is not None:
+            raise _TodoConflict("missing")
+        return parent
+
+    def create_child(
+        self,
+        *,
+        project_id: str,
+        parent_todo_id: str,
+        actor_user_id: int,
+        expected_children_revision: int,
+        client_request_id: str,
+        request_fingerprint: str,
+        fields: dict[str, Any],
+        timezone: str = "UTC",
+    ) -> RelationshipMutation:
+        stamp = now_ts()
+        try:
+            with self._db.transaction() as conn:
+                assignee = fields.get("assignee_user_id")
+                roles = self._locked_member_roles(
+                    conn, project_id, [actor_user_id] + ([] if assignee is None else [assignee])
+                )
+                role = roles.get(actor_user_id)
+                if role is None:
+                    raise _TodoConflict("not_member")
+                revision, priorities, tags = self._catalog_locked(conn, project_id)
+                self._lock_relationships(conn, project_id, [parent_todo_id])
+                parent = self._relationship_parent(conn, project_id, parent_todo_id, revision)
+                if role not in MANAGER_ROLES and actor_user_id not in (
+                    parent.creator_user_id,
+                    parent.assignee_user_id,
+                ):
+                    raise _TodoConflict("forbidden")
+                if locks.project_row(self._db, conn, project_id, write=True)["archived"]:
+                    raise _TodoConflict("project_archived")
+                previous = conn.execute(
+                    "SELECT * FROM project_todo_child_create_requests WHERE project_id=? AND parent_todo_id=? AND actor_user_id=? AND client_request_id=?"
+                    + self._lock_suffix(),
+                    (project_id, parent_todo_id, actor_user_id, client_request_id),
+                ).fetchone()
+                if previous is not None:
+                    if previous["request_fingerprint"] != request_fingerprint:
+                        raise _TodoConflict("idempotency_conflict")
+                    child = self._select_todo(
+                        conn,
+                        project_id,
+                        str(previous["child_todo_id"]),
+                        lock=False,
+                        catalog_revision=revision,
+                    )
+                    if (
+                        previous["result_state"] != "recorded"
+                        or child is None
+                        or child.deleted_at is not None
+                        or child.parent_todo_id != parent_todo_id
+                    ):
+                        raise _TodoConflict("child_result_invalidated")
+                    return RelationshipMutation(
+                        "replayed",
+                        {**self._collection_receipt(parent), "item": child, "replayed": True},
+                    )
+                if parent.children_revision != expected_children_revision:
+                    raise _TodoConflict("children_revision_conflict")
+                retained = conn.execute(
+                    "SELECT COUNT(*) FROM project_todo_children WHERE project_id=? AND parent_todo_id=?",
+                    (project_id, parent_todo_id),
+                ).fetchone()[0]
+                if parent.children_count >= 100:
+                    raise _TodoConflict("children_active_limit")
+                if retained >= 500:
+                    raise _TodoConflict("children_retained_limit")
+                if assignee is not None:
+                    if role not in MANAGER_ROLES and assignee != actor_user_id:
+                        raise _TodoConflict("forbidden")
+                    if assignee not in roles:
+                        raise _TodoConflict("invalid_assignee")
+                expected_catalog = fields.get("expected_catalog_revision", UNSET)
+                if (
+                    fields.get("priority_id") is not None or fields.get("tag_ids")
+                ) and expected_catalog is UNSET:
+                    raise _TodoConflict("invalid_catalog_revision")
+                self._check_catalog_revision(revision, expected_catalog)
+                requested_tags = self._check_references(
+                    priorities, tags, fields.get("priority_id"), fields.get("tag_ids", [])
+                )
+                self._check_dates(fields.get("start_date"), fields.get("due_date"), None, timezone)
+                child_id = new_ulid()
+                self._insert_in_connection(
+                    conn,
+                    project_id=project_id,
+                    todo_id=child_id,
+                    creator_user_id=actor_user_id,
+                    assignee_user_id=assignee,
+                    title=fields["title"],
+                    description=fields.get("description", ""),
+                    description_format=fields.get("description_format", "plain"),
+                    status=fields.get("status", "todo"),
+                    stamp=stamp,
+                    start_date=fields.get("start_date"),
+                    due_date=fields.get("due_date"),
+                    priority_id=fields.get("priority_id"),
+                    requested_tags=requested_tags,
+                    revision=revision,
+                    emit_event=False,
+                )
+                conn.execute(
+                    "INSERT INTO project_todo_children(project_id,parent_todo_id,child_todo_id,created_by,created_at) VALUES(?,?,?,?,?)",
+                    (project_id, parent_todo_id, child_id, actor_user_id, stamp),
+                )
+                conn.execute(
+                    "INSERT INTO project_todo_child_create_requests(project_id,parent_todo_id,actor_user_id,client_request_id,request_fingerprint,child_todo_id,created_at,result_state) VALUES(?,?,?,?,?,?,?,'recorded')",
+                    (
+                        project_id,
+                        parent_todo_id,
+                        actor_user_id,
+                        client_request_id,
+                        request_fingerprint,
+                        child_id,
+                        stamp,
+                    ),
+                )
+                locks.bump_children(conn, project_id, parent_todo_id, stamp)
+                locks.bump_hierarchy(conn, project_id, stamp)
+                locks.bump_display(conn, project_id, parent_todo_id, stamp)
+                _append_todo_event(
+                    conn,
+                    project_id,
+                    actor_user_id,
+                    EVENT_TODO_CREATED,
+                    child_id,
+                    json.dumps(
+                        {
+                            "creator_user_id": actor_user_id,
+                            "assignee_user_id": assignee,
+                            "parent_todo_id": parent_todo_id,
+                        }
+                    ),
+                    stamp,
+                )
+                parent = self._relationship_parent(conn, project_id, parent_todo_id, revision)
+                child = self._select_todo(
+                    conn, project_id, child_id, lock=False, catalog_revision=revision
+                )
+                return RelationshipMutation(
+                    "created",
+                    {**self._collection_receipt(parent), "item": child, "replayed": False},
+                )
+        except _TodoConflict as error:
+            return RelationshipMutation(error.outcome)
+
+    def list_children(
+        self,
+        *,
+        project_id: str,
+        parent_todo_id: str,
+        actor_user_id: int,
+        limit: int,
+        cursor: dict[str, Any] | None,
+        invalid_cursor: bool = False,
+    ) -> RelationshipMutation:
+        try:
+            with self._db.transaction() as conn:
+                revision = self._read_revision(conn, project_id, actor_user_id)
+                if revision is None:
+                    raise _TodoConflict("not_member")
+                parent = self._relationship_parent(conn, project_id, parent_todo_id, revision)
+                if invalid_cursor:
+                    raise _TodoConflict("invalid_cursor")
+                params: list[Any] = [project_id, parent_todo_id]
+                seek = ""
+                if cursor is not None:
+                    if (
+                        cursor["project_id"] != project_id
+                        or cursor["parent_todo_id"] != parent_todo_id
+                        or cursor["children_revision"] != parent.children_revision
+                        or cursor["parent_display_revision"] != parent.display_revision
+                    ):
+                        raise _TodoConflict("query_changed")
+                    anchor = conn.execute(
+                        "SELECT t.created_at FROM project_todos t JOIN project_todo_children r ON r.project_id=t.project_id AND r.child_todo_id=t.todo_id WHERE r.project_id=? AND r.parent_todo_id=? AND t.todo_id=? AND t.deleted_at IS NULL",
+                        (project_id, parent_todo_id, cursor["last_todo_id"]),
+                    ).fetchone()
+                    if anchor is None or anchor["created_at"] != cursor["last_created_at"]:
+                        raise _TodoConflict("query_changed")
+                    seek = " AND (t.created_at>? OR (t.created_at=? AND t.todo_id>?))"
+                    params.extend(
+                        [
+                            cursor["last_created_at"],
+                            cursor["last_created_at"],
+                            cursor["last_todo_id"],
+                        ]
+                    )
+                raws = conn.execute(
+                    "SELECT t.* FROM project_todos t JOIN project_todo_children r ON r.project_id=t.project_id AND r.child_todo_id=t.todo_id WHERE r.project_id=? AND r.parent_todo_id=? AND t.deleted_at IS NULL"
+                    + seek
+                    + " ORDER BY t.created_at,t.todo_id LIMIT ?",
+                    [*params, limit + 1],
+                ).fetchall()
+                items = [self._row_with_refs(conn, row, revision) for row in raws[:limit]]
+                next_value = None
+                if len(raws) > limit:
+                    last = items[-1]
+                    next_value = {
+                        "v": 1,
+                        "project_id": project_id,
+                        "parent_todo_id": parent_todo_id,
+                        "last_created_at": last.created_at,
+                        "last_todo_id": last.todo_id,
+                        "children_revision": parent.children_revision,
+                        "parent_display_revision": parent.display_revision,
+                    }
+                return RelationshipMutation(
+                    "listed",
+                    {
+                        **self._collection_receipt(parent),
+                        "items": items,
+                        "limit": limit,
+                        "has_more": len(raws) > limit,
+                        "next_cursor": next_value,
+                    },
+                )
+        except _TodoConflict as error:
+            return RelationshipMutation(error.outcome)
+
+    def delete_tree(
+        self,
+        *,
+        project_id: str,
+        parent_todo_id: str,
+        actor_user_id: int,
+        expected_version: int,
+        expected_children_revision: int,
+        children: Sequence[tuple[str, int]],
+    ) -> RelationshipMutation:
+        if len(children) > 100 or len({tid for tid, _ in children}) != len(children):
+            raise ValueError("invalid child set")
+        stamp = now_ts()
+        try:
+            with self._db.transaction() as conn:
+                role = self._locked_member_roles(conn, project_id, [actor_user_id]).get(
+                    actor_user_id
+                )
+                if role is None:
+                    raise _TodoConflict("not_member")
+                revision, _, _ = self._catalog_locked(conn, project_id)
+                self._lock_relationships(conn, project_id, [parent_todo_id])
+                parent = self._relationship_parent(conn, project_id, parent_todo_id, revision)
+                if locks.project_row(self._db, conn, project_id, write=True)["archived"]:
+                    raise _TodoConflict("project_archived")
+                if parent.version != expected_version:
+                    raise _TodoConflict("stale")
+                if parent.children_revision != expected_children_revision:
+                    raise _TodoConflict("children_revision_conflict")
+                raw_children = conn.execute(
+                    "SELECT c.* FROM project_todo_children r JOIN project_todos c ON c.project_id=r.project_id AND c.todo_id=r.child_todo_id WHERE r.project_id=? AND r.parent_todo_id=? AND c.deleted_at IS NULL ORDER BY c.todo_id",
+                    (project_id, parent_todo_id),
+                ).fetchall()
+                if {str(row["todo_id"]) for row in raw_children} != {tid for tid, _ in children}:
+                    raise _TodoConflict("children_revision_conflict")
+                expected = dict(children)
+                if any(
+                    int(row["version"]) != expected[str(row["todo_id"])] for row in raw_children
+                ):
+                    raise _TodoConflict("stale")
+                if role not in MANAGER_ROLES and (
+                    parent.creator_user_id != actor_user_id
+                    or any(row["creator_user_id"] != actor_user_id for row in raw_children)
+                ):
+                    raise _TodoConflict("forbidden")
+                ids = [parent_todo_id, *[str(row["todo_id"]) for row in raw_children]]
+                for tid in ids:
+                    changed = conn.execute(
+                        "UPDATE project_todos SET deleted_at=?,updated_at=?,version=version+1 WHERE project_id=? AND todo_id=? AND deleted_at IS NULL",
+                        (stamp, stamp, project_id, tid),
+                    )
+                    if changed.rowcount != 1:
+                        raise _TodoConflict("stale")
+                    locks.bump_display(conn, project_id, tid, stamp)
+                    _append_todo_event(
+                        conn,
+                        project_id,
+                        actor_user_id,
+                        EVENT_TODO_DELETED,
+                        tid,
+                        json.dumps({"fields": ["deleted_at"]}),
+                        stamp,
+                    )
+                if raw_children:
+                    locks.bump_children(conn, project_id, parent_todo_id, stamp)
+                    locks.bump_hierarchy(conn, project_id, stamp)
+                return RelationshipMutation(
+                    "deleted",
+                    {
+                        "deleted_todo_ids": ids,
+                        "children_revision": locks.relationship_projection(
+                            conn, project_id, parent_todo_id
+                        )[3],
+                        "hierarchy_revision": locks.hierarchy_revision(conn, project_id),
+                    },
+                )
+        except _TodoConflict as error:
+            return RelationshipMutation(error.outcome)

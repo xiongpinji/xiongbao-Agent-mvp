@@ -21,6 +21,7 @@ import { useServerTimezone } from "../../hooks/useServerTimezone";
 import { formatServerDateTime } from "../../utils/formatMessageTime";
 import { apiErrorMessage, parseApiError } from "../../utils/apiError";
 import ProjectTodoMarkdown from "./ProjectTodoMarkdown";
+import ProjectTodoSubtodos from "./ProjectTodoSubtodos";
 import styles from "./ProjectTodoDetail.module.less";
 import TodoFields, {
   todoFieldsEqual,
@@ -47,6 +48,7 @@ interface Props {
   onClose: () => void;
   onChanged: (todo: ProjectTodo, catalog?: ProjectTodoCatalog) => void;
   onAccessLost: () => void;
+  onOpenChild: (todo: ProjectTodo) => void;
 }
 
 interface DetailState {
@@ -201,6 +203,7 @@ export default function ProjectTodoDetail({
   onClose,
   onChanged,
   onAccessLost,
+  onOpenChild,
 }: Props) {
   const { t } = useTranslation();
   const timezone = useServerTimezone();
@@ -269,6 +272,7 @@ export default function ProjectTodoDetail({
   const postAbort = useRef<AbortController | null>(null);
   const postSeq = useRef(0);
   const fieldSeq = useRef(0);
+  const childSeq = useRef(0);
   const fetchSeq = useRef(0);
   const moreSeq = useRef(0);
   const currentKey = useRef(key);
@@ -375,6 +379,7 @@ export default function ProjectTodoDetail({
     postAbort.current = null;
     postSeq.current += 1;
     fieldSeq.current += 1;
+    childSeq.current += 1;
     moreSeq.current += 1;
     draftRequestId.current = null;
     postBusy.current = false;
@@ -406,6 +411,7 @@ export default function ProjectTodoDetail({
       fetchSeq.current += 1;
       postSeq.current += 1;
       fieldSeq.current += 1;
+      childSeq.current += 1;
       moreSeq.current += 1;
     };
   }, []);
@@ -545,6 +551,7 @@ export default function ProjectTodoDetail({
     postAbort.current = null;
     fieldSeq.current += 1;
     postBusy.current = false;
+    childSeq.current += 1;
     setPosting(false);
     setUploadProgress(null);
     setFieldBusy(false);
@@ -642,6 +649,21 @@ export default function ProjectTodoDetail({
       if (accepted.catalog)
         onChangedRef.current(accepted.todo, accepted.catalog);
       else onChangedRef.current(accepted.todo);
+      if (accepted.todo.parent_todo_id) {
+        const parent = await projectTodosApi.get(
+          projectId,
+          accepted.todo.parent_todo_id,
+        );
+        if (
+          !mounted.current ||
+          key !== currentKey.current ||
+          seq !== fieldSeq.current
+        )
+          return;
+        if (validTodoSnapshot(parent, projectId, accepted.todo.parent_todo_id))
+          onChangedRef.current(parent);
+        else throw new Error("Invalid parent snapshot");
+      }
     } catch (error: unknown) {
       if (
         !mounted.current ||
@@ -685,6 +707,37 @@ export default function ProjectTodoDetail({
         setFieldBusy(false);
     }
   };
+  const refreshParentFromSubtodos = useCallback(async () => {
+    const seq = ++childSeq.current;
+    const latest = await projectTodosApi.get(projectId, todoId);
+    const accepted = await resolveSnapshot(
+      latest,
+      () =>
+        mounted.current &&
+        key === currentKey.current &&
+        seq === childSeq.current,
+      "subtodos",
+    );
+    if (
+      !mounted.current ||
+      key !== currentKey.current ||
+      seq !== childSeq.current
+    )
+      throw new Error("Stale subtodo parent refresh");
+    setState((previous) =>
+      previous.key === key
+        ? {
+            ...previous,
+            todo: accepted.todo,
+            snapshotCatalog: accepted.catalog ?? previous.snapshotCatalog,
+          }
+        : previous,
+    );
+    if (accepted.catalog) onChangedRef.current(accepted.todo, accepted.catalog);
+    else onChangedRef.current(accepted.todo);
+    return accepted.todo;
+  }, [key, projectId, resolveSnapshot, todoId]);
+
   const saveProperties = () => {
     const todo = current?.todo,
       values = fieldDraft?.key === key ? fieldDraft.values : null;
@@ -1248,6 +1301,17 @@ export default function ProjectTodoDetail({
                       t("projects.todoDetail.noDescription", "暂无描述")
                     )}
                   </div>
+                )}
+                {currentUserId !== null && (
+                  <ProjectTodoSubtodos
+                    projectId={projectId}
+                    parent={todo}
+                    role={role}
+                    currentUserId={currentUserId}
+                    onOpenChild={onOpenChild}
+                    onParentRefresh={refreshParentFromSubtodos}
+                    onAccessLost={clearPrivateState}
+                  />
                 )}
                 <h3 className={styles.sectionTitle}>
                   {t("projects.todoDetail.comments", "评论")}
