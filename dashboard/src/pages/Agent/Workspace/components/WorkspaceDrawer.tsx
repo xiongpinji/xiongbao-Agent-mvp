@@ -253,6 +253,8 @@ interface WorkspaceDrawerProps {
   onClose: () => void;
   /** Render as a dock/tab body instead of a standalone Ant Design Drawer. */
   embedded?: boolean;
+  /** Explicit owner-thread route marker; HTTP authorization stays server-side. */
+  privateTask?: boolean;
 }
 
 export default function WorkspaceDrawer({
@@ -260,13 +262,18 @@ export default function WorkspaceDrawer({
   open,
   onClose,
   embedded = false,
+  privateTask = false,
 }: WorkspaceDrawerProps) {
   const { t } = useTranslation();
   const { modal, message } = App.useApp();
   const isMobile = useIsMobile();
   const timeZone = useServerTimezone();
-  const { agents } = useAgent();
-  const activeAgent = agents.find((a) => a.agent_id === agentId) ?? null;
+  const { agents, getChatAgentById } = useAgent();
+  const privateAgent = privateTask ? getChatAgentById(agentId) : null;
+  const activeAgent =
+    privateAgent?.agent_id === agentId && privateAgent.internal === true
+      ? privateAgent
+      : agents.find((a) => a.agent_id === agentId) ?? null;
   const workspaceReady = isAgentChatReady(activeAgent?.state);
 
   const [treeData, setTreeData] = useState<TreeDataNode[]>([]);

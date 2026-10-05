@@ -294,17 +294,17 @@ def test_migration_020_status_check_constraint(db: SqlitePool) -> None:
         )
 
 
-def test_migration_upgrades_from_v19(tmp_path: Path) -> None:
-    """A DB at watermark 19 must gain project_todos by re-running migrations."""
+def test_migration_upgrades_from_v19(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A real v19 database must gain project_todos through the full upgrade."""
     pool = SqlitePool(tmp_path / "octop.db")
-    run_migrations(pool)
-    with pool.connect() as conn:
-        conn.executescript(
-            """
-            DROP TABLE project_todos;
-            UPDATE _schema_version SET version = 19;
-            """
+    discover = migration_module._discover
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            migration_module,
+            "_discover",
+            lambda dialect: [entry for entry in discover(dialect) if entry[0] <= 19],
         )
+        run_migrations(pool)
     run_migrations(pool)
     with pool.connect() as conn:
         v = conn.execute("SELECT version FROM _schema_version").fetchone()[0]

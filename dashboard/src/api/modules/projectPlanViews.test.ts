@@ -3,6 +3,7 @@ const { request } = vi.hoisted(() => ({ request: vi.fn() }));
 vi.mock("../request", () => ({ request }));
 import {
   projectPlanViewsApi,
+  normalizePlanDefinition,
   type PlanQueryRequest,
   type PlanViewCreateBody,
 } from "./projectPlanViews";
@@ -14,6 +15,42 @@ import {
 
 beforeEach(() => request.mockReset().mockResolvedValue({}));
 describe("shared plan view authenticated HTTP wire", () => {
+  it.each([true, false])(
+    "sends explicit table flag %s on both override and shared PATCH",
+    async (show_subtodos) => {
+      const definition = { ...makePlanDefinition(), show_subtodos };
+      await projectPlanViewsApi.query("p1", {
+        view_id: "v1",
+        expected_view_version: 3,
+        expected_catalog_revision: 4,
+        override_definition: definition,
+      });
+      await projectPlanViewsApi.update("p1", "v1", {
+        expected_version: 3,
+        expected_catalog_revision: 4,
+        definition,
+      });
+      expect(
+        JSON.parse(request.mock.calls[0][1].body).override_definition,
+      ).toEqual(definition);
+      expect(JSON.parse(request.mock.calls[1][1].body).definition).toEqual(
+        definition,
+      );
+    },
+  );
+  it("normalizes only a missing table flag and does not coerce invalid values", () => {
+    const legacy = makePlanDefinition("list");
+    expect(normalizePlanDefinition("table", legacy)).toEqual({
+      ...legacy,
+      show_subtodos: false,
+    });
+    expect(normalizePlanDefinition("list", legacy)).toBe(legacy);
+    const invalid = {
+      ...legacy,
+      show_subtodos: "false",
+    } as unknown as typeof legacy;
+    expect(normalizePlanDefinition("table", invalid)).toBe(invalid);
+  });
   it.each(["list", "get"] as const)(
     "%s encodes every ID and fixes GET while retaining AbortSignal",
     async (method) => {

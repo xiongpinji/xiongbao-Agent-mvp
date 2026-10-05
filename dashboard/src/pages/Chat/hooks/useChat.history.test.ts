@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { octopThreadsApi } from "../../../api/modules/octopThreads";
 import * as chatStore from "./chatStore";
 import { useChat } from "./useChat";
+// Collect the real cache helper before timing the history behavior itself.
+import "./useSessions";
 
 const thread = "versioned-history-test";
 

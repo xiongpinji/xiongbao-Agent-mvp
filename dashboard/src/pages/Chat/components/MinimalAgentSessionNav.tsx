@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { Dropdown } from "antd";
 import type { MenuProps } from "antd";
 import {
@@ -18,7 +18,22 @@ import { ExpertIcon } from "../../Experts/components/iconForName";
 import { octopThreadsApi } from "../../../api/modules/octopThreads";
 import { showConfirmModal } from "../../../utils/confirmModal";
 import { isAgentChatReady } from "../../../utils/agentError";
-import { sortSessions, toSession, type Session } from "../hooks/useSessions";
+import {
+  sortSessions,
+  toSession,
+  captureSessionRevision,
+  mergeSessionMetadata,
+  persistSessionMetadata,
+  persistSessionArchive,
+  captureArchiveRevision,
+  onArchiveSaved,
+  type ArchiveMutationResult,
+  sessionMutationPending,
+  forgetDeletedSession,
+  type Session,
+  type SessionMutationResult,
+} from "../hooks/useSessions";
+import { showApiError } from "../../../utils/showApiToast";
 import { formatThreadTitle } from "../utils/threadTitle";
 import { onSessionEvent, onStreamEvent } from "../hooks/chatStore";
 import SharedExpertHint from "./SharedExpertHint";
@@ -58,13 +73,16 @@ interface MinimalAgentSessionNavProps {
   activeAgentId: string | null;
   /** Live sessions for the currently active agent (keeps nav in sync). */
   activeSessions: Session[];
+  actorId?: number | null;
+  activeSessionsAuthoritative?: boolean;
+  onArchiveActive?: (id: string) => Promise<ArchiveMutationResult>;
   onSelect: (sessionId: string, agentId: string) => void;
   onAgentSelect: (agentId: string) => void;
   /** Start a fresh (unsaved) chat with the given expert. */
   onNewChat: (agentId: string) => void;
   onDeleteActive: (id: string) => void;
-  onRenameActive: (id: string, name: string) => void;
-  onPinActive: (id: string, pinned: boolean) => void;
+  onRenameActive: (id: string, name: string) => Promise<SessionMutationResult>;
+  onPinActive: (id: string, pinned: boolean) => Promise<SessionMutationResult>;
   onFork: (id: string, agentId?: string | null) => void;
   activeForkDisabled?: boolean;
   activeForkDisabledHint?: string;
@@ -91,6 +109,7 @@ const PreviewSessionRow = memo(function PreviewSessionRow({
   onDelete,
   onRename,
   onPin,
+  onArchive,
   onFork,
   forkDisabled,
   forkDisabledHint,
@@ -102,12 +121,14 @@ const PreviewSessionRow = memo(function PreviewSessionRow({
   onDelete: (id: string) => void;
   onRename: (id: string, name: string) => void;
   onPin: (id: string, pinned: boolean) => void;
+  onArchive?: (id: string) => Promise<ArchiveMutationResult>;
   onFork: (id: string) => void;
   forkDisabled?: boolean;
   forkDisabledHint?: string;
 }) {
   const { t } = useTranslation();
   const [isEditing, setIsEditing] = useState(false);
+  const [archiving, setArchiving] = useState(false);
   const [editValue, setEditValue] = useState(session.name);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -138,6 +159,24 @@ const PreviewSessionRow = memo(function PreviewSessionRow({
     : forkDisabledHint;
 
   const menuItems: MenuProps["items"] = [
+    ...(onArchive
+      ? [
+          {
+            key: "archive",
+            label: t("archive.action"),
+            disabled: archiving,
+            onClick: ({
+              domEvent,
+            }: {
+              domEvent: React.MouseEvent | React.KeyboardEvent;
+            }) => {
+              domEvent.stopPropagation();
+              setArchiving(true);
+              void onArchive(session.id).finally(() => setArchiving(false));
+            },
+          },
+        ]
+      : []),
     {
       key: "pin",
       label: session.pinned
@@ -200,7 +239,8 @@ const PreviewSessionRow = memo(function PreviewSessionRow({
       role="button"
       tabIndex={0}
       onKeyDown={(e) => {
-        if (e.key === "Enter" && !isEditing) onSelect(session.id);
+        if (e.target === e.currentTarget && e.key === "Enter" && !isEditing)
+          onSelect(session.id);
       }}
     >
       {isEditing ? (
@@ -268,13 +308,51 @@ export default function MinimalAgentSessionNav({
   onDeleteActive,
   onRenameActive,
   onPinActive,
+  onArchiveActive,
+  actorId = null,
+  activeSessionsAuthoritative = false,
   onFork,
   activeForkDisabled,
   activeForkDisabledHint,
 }: MinimalAgentSessionNavProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
+  const viewOwner = useRef({ route: location.key });
+  if (viewOwner.current.route !== location.key)
+    viewOwner.current = { route: location.key };
   const [byAgent, setByAgent] = useState<Record<string, Session[]>>({});
+  const byAgentRef = useRef(byAgent);
+  byAgentRef.current = byAgent;
+  const members = useRef(new Map<string, object>());
+  const actorOwner = useRef({ actorId });
+  if (actorOwner.current.actorId !== actorId) {
+    actorOwner.current = { actorId };
+    byAgentRef.current = {};
+    setByAgent({});
+    members.current.clear();
+  }
+  const live = useRef(true);
+  const agentIds = new Set(agents.map((agent) => agent.agent_id));
+  for (const id of members.current.keys())
+    if (!agentIds.has(id)) members.current.delete(id);
+  for (const id of agentIds)
+    if (!members.current.has(id)) members.current.set(id, {});
+  const activeOwner = useRef({ agentId: activeAgentId });
+  if (activeOwner.current.agentId !== activeAgentId)
+    activeOwner.current = { agentId: activeAgentId };
+  const previewSequence = useRef(0);
+  const publishedPreviews = useRef(new Map<string, number>());
+  const delegatedRevision = useRef(0);
+  const delegatedWrites = useRef(
+    new Map<string, { revision: number; token?: object; owner: object }>(),
+  );
+  useEffect(() => {
+    live.current = true;
+    return () => {
+      live.current = false;
+    };
+  }, []);
   const [workingIds, setWorkingIds] = useState<ReadonlySet<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(() =>
@@ -330,26 +408,120 @@ export default function MinimalAgentSessionNav({
     [onAgentSelect],
   );
 
-  const refreshAgentPreview = useCallback(async (agentId: string) => {
-    if (!agentId) return;
-    try {
-      const rows = await octopThreadsApi.list(
+  const publishPreview = useCallback(
+    (
+      agentId: string,
+      rows: Session[],
+      read: {
+        member: object | undefined;
+        sequence: number;
+        revision: number;
+        delegated: number;
+        actor: object;
+        archive: number;
+      },
+    ) => {
+      if (
+        !live.current ||
+        read.actor !== actorOwner.current ||
+        read.archive !== captureArchiveRevision(actorId, agentId) ||
+        !read.member ||
+        members.current.get(agentId) !== read.member ||
+        read.sequence < (publishedPreviews.current.get(agentId) ?? 0)
+      )
+        return;
+      publishedPreviews.current.set(agentId, read.sequence);
+      const current = byAgentRef.current[agentId] ?? [];
+      const merged = mergeSessionMetadata(
         agentId,
-        MINIMAL_AGENT_SESSION_PREVIEW,
-      );
-      const list = sortSessions(rows.map(toSession)).slice(
-        0,
-        MINIMAL_AGENT_SESSION_PREVIEW,
-      );
-      setByAgent((prev) => ({ ...prev, [agentId]: list }));
-    } catch {
-      /* ignore */
-    }
-  }, []);
+        rows,
+        current,
+        read.revision,
+        (id, field) => {
+          const write = delegatedWrites.current.get(
+            JSON.stringify([agentId, id, field]),
+          );
+          return !write || write.owner === activeOwner.current;
+        },
+      ).map((session) => {
+        const existing = current.find((item) => item.id === session.id);
+        if (!existing) return session;
+        const nameWrite = delegatedWrites.current.get(
+          JSON.stringify([agentId, session.id, "name"]),
+        );
+        const pinWrite = delegatedWrites.current.get(
+          JSON.stringify([agentId, session.id, "pinned"]),
+        );
+        return {
+          ...session,
+          name:
+            nameWrite &&
+            nameWrite.owner === activeOwner.current &&
+            (nameWrite.token || nameWrite.revision > read.delegated)
+              ? existing.name
+              : session.name,
+          pinned:
+            pinWrite &&
+            pinWrite.owner === activeOwner.current &&
+            (pinWrite.token || pinWrite.revision > read.delegated)
+              ? existing.pinned
+              : session.pinned,
+        };
+      });
+      const next = {
+        ...byAgentRef.current,
+        [agentId]: sortSessions(merged).slice(0, MINIMAL_AGENT_SESSION_PREVIEW),
+      };
+      byAgentRef.current = next;
+      setByAgent(next);
+    },
+    [actorId],
+  );
+
+  const beginPreviewRead = useCallback(
+    (agentId: string) => ({
+      member: members.current.get(agentId),
+      sequence: ++previewSequence.current,
+      revision: captureSessionRevision(),
+      delegated: delegatedRevision.current,
+      actor: actorOwner.current,
+      archive: captureArchiveRevision(actorId, agentId),
+    }),
+    [actorId],
+  );
+
+  const refreshAgentPreview = useCallback(
+    async (agentId: string) => {
+      if (!agentId) return;
+      const read = beginPreviewRead(agentId);
+      try {
+        const rows = await octopThreadsApi.list(
+          agentId,
+          MINIMAL_AGENT_SESSION_PREVIEW,
+        );
+        const list = sortSessions(rows.map(toSession)).slice(
+          0,
+          MINIMAL_AGENT_SESSION_PREVIEW,
+        );
+        publishPreview(agentId, list, read);
+      } catch {
+        /* ignore */
+      }
+    },
+    [beginPreviewRead, publishPreview],
+  );
 
   // Fetch preview threads for every expert (independent of classic session store).
   useEffect(() => {
+    const retained = Object.fromEntries(
+      Object.entries(byAgentRef.current).filter(([id]) =>
+        members.current.has(id),
+      ),
+    );
+    byAgentRef.current = retained;
+    setByAgent(retained);
     if (!agentKey) {
+      byAgentRef.current = {};
       setByAgent({});
       return;
     }
@@ -358,7 +530,7 @@ export default function MinimalAgentSessionNav({
     void (async () => {
       const entries = await Promise.all(
         agentKey.split(",").map(async (id) => {
-          if (!id) return [id, [] as Session[]] as const;
+          const read = beginPreviewRead(id);
           try {
             const rows = await octopThreadsApi.list(
               id,
@@ -370,35 +542,88 @@ export default function MinimalAgentSessionNav({
                 0,
                 MINIMAL_AGENT_SESSION_PREVIEW,
               ),
+              read,
             ] as const;
           } catch {
-            return [id, [] as Session[]] as const;
+            return [id, [] as Session[], read] as const;
           }
         }),
       );
       if (!cancelled) {
-        setByAgent(Object.fromEntries(entries));
+        for (const [id, list, read] of entries) publishPreview(id, list, read);
         setLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [agentKey]);
+  }, [agentKey, beginPreviewRead, publishPreview]);
 
   // Keep the active agent's preview aligned with live chat session store.
   // Skip empty lists — standalone host passes [] and must not wipe fetched previews
   // when the user selects a session (activeAgentId updates).
   useEffect(() => {
-    if (!activeAgentId || activeSessions.length === 0) return;
-    setByAgent((prev) => ({
-      ...prev,
-      [activeAgentId]: sortSessions(activeSessions).slice(
-        0,
-        MINIMAL_AGENT_SESSION_PREVIEW,
-      ),
-    }));
-  }, [activeAgentId, activeSessions]);
+    if (
+      !activeAgentId ||
+      (!activeSessionsAuthoritative && activeSessions.length === 0)
+    )
+      return;
+    publishPreview(
+      activeAgentId,
+      activeSessions,
+      beginPreviewRead(activeAgentId),
+    );
+  }, [
+    activeAgentId,
+    activeSessions,
+    activeSessionsAuthoritative,
+    beginPreviewRead,
+    publishPreview,
+  ]);
+
+  useEffect(
+    () =>
+      onArchiveSaved((event) => {
+        if (event.actorId !== actorId || !members.current.has(event.agentId))
+          return;
+        const next = {
+          ...byAgentRef.current,
+          [event.agentId]: (byAgentRef.current[event.agentId] ?? []).filter(
+            (row) => row.id !== event.id,
+          ),
+        };
+        byAgentRef.current = next;
+        setByAgent(next);
+        void refreshAgentPreview(event.agentId);
+      }),
+    [actorId, refreshAgentPreview],
+  );
+
+  const handleArchive = useCallback(
+    (agentId: string, id: string) => {
+      const member = members.current.get(agentId);
+      const actor = actorOwner.current;
+      const delegate = activeOwner.current;
+      const view = viewOwner.current;
+      if (agentId === activeAgentId && onArchiveActive)
+        return onArchiveActive(id);
+      return persistSessionArchive({
+        actorId,
+        agentId,
+        id,
+        archived: true,
+        isIdentityCurrent: () => live.current && actorOwner.current === actor,
+        isCurrent: () =>
+          live.current &&
+          actorOwner.current === actor &&
+          viewOwner.current === view &&
+          members.current.get(agentId) === member &&
+          activeOwner.current === delegate,
+        onError: (error) => showApiError(error, t("common.saveFailed"), t),
+      });
+    },
+    [actorId, activeAgentId, onArchiveActive, t],
+  );
 
   // Turns streamed by this browser tab keep running after the user navigates
   // away, so the nav marks those threads as busy until the stream ends.
@@ -419,11 +644,13 @@ export default function MinimalAgentSessionNav({
     return onSessionEvent((event) => {
       if (event.kind === "sessionDeleted") {
         const { sessionId } = event;
+        forgetDeletedSession(sessionId);
         setByAgent((prev) => {
           const next: Record<string, Session[]> = {};
           for (const [aid, list] of Object.entries(prev)) {
             next[aid] = list.filter((s) => s.id !== sessionId);
           }
+          byAgentRef.current = next;
           return next;
         });
         return;
@@ -463,36 +690,104 @@ export default function MinimalAgentSessionNav({
     [activeAgentId, onDeleteActive, patchLocal],
   );
 
-  const handleRename = useCallback(
-    (agentId: string, sessionId: string, name: string) => {
-      const next = formatThreadTitle(name) || name.trim();
-      if (!next) return;
-      if (agentId === activeAgentId) {
-        onRenameActive(sessionId, next);
-      } else {
-        void octopThreadsApi.rename(agentId, sessionId, next).catch(() => {});
-      }
-      patchLocal(agentId, (prev) =>
-        prev.map((s) => (s.id === sessionId ? { ...s, name: next } : s)),
+  const handleMetadata = useCallback(
+    async (
+      agentId: string,
+      sessionId: string,
+      field: "name" | "pinned",
+      value: string | boolean,
+    ): Promise<SessionMutationResult> => {
+      const existing = byAgentRef.current[agentId]?.find(
+        (session) => session.id === sessionId,
       );
+      if (!existing || (field === "name" && !value))
+        return { status: "ignored", reason: "invalid" };
+      const member = members.current.get(agentId);
+      const delegateOwner = activeOwner.current;
+      const delegated = agentId === activeAgentId;
+      const current = () =>
+        live.current &&
+        members.current.get(agentId) === member &&
+        Boolean(
+          byAgentRef.current[agentId]?.some(
+            (session) => session.id === sessionId,
+          ),
+        ) &&
+        (!delegated || activeOwner.current === delegateOwner);
+      const apply = (nextValue: string | boolean) => {
+        const next = {
+          ...byAgentRef.current,
+          [agentId]: sortSessions(
+            (byAgentRef.current[agentId] ?? []).map((session) =>
+              session.id === sessionId
+                ? { ...session, [field]: nextValue }
+                : session,
+            ),
+          ).slice(0, MINIMAL_AGENT_SESSION_PREVIEW),
+        };
+        byAgentRef.current = next;
+        setByAgent(next);
+      };
+      const previous =
+        field === "name" ? existing.name : Boolean(existing.pinned);
+      if (!delegated)
+        return persistSessionMetadata({
+          agentId,
+          id: sessionId,
+          field,
+          value,
+          previous,
+          isCurrent: current,
+          apply,
+          onError: (error) => showApiError(error, t("common.saveFailed"), t),
+        });
+      const key = JSON.stringify([agentId, sessionId, field]);
+      if (
+        delegatedWrites.current.get(key)?.token ||
+        sessionMutationPending(agentId, sessionId, field)
+      )
+        return { status: "ignored", reason: "busy" };
+      if (previous === value) return { status: "ignored", reason: "invalid" };
+      const token = {};
+      delegatedWrites.current.set(key, {
+        revision: ++delegatedRevision.current,
+        token,
+        owner: delegateOwner,
+      });
+      apply(value);
+      try {
+        const result =
+          field === "name"
+            ? await onRenameActive(sessionId, value as string)
+            : await onPinActive(sessionId, value as boolean);
+        if (!current()) return { status: "ignored", reason: "stale" };
+        apply(result.status === "saved" ? result.value : previous);
+        return result;
+      } finally {
+        if (delegatedWrites.current.get(key)?.token === token)
+          delegatedWrites.current.set(key, {
+            revision: ++delegatedRevision.current,
+            owner: delegateOwner,
+          });
+      }
     },
-    [activeAgentId, onRenameActive, patchLocal],
+    [activeAgentId, onRenameActive, onPinActive, t],
   );
 
+  const handleRename = useCallback(
+    (agentId: string, sessionId: string, name: string) =>
+      handleMetadata(
+        agentId,
+        sessionId,
+        "name",
+        formatThreadTitle(name) || name.trim(),
+      ),
+    [handleMetadata],
+  );
   const handlePin = useCallback(
-    (agentId: string, sessionId: string, pinned: boolean) => {
-      if (agentId === activeAgentId) {
-        onPinActive(sessionId, pinned);
-      } else {
-        void octopThreadsApi
-          .patch(agentId, sessionId, { pinned })
-          .catch(() => {});
-      }
-      patchLocal(agentId, (prev) =>
-        prev.map((s) => (s.id === sessionId ? { ...s, pinned } : s)),
-      );
-    },
-    [activeAgentId, onPinActive, patchLocal],
+    (agentId: string, sessionId: string, pinned: boolean) =>
+      handleMetadata(agentId, sessionId, "pinned", pinned),
+    [handleMetadata],
   );
 
   if (agents.length === 0) {
@@ -607,6 +902,11 @@ export default function MinimalAgentSessionNav({
                       }
                       onPin={(id, pinned) =>
                         handlePin(agent.agent_id, id, pinned)
+                      }
+                      onArchive={
+                        actorId
+                          ? (id) => handleArchive(agent.agent_id, id)
+                          : undefined
                       }
                       onFork={(id) => onFork(id, agent.agent_id)}
                       forkDisabled={

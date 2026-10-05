@@ -32,6 +32,7 @@ const {
   deleteToTrash,
   listTrash,
   restoreTrashed,
+  update,
 } = vi.hoisted(() => ({
   list: vi.fn(),
   usage: vi.fn(),
@@ -45,6 +46,7 @@ const {
   deleteToTrash: vi.fn(),
   listTrash: vi.fn(),
   restoreTrashed: vi.fn(),
+  update: vi.fn(),
 }));
 
 const { request, requestBlob, requestUpload } = vi.hoisted(() => ({
@@ -74,6 +76,7 @@ vi.mock("../../api/modules/projectAssets", async (importOriginal) => {
       deleteToTrash,
       listTrash,
       restoreTrashed,
+      update,
     },
   };
 });
@@ -282,6 +285,8 @@ function fileInput(container: HTMLElement): HTMLInputElement {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  update.mockReset();
+  update.mockResolvedValue(fileSpec);
   list.mockResolvedValue(listResponse([folderDesign, fileSpec]));
   usage.mockResolvedValue({ file_count: 2, total_bytes: 2048 });
   createFolder.mockReset();
@@ -1160,7 +1165,7 @@ describe("ProjectAssets 042 recoverable trash", () => {
     );
     expect(within(row1).getByText("旧方案.pdf")).toBeInTheDocument();
     expect(
-      within(row1).getByText(/原位置：项目文件\/设计稿/),
+      within(row1).getByText(/删除时位置：项目文件\/设计稿/),
     ).toBeInTheDocument();
     expect(within(row1).getByText(/删除人：张三/)).toBeInTheDocument();
     expect(within(row1).getByRole("button", { name: "恢复" })).toBeEnabled();
@@ -1201,7 +1206,7 @@ describe("ProjectAssets 042 recoverable trash", () => {
     await waitFor(() =>
       expect(listTrash.mock.calls.length).toBeGreaterThan(trashCalls),
     );
-    expect(message.success).toHaveBeenCalledWith("已恢复到原位置");
+    expect(message.success).toHaveBeenCalledWith("已恢复到原父目录");
   });
 
   it("keeps the trash row and explains a same-name restore conflict", async () => {
@@ -1222,7 +1227,7 @@ describe("ProjectAssets 042 recoverable trash", () => {
     await user.click(within(row).getByRole("button", { name: "恢复" }));
 
     expect(
-      await within(dialog).findByText(/原位置已有同名文件或文件夹/),
+      await within(dialog).findByText(/原父目录已有同名文件或文件夹/),
     ).toBeInTheDocument();
     expect(within(dialog).getByText(/请先处理同名项/)).toBeInTheDocument();
     expect(message.success).not.toHaveBeenCalled();
@@ -1424,6 +1429,30 @@ describe("projectAssetsApi path building", () => {
     requestUpload.mockResolvedValue({});
   });
 
+  it("045 preserves omitted parent and explicit null in PATCH", async () => {
+    await realApi.update("p 1/2", "n/1", { name: "报告.pdf" });
+    expect(request).toHaveBeenLastCalledWith(
+      "/projects/p%201%2F2/assets/n%2F1",
+      {
+        method: "PATCH",
+        body: JSON.stringify({ name: "报告.pdf" }),
+      },
+    );
+    await realApi.update("p1", "n1", { parent_id: null });
+    expect(request).toHaveBeenLastCalledWith("/projects/p1/assets/n1", {
+      method: "PATCH",
+      body: '{"parent_id":null}',
+    });
+    await realApi.update("p1", "n1", {
+      name: "新名称",
+      parent_id: "destination",
+    });
+    expect(request).toHaveBeenLastCalledWith("/projects/p1/assets/n1", {
+      method: "PATCH",
+      body: JSON.stringify({ name: "新名称", parent_id: "destination" }),
+    });
+  });
+
   it("encodes project ids and sends list filters as query params", () => {
     void realApi.list("p 1/2", {
       parentId: "n/1",
@@ -1562,6 +1591,521 @@ describe("project assets locale parity", () => {
     ] as const) {
       expect(zh.apiErrors[code]).toBeTruthy();
       expect(en.apiErrors[code]).toBeTruthy();
+    }
+  });
+});
+
+describe("ProjectAssets 045 rename and move", () => {
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+  async function openAction(
+    node: ProjectAssetNode,
+    action: string,
+    menuLabel = "更多操作",
+  ) {
+    const user = userEvent.setup();
+    const row = await screen.findByTestId(`project-asset-${node.node_id}`);
+    await user.click(within(row).getByRole("button", { name: menuLabel }));
+    await user.click(await screen.findByRole("menuitem", { name: action }));
+    const title = await screen.findByText(action, {
+      selector: ".ant-modal-title",
+    });
+    return { user, dialog: title.closest('[role="dialog"]') as HTMLElement };
+  }
+
+  it.each([fileSpec, folderDesign])(
+    "prefills rename for $kind; cancel makes no write or preview",
+    async (node) => {
+      renderAssets();
+      const { user, dialog } = await openAction(node, "重命名");
+      expect(
+        within(dialog).getByRole("textbox", { name: "资产名称" }),
+      ).toHaveValue(node.name);
+      expect(download).not.toHaveBeenCalled();
+      await user.click(within(dialog).getByRole("button", { name: /取\s*消/ }));
+      expect(update).not.toHaveBeenCalled();
+      expect(
+        screen.getByTestId(`project-asset-${node.node_id}`),
+      ).toBeInTheDocument();
+    },
+  );
+
+  it("blocks empty/invalid names and retries a localized conflict without losing input", async () => {
+    update.mockRejectedValueOnce(
+      new Error(
+        '409 - {"error":{"code":"PROJECT_ASSET_NAME_CONFLICT","message":"raw conflict"}}',
+      ),
+    );
+    renderAssets();
+    const { user, dialog } = await openAction(fileSpec, "重命名");
+    const input = within(dialog).getByRole("textbox", { name: "资产名称" });
+    await user.clear(input);
+    await user.click(within(dialog).getByRole("button", { name: /保\s*存/ }));
+    expect(update).not.toHaveBeenCalled();
+    expect(within(dialog).getByText("请输入资产名称")).toBeInTheDocument();
+    await user.type(input, "a/b.pdf");
+    expect(
+      within(dialog).getByText("名称包含不支持的字符或格式"),
+    ).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: /保\s*存/ }));
+    expect(update).not.toHaveBeenCalled();
+    await user.clear(input);
+    await user.type(input, "新需求.pdf");
+    await user.click(within(dialog).getByRole("button", { name: /保\s*存/ }));
+    expect(
+      await within(dialog).findByText(
+        "此文件夹已有同名文件或文件夹，请使用其他名称或位置。",
+      ),
+    ).toBeInTheDocument();
+    expect(input).toHaveValue("新需求.pdf");
+    expect(screen.getByTestId("project-asset-file-1")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: /保\s*存/ }));
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(2));
+    expect(update).toHaveBeenLastCalledWith("p1", "file-1", {
+      name: "新需求.pdf",
+    });
+    await waitFor(() =>
+      expect(message.success).toHaveBeenCalledWith("已重命名"),
+    );
+    expect(list.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it.each([fileSpec, folderDesign])(
+    "moves $kind to root only on confirmation",
+    async (node) => {
+      renderAssets();
+      const { user, dialog } = await openAction(node, "移动到");
+      await user.click(
+        within(dialog).getByRole("button", { name: "选择项目根目录" }),
+      );
+      expect(update).not.toHaveBeenCalled();
+      await user.click(within(dialog).getByRole("button", { name: /移\s*动/ }));
+      await waitFor(() =>
+        expect(update).toHaveBeenCalledWith("p1", node.node_id, {
+          parent_id: null,
+        }),
+      );
+      expect(download).not.toHaveBeenCalled();
+    },
+  );
+
+  it("pages past folder 100, enters deep folders and excludes the source subtree", async () => {
+    const destinations = Array.from({ length: 101 }, (_, i) => ({
+      ...folderDesign,
+      node_id: `d${i + 1}`,
+      name: `目录${i + 1}`,
+    }));
+    const deepFolders = Array.from({ length: 101 }, (_, i) => ({
+      ...folderDesign,
+      node_id: `deep${i + 1}`,
+      name: `深层目录${i + 1}`,
+    }));
+    list.mockImplementation((_project, params) => {
+      if (params.kind !== "folder")
+        return Promise.resolve(listResponse([folderDesign]));
+      const offset = params.offset;
+      const nodes =
+        params.parentId === "d101"
+          ? deepFolders
+          : params.parentId === "deep101"
+          ? []
+          : [folderDesign, ...destinations];
+      return Promise.resolve(
+        listResponse(nodes.slice(offset, offset + 50), {
+          hasMore: offset + 50 < nodes.length,
+        }),
+      );
+    });
+    renderAssets();
+    const { user, dialog } = await openAction(folderDesign, "移动到");
+    await waitFor(() =>
+      expect(within(dialog).queryByText("目录1")).toBeInTheDocument(),
+    );
+    expect(
+      within(dialog).queryByRole("button", { name: "进入文件夹：设计稿" }),
+    ).toBeNull();
+    await user.click(within(dialog).getByRole("button", { name: "加载更多" }));
+    await within(dialog).findByText("目录99");
+    await user.click(within(dialog).getByRole("button", { name: "加载更多" }));
+    await user.click(
+      await within(dialog).findByRole("button", {
+        name: "进入文件夹：目录101",
+      }),
+    );
+    await within(dialog).findByText("深层目录1");
+    await user.click(within(dialog).getByRole("button", { name: "加载更多" }));
+    await within(dialog).findByText("深层目录100");
+    await user.click(within(dialog).getByRole("button", { name: "加载更多" }));
+    await user.click(
+      await within(dialog).findByRole("button", {
+        name: "进入文件夹：深层目录101",
+      }),
+    );
+    await user.click(
+      within(dialog).getByRole("button", { name: "选择此文件夹" }),
+    );
+    expect(update).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole("button", { name: /移\s*动/ }));
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith("p1", "folder-1", {
+        parent_id: "deep101",
+      }),
+    );
+    expect(list).toHaveBeenCalledWith(
+      "p1",
+      expect.objectContaining({ kind: "folder", offset: 100 }),
+    );
+    expect(list.mock.calls.some(([, p]) => p.parentId === "folder-1")).toBe(
+      false,
+    );
+  }, 15_000);
+
+  it("403 retains row and input; 404 clears all sensitive state", async () => {
+    update.mockRejectedValueOnce(new Error("403 - permission denied"));
+    update.mockRejectedValueOnce(new Error("404 - not found"));
+    renderAssets();
+    const { user, dialog } = await openAction(fileSpec, "重命名");
+    await user.click(within(dialog).getByRole("button", { name: /保\s*存/ }));
+    expect(
+      await within(dialog).findByText("项目已归档，或你没有管理该资产的权限。"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("project-asset-file-1")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: /保\s*存/ }));
+    await screen.findByText("项目不存在或你无权访问");
+    expect(screen.queryByTestId("project-asset-file-1")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it.each(["success", "error"])(
+    "ignores late %s from the old project while a new rename submits",
+    async (outcome) => {
+      const old = deferred<ProjectAssetNode>();
+      const current = deferred<ProjectAssetNode>();
+      update
+        .mockReturnValueOnce(old.promise)
+        .mockReturnValueOnce(current.promise);
+      const view = renderAssets();
+      const { user, dialog } = await openAction(fileSpec, "重命名");
+      await user.click(within(dialog).getByRole("button", { name: /保\s*存/ }));
+      view.rerender(<ProjectAssets projectId="p2" />);
+      const fresh = await openAction(fileSpec, "重命名");
+      await fresh.user.click(
+        within(fresh.dialog).getByRole("button", { name: /保\s*存/ }),
+      );
+      await act(async () => {
+        if (outcome === "success") old.resolve(fileSpec);
+        else old.reject(new Error("404 - not found"));
+      });
+      expect(
+        within(fresh.dialog).getByRole("textbox", { name: "资产名称" }),
+      ).toHaveValue(fileSpec.name);
+      expect(
+        within(fresh.dialog).getByRole("button", { name: /保\s*存/ }),
+      ).toBeDisabled();
+      expect(message.success).not.toHaveBeenCalled();
+      await act(async () => current.resolve(fileSpec));
+      await waitFor(() => expect(message.success).toHaveBeenCalledTimes(1));
+    },
+  );
+
+  it("drops update success after unmount without a success toast", async () => {
+    const pending = deferred<ProjectAssetNode>();
+    update.mockReturnValueOnce(pending.promise);
+    const view = renderAssets();
+    const { user, dialog } = await openAction(fileSpec, "重命名");
+    await user.click(within(dialog).getByRole("button", { name: /保\s*存/ }));
+    view.unmount();
+    await act(async () => pending.resolve(fileSpec));
+    expect(message.success).not.toHaveBeenCalled();
+  });
+
+  it.each(["success", "error"])(
+    "drops old modal %s while the replacement modal is pending",
+    async (outcome) => {
+      const old = deferred<ProjectAssetNode>();
+      const fresh = deferred<ProjectAssetNode>();
+      update
+        .mockReturnValueOnce(old.promise)
+        .mockReturnValueOnce(fresh.promise);
+      renderAssets();
+      const first = await openAction(fileSpec, "重命名");
+      await first.user.click(
+        within(first.dialog).getByRole("button", { name: /保\s*存/ }),
+      );
+      await first.user.click(
+        within(first.dialog).getByRole("button", { name: /取\s*消/ }),
+      );
+      const second = await openAction(folderDesign, "重命名");
+      await second.user.click(
+        within(second.dialog).getByRole("button", { name: /保\s*存/ }),
+      );
+      await act(async () => {
+        if (outcome === "success") old.resolve(fileSpec);
+        else old.reject(new Error("404 - not found"));
+      });
+      expect(
+        within(second.dialog).getByRole("textbox", { name: "资产名称" }),
+      ).toHaveValue(folderDesign.name);
+      expect(
+        within(second.dialog).getByRole("button", { name: /保\s*存/ }),
+      ).toBeDisabled();
+      expect(message.success).not.toHaveBeenCalled();
+      expect(screen.getByTestId("project-asset-file-1")).toBeInTheDocument();
+      await act(async () => fresh.resolve(folderDesign));
+      await waitFor(() => expect(message.success).toHaveBeenCalledTimes(1));
+    },
+  );
+
+  it("blocks duplicate submit and keeps a move destination on failure for retry", async () => {
+    const pending = deferred<ProjectAssetNode>();
+    update.mockReturnValueOnce(pending.promise);
+    renderAssets();
+    const { user, dialog } = await openAction(fileSpec, "移动到");
+    await user.click(
+      await within(dialog).findByRole("button", { name: "进入文件夹：设计稿" }),
+    );
+    await user.click(
+      within(dialog).getByRole("button", { name: "选择此文件夹" }),
+    );
+    const submit = within(dialog).getByRole("button", { name: /移\s*动/ });
+    fireEvent.click(submit);
+    fireEvent.click(submit);
+    expect(update).toHaveBeenCalledTimes(1);
+    await act(async () =>
+      pending.reject(new Error("503 - temporarily unavailable")),
+    );
+    expect(
+      await within(dialog).findByText("temporarily unavailable"),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText("目标：设计稿")).toBeInTheDocument();
+    expect(screen.getByTestId("project-asset-file-1")).toBeInTheDocument();
+    await user.click(submit);
+    await waitFor(() =>
+      expect(update).toHaveBeenLastCalledWith("p1", "file-1", {
+        parent_id: "folder-1",
+      }),
+    );
+  });
+
+  it.each(["success", "error"])(
+    "drops stale folder-page %s after breadcrumb navigation",
+    async (outcome) => {
+      const old = deferred<ReturnType<typeof listResponse>>();
+      list.mockImplementation((_project, params) =>
+        params.kind === "folder" && params.parentId === "folder-1"
+          ? old.promise
+          : Promise.resolve(listResponse([folderDesign, fileSpec])),
+      );
+      renderAssets();
+      const { user, dialog } = await openAction(fileSpec, "移动到");
+      await user.click(
+        await within(dialog).findByRole("button", {
+          name: "进入文件夹：设计稿",
+        }),
+      );
+      await user.click(
+        within(dialog).getByRole("button", { name: "项目文件" }),
+      );
+      await within(dialog).findByRole("button", { name: "进入文件夹：设计稿" });
+      await act(async () => {
+        if (outcome === "success")
+          old.resolve(
+            listResponse([{ ...folderDesign, name: "旧秘密", node_id: "old" }]),
+          );
+        else old.reject(new Error("404 - not found"));
+      });
+      expect(within(dialog).queryByText("旧秘密")).toBeNull();
+      expect(
+        within(dialog).getByRole("button", { name: /移\s*动/ }),
+      ).not.toBeDisabled();
+      expect(screen.queryByText("项目不存在或你无权访问")).toBeNull();
+    },
+  );
+
+  it("retains folder pages on append error and retries the same raw offset", async () => {
+    let attempts = 0;
+    list.mockImplementation((_project, params) => {
+      if (params.kind !== "folder")
+        return Promise.resolve(listResponse([fileSpec]));
+      if (params.offset === 0)
+        return Promise.resolve(listResponse([folderDesign], { hasMore: true }));
+      if (++attempts === 1)
+        return Promise.reject(new Error("503 - folder page unavailable"));
+      return Promise.resolve(
+        listResponse([
+          { ...folderDesign, node_id: "next", name: "下一页目录" },
+        ]),
+      );
+    });
+    renderAssets();
+    const { user, dialog } = await openAction(fileSpec, "移动到");
+    await user.click(
+      await within(dialog).findByRole("button", { name: "加载更多" }),
+    );
+    await within(dialog).findByText("folder page unavailable");
+    expect(
+      within(dialog).getByRole("button", { name: "进入文件夹：设计稿" }),
+    ).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: /重\s*试/ }));
+    await within(dialog).findByText("下一页目录");
+    expect(
+      within(dialog).queryByRole("button", { name: "加载更多" }),
+    ).toBeNull();
+    expect(
+      list.mock.calls.filter(([, p]) => p.kind === "folder" && p.offset === 1),
+    ).toHaveLength(2);
+  });
+
+  it("clears sensitive views when a current chooser request loses access", async () => {
+    list.mockImplementation((_project, params) =>
+      params.kind === "folder"
+        ? Promise.reject(new Error("404 - not found"))
+        : Promise.resolve(listResponse([fileSpec])),
+    );
+    renderAssets();
+    const user = userEvent.setup();
+    const row = await screen.findByTestId("project-asset-file-1");
+    await user.click(within(row).getByRole("button", { name: "更多操作" }));
+    await user.click(await screen.findByRole("menuitem", { name: "移动到" }));
+    await screen.findByText("项目不存在或你无权访问");
+    expect(screen.queryByTestId("project-asset-file-1")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("Escape cancels a rename without mutating or closing its underlying preview", async () => {
+    renderAssets();
+    const user = userEvent.setup();
+    await user.click(
+      await screen.findByRole("button", { name: "预览：需求说明.pdf" }),
+    );
+    await screen.findByTestId("project-asset-current-preview");
+    const { dialog } = await openAction(fileSpec, "重命名");
+    fireEvent.keyDown(dialog, { key: "Escape", keyCode: 27 });
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox", { name: "资产名称" })).toBeNull(),
+    );
+    expect(
+      screen.getByTestId("project-asset-current-preview"),
+    ).toBeInTheDocument();
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("keeps an open current-version preview on the same node after rename", async () => {
+    update.mockResolvedValue({ ...fileSpec, name: "新需求.pdf" });
+    renderAssets();
+    const user = userEvent.setup();
+    await user.click(
+      await screen.findByRole("button", { name: "预览：需求说明.pdf" }),
+    );
+    await screen.findByTestId("project-asset-current-preview");
+    const { dialog } = await openAction(fileSpec, "重命名");
+    const input = within(dialog).getByRole("textbox", { name: "资产名称" });
+    await user.clear(input);
+    await user.type(input, "新需求.pdf");
+    await user.click(within(dialog).getByRole("button", { name: /保\s*存/ }));
+    await waitFor(() =>
+      expect(message.success).toHaveBeenCalledWith("已重命名"),
+    );
+    expect(
+      screen.getByTestId("project-asset-current-preview"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("dialog", { name: /新需求.pdf/ }),
+    ).toBeInTheDocument();
+    expect(download).toHaveBeenCalledTimes(1);
+  });
+  it.each(["success", "error"])(
+    "drops old-project chooser %s while the new project's chooser loads",
+    async (outcome) => {
+      const old = deferred<ReturnType<typeof listResponse>>();
+      const fresh = deferred<ReturnType<typeof listResponse>>();
+      list.mockImplementation((project, params) =>
+        params.kind !== "folder"
+          ? Promise.resolve(listResponse([fileSpec]))
+          : project === "p1"
+          ? old.promise
+          : fresh.promise,
+      );
+      const view = renderAssets();
+      await openAction(fileSpec, "移动到");
+      view.rerender(<ProjectAssets projectId="p2" />);
+      const { dialog } = await openAction(fileSpec, "移动到");
+      await act(async () => {
+        if (outcome === "success")
+          old.resolve(listResponse([{ ...folderDesign, name: "旧秘密" }]));
+        else old.reject(new Error("404 - not found"));
+      });
+      expect(within(dialog).queryByText("旧秘密")).toBeNull();
+      expect(
+        within(dialog).getByRole("button", { name: /移\s*动/ }),
+      ).toBeDisabled();
+      await act(async () => fresh.resolve(listResponse([folderDesign])));
+      expect(
+        await within(dialog).findByRole("button", {
+          name: "进入文件夹：设计稿",
+        }),
+      ).toBeInTheDocument();
+      expect(
+        within(dialog).getByRole("button", { name: /移\s*动/ }),
+      ).not.toBeDisabled();
+    },
+  );
+
+  it("offers the same observable rename and move workflow in English", async () => {
+    const reactI18n = await import("react-i18next");
+    const actual = await vi.importActual<typeof import("react-i18next")>(
+      "react-i18next",
+    );
+    const { default: i18next } = await import("i18next");
+    const instance = i18next.createInstance();
+    await instance.init({ lng: "en", resources: { en: { translation: en } } });
+    const spy = vi
+      .spyOn(reactI18n, "useTranslation")
+      .mockImplementation(actual.useTranslation);
+    const Provider = actual.I18nextProvider;
+    try {
+      render(
+        <Provider i18n={instance}>
+          <ProjectAssets projectId="p1" />
+        </Provider>,
+      );
+      const { user, dialog } = await openAction(
+        fileSpec,
+        "Rename",
+        en.projects.assets.moreActions,
+      );
+      expect(
+        within(dialog).getByRole("textbox", { name: "Asset name" }),
+      ).toHaveValue(fileSpec.name);
+      await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+      const moved = await openAction(
+        folderDesign,
+        "Move to",
+        en.projects.assets.moreActions,
+      );
+      await moved.user.click(
+        within(moved.dialog).getByRole("button", {
+          name: "Select project root",
+        }),
+      );
+      expect(update).not.toHaveBeenCalled();
+      await moved.user.click(
+        within(moved.dialog).getByRole("button", { name: "Move" }),
+      );
+      await waitFor(() =>
+        expect(update).toHaveBeenCalledWith("p1", "folder-1", {
+          parent_id: null,
+        }),
+      );
+    } finally {
+      spy.mockRestore();
     }
   });
 });

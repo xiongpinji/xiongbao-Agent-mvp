@@ -77,6 +77,7 @@ def test_path_tail() -> None:
 def test_is_allowed_internal_route_allowlist() -> None:
     allowed = [
         ("GET", ("threads",)),
+        ("GET", ("threads", "t1")),
         ("GET", ("threads", "t1", "history")),
         ("POST", ("threads", "t1", "read")),
         ("GET", ("media", "preview")),
@@ -109,7 +110,6 @@ def test_is_allowed_internal_route_denies_everything_else() -> None:
         ("GET", ("threads", "t1", "export")),
         ("PATCH", ("threads", "t1")),
         ("GET", ("threads", "t1", "context-usage")),
-        ("GET", ("threads", "t1")),  # bare thread get
         ("POST", ("threads", "t1", "write")),  # wrong verb on read
         ("GET", ("threads", "t1", "read")),  # wrong verb on read
         ("GET", ("terminal", "context")),

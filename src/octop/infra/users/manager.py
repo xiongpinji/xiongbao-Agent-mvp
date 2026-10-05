@@ -722,16 +722,32 @@ class UserManager:
         )
 
     async def remove(self, username: str) -> None:
-        row = self._services.user_repo.get_by_username(username)
-        if row is None:
-            raise OctopError(ErrorCode.NOT_FOUND, "user not found")
+        # Match create's lock: a username cannot be replaced between identity
+        # lookup, the final database result and cleanup in this manager.
         async with self._lock:
-            self._users.pop(username, None)
-        user_dir = self._services.paths.user_dir(row.username)
-        try:
-            if user_dir.exists():
-                shutil.rmtree(user_dir)
-        except OSError:
-            logger.exception("rmtree failed for %s; user removed from DB anyway", user_dir)
-        self._services.user_repo.delete(row.id)
-        self._services.audit_repo.write(actor=ACTOR_ADMIN, action="user.delete", target=username)
+            loop = asyncio.get_running_loop()
+            row = await loop.run_in_executor(
+                None, self._services.user_repo.get_by_username, username
+            )
+            if row is None:
+                raise OctopError(ErrorCode.NOT_FOUND, "user not found")
+            await loop.run_in_executor(None, self._services.user_repo.delete, row.id)
+            cached = self._users.get(username)
+            if cached is not None and cached.id == row.id:
+                self._users.pop(username)
+            user_dir = self._services.paths.user_dir(row.username)
+
+            def cleanup() -> None:
+                try:
+                    if user_dir.exists():
+                        shutil.rmtree(user_dir)
+                except OSError:
+                    logger.exception("rmtree failed for %s; user removed from DB anyway", user_dir)
+
+            await loop.run_in_executor(None, cleanup)
+            await loop.run_in_executor(
+                None,
+                lambda: self._services.audit_repo.write(
+                    actor=ACTOR_ADMIN, action="user.delete", target=username
+                ),
+            )

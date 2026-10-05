@@ -260,6 +260,13 @@ export default function AvatarDropdown({
     window.setTimeout(open, 0);
   };
 
+  const openDataManagement = () => {
+    setMenuOpen(false);
+    setSettingsOpen(false);
+    onBeforeOpenSettings?.();
+    navigate("/settings/data");
+  };
+
   const openSettings = () => {
     setMenuOpen(false);
     onBeforeOpenSettings?.();
@@ -379,6 +386,14 @@ export default function AvatarDropdown({
         <span>{t("account.projectUrl")}</span>
       </a>
 
+      <button
+        type="button"
+        className={styles.menuItem}
+        onClick={openDataManagement}
+      >
+        <Settings size={16} strokeWidth={1.8} />
+        <span>{t("dataManagement.title")}</span>
+      </button>
       <button type="button" className={styles.menuItem} onClick={openSettings}>
         <Settings size={16} strokeWidth={1.8} />
         <span>{t("account.settings")}</span>
@@ -458,6 +473,13 @@ export default function AvatarDropdown({
 
   const settingsBody = (
     <div className={styles.settingsBody}>
+      <button
+        type="button"
+        className={styles.menuItem}
+        onClick={openDataManagement}
+      >
+        {t("dataManagement.title")}
+      </button>
       <div className={styles.settingsIdentity}>
         <Avatar
           size={44}

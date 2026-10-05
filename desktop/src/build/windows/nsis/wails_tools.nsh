@@ -15,6 +15,9 @@
 !ifndef INFO_PRODUCTNAME
     !define INFO_PRODUCTNAME "Octop"
 !endif
+!ifndef DISPLAY_PRODUCT_NAME
+    !define DISPLAY_PRODUCT_NAME "熊宝 Agent"
+!endif
 !ifndef INFO_PRODUCTVERSION
     !define INFO_PRODUCTVERSION "0.9.31"
 !endif
@@ -25,7 +28,7 @@
     !define PRODUCT_EXECUTABLE "${INFO_PROJECTNAME}.exe"
 !endif
 !ifndef UNINST_KEY_NAME
-    !define UNINST_KEY_NAME "${INFO_COMPANYNAME}${INFO_PRODUCTNAME}"
+    !define UNINST_KEY_NAME "OctopOctop"
 !endif
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${UNINST_KEY_NAME}"
 
@@ -127,7 +130,7 @@ RequestExecutionLevel "${REQUEST_EXECUTION_LEVEL}"
     SetRegView 64
     !if "${WAILS_INSTALL_SCOPE}" == "user"
         WriteRegStr HKCU "${UNINST_KEY}" "Publisher" "${INFO_COMPANYNAME}"
-        WriteRegStr HKCU "${UNINST_KEY}" "DisplayName" "${INFO_PRODUCTNAME}"
+        WriteRegStr HKCU "${UNINST_KEY}" "DisplayName" "${DISPLAY_PRODUCT_NAME}"
         WriteRegStr HKCU "${UNINST_KEY}" "DisplayVersion" "${INFO_PRODUCTVERSION}"
         WriteRegStr HKCU "${UNINST_KEY}" "DisplayIcon" "$INSTDIR\${PRODUCT_EXECUTABLE}"
         WriteRegStr HKCU "${UNINST_KEY}" "UninstallString" "$\"$INSTDIR\uninstall.exe$\""
@@ -138,7 +141,7 @@ RequestExecutionLevel "${REQUEST_EXECUTION_LEVEL}"
         WriteRegDWORD HKCU "${UNINST_KEY}" "EstimatedSize" "$0"
     !else
         WriteRegStr HKLM "${UNINST_KEY}" "Publisher" "${INFO_COMPANYNAME}"
-        WriteRegStr HKLM "${UNINST_KEY}" "DisplayName" "${INFO_PRODUCTNAME}"
+        WriteRegStr HKLM "${UNINST_KEY}" "DisplayName" "${DISPLAY_PRODUCT_NAME}"
         WriteRegStr HKLM "${UNINST_KEY}" "DisplayVersion" "${INFO_PRODUCTVERSION}"
         WriteRegStr HKLM "${UNINST_KEY}" "DisplayIcon" "$INSTDIR\${PRODUCT_EXECUTABLE}"
         WriteRegStr HKLM "${UNINST_KEY}" "UninstallString" "$\"$INSTDIR\uninstall.exe$\""

@@ -11,6 +11,7 @@ import { Alert, Button, Input, Modal, Select, Spin, Tag } from "antd";
 import { useTranslation } from "react-i18next";
 import {
   projectPlanViewsApi,
+  normalizePlanDefinition,
   type AnyPlanDefinition,
   type PlanQueryGroupKey,
   type PlanQueryWindow,
@@ -51,6 +52,11 @@ import PlanBoard from "./PlanBoard";
 import PlanGantt from "./PlanGantt";
 import PlanCalendar from "./PlanCalendar";
 import styles from "./ProjectPlanViews.module.less";
+import {
+  compareTodoSnapshot,
+  uniqueTodoSnapshots,
+  validTodoSnapshot,
+} from "./todoSnapshot";
 
 export interface PlanOperationScope {
   readonly lifetime: number;
@@ -150,8 +156,22 @@ export interface PlanViewSaveAction {
 export interface ProjectPlanViewsHandle {
   captureOperation(channel: string): PlanOperationScope | null;
   isCurrentOperation(scope: PlanOperationScope): boolean;
-  acceptTodo(scope: PlanOperationScope, todo: ProjectTodo): void;
+  acceptTodo(
+    scope: PlanOperationScope,
+    todo: ProjectTodo,
+    catalog?: ProjectTodoCatalog,
+  ): Promise<boolean>;
+  acceptTodos(
+    scope: PlanOperationScope,
+    todos: readonly ProjectTodo[],
+  ): Promise<boolean>;
+  getKnownTodo(todoId: string): ProjectTodo | undefined;
+  hasAcceptedTodo(scope: PlanOperationScope, todo: ProjectTodo): boolean;
   refreshCurrent(): Promise<boolean>;
+  refreshAfterTodos(
+    scope: PlanOperationScope,
+    todos: readonly ProjectTodo[],
+  ): Promise<boolean>;
   refreshTodoCompare(todo: ProjectTodo): Promise<PlanTodoCompareResult>;
   clearPrivate(): void;
 }
@@ -164,6 +184,7 @@ export interface ProjectPlanViewsProps {
   catalogLoading: boolean;
   catalogError: unknown;
   onCatalogRetry(): Promise<boolean>;
+  onCatalogSnapshot?(catalog: ProjectTodoCatalog): void;
   selectedTodoId?: string | null;
   canEdit(todo: ProjectTodo): boolean;
   canDelete(todo: ProjectTodo): boolean;
@@ -172,6 +193,11 @@ export interface ProjectPlanViewsProps {
   onDeleteTodo(todo: ProjectTodo, scope: PlanOperationScope): void;
   onOpenTodo(
     todo: ProjectTodo,
+    trigger: HTMLElement | null,
+    scope: PlanOperationScope,
+  ): void;
+  onOpenParentTodo(
+    todoId: string,
     trigger: HTMLElement | null,
     scope: PlanOperationScope,
   ): void;
@@ -209,6 +235,7 @@ export interface PlanRendererProps {
   canEdit(todo: ProjectTodo): boolean;
   canDelete(todo: ProjectTodo): boolean;
   onOpenTodo(todo: ProjectTodo, trigger: HTMLElement | null): void;
+  onOpenParentTodo(todoId: string, trigger: HTMLElement | null): void;
   onEditTodo(todo: ProjectTodo): void;
   onDeleteTodo(todo: ProjectTodo): void;
   onProposeTodoPatch(
@@ -250,6 +277,9 @@ const storage = (): PlanSelectionStorage | null => {
   }
 };
 const definitionMatches = (type: PlanViewType, definition: AnyPlanDefinition) =>
+  (type === "table"
+    ? typeof definition.show_subtodos === "boolean"
+    : !("show_subtodos" in definition)) &&
   definition.schema_version === 1 &&
   definition.fields[0] === "title" &&
   new Set(definition.fields).size === definition.fields.length &&
@@ -283,7 +313,7 @@ const initialWindow = (
   return null;
 };
 const completeTodo = (todo: ProjectTodo, projectId: string, todoId: string) =>
-  todo &&
+  validTodoSnapshot(todo, projectId, todoId) &&
   todo.project_id === projectId &&
   todo.todo_id === todoId &&
   Number.isSafeInteger(todo.version) &&
@@ -349,7 +379,9 @@ const ProjectPlanViewsContent = forwardRef<
   const definition =
     draft?.baseline.view.view_id === selectedViewId
       ? draft.definition
-      : view?.definition ?? null;
+      : view
+      ? normalizePlanDefinition(view.type, view.definition)
+      : null;
   const isManager = props.role === "owner" || props.role === "admin";
   const catalogReady =
     !!props.catalog &&
@@ -357,7 +389,14 @@ const ProjectPlanViewsContent = forwardRef<
     !props.catalogLoading &&
     !props.catalogError;
   const draftDirty =
-    !!draft && !same(draft.definition, draft.baseline.view.definition);
+    !!draft &&
+    !same(
+      draft.definition,
+      normalizePlanDefinition(
+        draft.baseline.view.type,
+        draft.baseline.view.definition,
+      ),
+    );
   const current = useRef({
     view,
     definition,
@@ -566,6 +605,8 @@ const ProjectPlanViewsContent = forwardRef<
       clearSelectedViewId(storage(), props.accountId, props.projectId);
       void loadViews(true);
     },
+    onCatalogSnapshot: (catalog) =>
+      callbacks.current.onCatalogSnapshot?.(catalog),
   });
   const queryRef = useRef(query);
   queryRef.current = query;
@@ -705,7 +746,10 @@ const ProjectPlanViewsContent = forwardRef<
       const known = queryRef.current.getKnownTodo(todo.todo_id);
       if (
         !completeTodo(latest, scope.projectId, todo.todo_id) ||
-        latest.version < Math.max(todo.version, known?.version ?? 0) ||
+        [todo, known].some(
+          (accepted) =>
+            accepted && compareTodoSnapshot(accepted, latest) !== "accept",
+        ) ||
         latest.catalog_revision <
           Math.max(todo.catalog_revision, known?.catalog_revision ?? 0) ||
         !current.current.catalogReady ||
@@ -720,7 +764,8 @@ const ProjectPlanViewsContent = forwardRef<
           state: "failed",
           messageKey: "projects.planViews.catalogUnavailable",
         };
-      queryRef.current.acceptTodo(scope, latest);
+      if (!(await queryRef.current.acceptTodo(scope, latest)))
+        return { state: "failed" };
       return {
         state: "ready",
         todo: latest,
@@ -1077,24 +1122,13 @@ const ProjectPlanViewsContent = forwardRef<
       );
   }, [view, props.catalog, draft]);
   const loadedTodos = useMemo(() => {
-    const unique = new Map<string, ProjectTodo>();
-    for (const lane of query.lanes)
-      for (const todo of lane.items) {
-        const old = unique.get(todo.todo_id);
-        if (
-          !old ||
-          todo.version > old.version ||
-          (todo.version === old.version &&
-            todo.catalog_revision > old.catalog_revision)
-        )
-          unique.set(todo.todo_id, todo);
-      }
-    return [...unique.values()];
+    return uniqueTodoSnapshots(query.lanes.flatMap((lane) => [...lane.items]));
   }, [query.lanes]);
   const loadedSignature = JSON.stringify(
     loadedTodos.map((todo) => [
       todo.todo_id,
       todo.version,
+      todo.display_revision,
       todo.catalog_revision,
     ]),
   );
@@ -1112,7 +1146,19 @@ const ProjectPlanViewsContent = forwardRef<
     captureOperation: query.captureOperation,
     isCurrentOperation: query.isCurrentOperation,
     acceptTodo: query.acceptTodo,
+    acceptTodos: query.acceptTodos,
+    getKnownTodo: query.getKnownTodo,
+    hasAcceptedTodo: query.hasAcceptedTodo,
     refreshCurrent,
+    refreshAfterTodos: (scope, todos) => {
+      if (!queryRef.current.isSameContextOperation(scope))
+        return Promise.resolve(false);
+      return todos.some((todo) =>
+        queryRef.current.hasRefreshedTodo(scope, todo),
+      )
+        ? queryRef.current.refresh()
+        : refreshCurrent();
+    },
     refreshTodoCompare: (todo) =>
       refreshTodoCompare(
         todo,
@@ -1148,6 +1194,13 @@ const ProjectPlanViewsContent = forwardRef<
               return;
             const scope = queryRef.current.captureOperation("detail");
             if (scope) callbacks.current.onOpenTodo(todo, trigger, scope);
+          },
+          onOpenParentTodo: (todoId, trigger) => {
+            if (!boundScope || !queryRef.current.isCurrentOperation(boundScope))
+              return;
+            const scope = queryRef.current.captureOperation("detail");
+            if (scope)
+              callbacks.current.onOpenParentTodo(todoId, trigger, scope);
           },
           onEditTodo: (todo) => {
             if (
@@ -1199,8 +1252,14 @@ const ProjectPlanViewsContent = forwardRef<
               return result;
             if (!queryRef.current.isCurrentOperation(scope)) return staleTodo();
             if (result.status === "saved") {
-              queryRef.current.acceptTodo(scope, result.todo);
-              void refreshCurrent();
+              if (!(await queryRef.current.acceptTodo(scope, result.todo)))
+                return {
+                  status: "failed",
+                  messageKey: "projects.planViews.failed",
+                };
+              void (queryRef.current.hasRefreshedTodo(scope, result.todo)
+                ? queryRef.current.refresh()
+                : refreshCurrent());
             }
             return result;
           },
@@ -1533,7 +1592,9 @@ const ProjectPlanViewsContent = forwardRef<
                   collectionRevision: viewList!.revision,
                   catalogRevision: props.catalog.revision,
                 },
-                definition: copy(view.definition),
+                definition: copy(
+                  normalizePlanDefinition(view.type, view.definition),
+                ),
                 locked: false,
                 comparison: null,
               });

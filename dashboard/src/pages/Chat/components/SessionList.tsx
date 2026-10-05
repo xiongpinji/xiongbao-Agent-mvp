@@ -14,8 +14,14 @@ import {
   GitFork,
   Eye,
   EyeOff,
+  X,
 } from "lucide-react";
-import type { Session } from "../hooks/useSessions";
+import type {
+  ArchiveMutationResult,
+  Session,
+  SessionSearch,
+} from "../hooks/useSessions";
+import { apiErrorMessage } from "../../../utils/apiError";
 import type { OctopAgent } from "../../../context/AgentContext";
 import { isAgentChatReady } from "../../../utils/agentError";
 import { showConfirmModal } from "../../../utils/confirmModal";
@@ -46,6 +52,7 @@ interface SessionItemProps {
   onDelete: (id: string) => void;
   onRename: (id: string, name: string) => void;
   onPin: (id: string, pinned: boolean) => void;
+  onArchive?: (id: string) => Promise<ArchiveMutationResult>;
   onFork: (id: string) => void;
   forkDisabled?: boolean;
   forkDisabledHint?: string;
@@ -58,12 +65,14 @@ const SessionItem = memo(function SessionItem({
   onDelete,
   onRename,
   onPin,
+  onArchive,
   onFork,
   forkDisabled,
   forkDisabledHint,
 }: SessionItemProps) {
   const { t } = useTranslation();
   const [isEditing, setIsEditing] = useState(false);
+  const [archiving, setArchiving] = useState(false);
   const [editValue, setEditValue] = useState(session.name);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -94,6 +103,24 @@ const SessionItem = memo(function SessionItem({
     : forkDisabledHint;
 
   const menuItems: MenuProps["items"] = [
+    ...(onArchive
+      ? [
+          {
+            key: "archive",
+            label: t("archive.action"),
+            disabled: archiving,
+            onClick: ({
+              domEvent,
+            }: {
+              domEvent: React.MouseEvent | React.KeyboardEvent;
+            }) => {
+              domEvent.stopPropagation();
+              setArchiving(true);
+              void onArchive(session.id).finally(() => setArchiving(false));
+            },
+          },
+        ]
+      : []),
     {
       key: "pin",
       label: session.pinned
@@ -156,7 +183,14 @@ const SessionItem = memo(function SessionItem({
       role="button"
       tabIndex={0}
       onKeyDown={(e) => {
-        if (e.key === "Enter" && !isEditing) onSelect(session.id);
+        if (
+          e.target === e.currentTarget &&
+          (e.key === "Enter" || e.key === " ") &&
+          !isEditing
+        ) {
+          e.preventDefault();
+          onSelect(session.id);
+        }
       }}
     >
       <SessionChannelIcon
@@ -172,6 +206,7 @@ const SessionItem = memo(function SessionItem({
           onChange={(e) => setEditValue(e.target.value)}
           onBlur={commitEdit}
           onKeyDown={(e) => {
+            e.stopPropagation();
             if (e.key === "Enter") commitEdit();
             if (e.key === "Escape") {
               setEditValue(session.name);
@@ -215,16 +250,17 @@ interface AgentCardProps {
   agent: OctopAgent;
   sessions: Session[];
   activeId: string | null;
-  searchQuery: string;
+  search: SessionSearch;
   hasMore: boolean;
   loadingMore: boolean;
   onLoadMore: () => void;
-  onFetchAllSessions: () => void;
+  onRetrySearch: () => void;
   onSelect: (sessionId: string, agentId: string) => void;
   onNewChat: (agentId: string) => void;
   onDelete: (id: string) => void;
   onRename: (id: string, name: string) => void;
   onPin: (id: string, pinned: boolean) => void;
+  onArchive?: (id: string) => Promise<ArchiveMutationResult>;
   onFork: (id: string) => void;
   activeForkDisabled?: boolean;
   activeForkDisabledHint?: string;
@@ -235,16 +271,17 @@ function ActiveAgentCard({
   agent,
   sessions,
   activeId,
-  searchQuery,
+  search,
   hasMore,
   loadingMore,
   onLoadMore,
-  onFetchAllSessions,
+  onRetrySearch,
   onSelect,
   onNewChat,
   onDelete,
   onRename,
   onPin,
+  onArchive,
   onFork,
   activeForkDisabled,
   activeForkDisabledHint,
@@ -253,25 +290,9 @@ function ActiveAgentCard({
   const { t } = useTranslation();
   const accent = agent.color || "#6366f1";
 
-  const filteredSessions = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return sessions;
-    return sessions.filter((s) => s.name.toLowerCase().includes(q));
-  }, [sessions, searchQuery]);
-
-  const fetchAllRequestedRef = useRef(false);
-  useEffect(() => {
-    const searching = Boolean(searchQuery.trim());
-    if (!searching) {
-      fetchAllRequestedRef.current = false;
-      return;
-    }
-    if (fetchAllRequestedRef.current) return;
-    fetchAllRequestedRef.current = true;
-    onFetchAllSessions();
-  }, [searchQuery, onFetchAllSessions]);
-
-  const showExpandMore = hasMore && !searchQuery.trim();
+  const searching = Boolean(search.query.trim());
+  const filteredSessions = searching ? search.sessions : sessions;
+  const showExpandMore = hasMore && !(searching && search.error);
   const sessionsEnabled = isAgentChatReady(agent.state);
 
   return (
@@ -343,15 +364,35 @@ function ActiveAgentCard({
       </div>
 
       <div className={styles.agentCardSessions}>
+        {searching && search.loading ? (
+          <div role="status">{t("chat.searchLoading")}</div>
+        ) : null}
+        {searching && search.error ? (
+          <div role="alert">
+            <div>{t("chat.searchFailed")}</div>
+            <div>
+              {apiErrorMessage(search.error, t("chat.searchFailed"), t)}
+            </div>
+            <button
+              type="button"
+              onClick={onRetrySearch}
+              disabled={search.loading}
+            >
+              {t("common.retry")}
+            </button>
+          </div>
+        ) : null}
         {!sessionsEnabled ? (
           <div className={styles.agentCardSessionsEmpty}>
             {t("chat.agentNotRunningHint")}
           </div>
-        ) : sessions.length === 0 ? (
+        ) : !searching && sessions.length === 0 ? (
           <div className={styles.agentCardSessionsEmpty}>
             {t("chat.noSessionsYet", "直接发消息即可开始对话")}
           </div>
-        ) : filteredSessions.length === 0 ? (
+        ) : filteredSessions.length === 0 &&
+          !search.loading &&
+          !search.error ? (
           <div className={styles.agentCardSessionsEmpty}>
             {t("chat.noSearchResults", "没有匹配的会话")}
           </div>
@@ -366,6 +407,7 @@ function ActiveAgentCard({
                 onDelete={onDelete}
                 onRename={onRename}
                 onPin={onPin}
+                onArchive={onArchive}
                 onFork={onFork}
                 forkDisabled={
                   activeId === s.id ? activeForkDisabled : undefined
@@ -420,7 +462,10 @@ function InactiveAgentRow({
         role="button"
         tabIndex={0}
         onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
+          if (
+            e.target === e.currentTarget &&
+            (e.key === "Enter" || e.key === " ")
+          ) {
             e.preventDefault();
             onSelect();
           }
@@ -496,13 +541,17 @@ interface SessionListProps {
   hasMore: boolean;
   loadingMore: boolean;
   onLoadMore: () => void;
-  onFetchAllSessions: () => void;
+  search: SessionSearch;
+  onSearchChange: (query: string) => void;
+  onLoadMoreSearch: () => void;
+  onRetrySearch: () => void;
   onSelect: (sessionId: string, agentId: string) => void;
   onAgentSelect: (agentId: string) => void;
   onNewChat: (agentId: string) => void;
   onDelete: (id: string) => void;
   onRename: (id: string, name: string) => void;
   onPin: (id: string, pinned: boolean) => void;
+  onArchive?: (id: string) => Promise<ArchiveMutationResult>;
   onFork: (id: string) => void;
   activeForkDisabled?: boolean;
   activeForkDisabledHint?: string;
@@ -516,20 +565,33 @@ export default function SessionList({
   hasMore,
   loadingMore,
   onLoadMore,
-  onFetchAllSessions,
+  search,
+  onSearchChange,
+  onLoadMoreSearch,
+  onRetrySearch,
   onSelect,
   onAgentSelect,
   onNewChat,
   onDelete,
   onRename,
   onPin,
+  onArchive,
   onFork,
   activeForkDisabled,
   activeForkDisabledHint,
 }: SessionListProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchDraft, setSearchDraft] = useState(search.query);
+  const composingRef = useRef(false);
+  const searchAgentRef = useRef(activeAgentId);
+  useEffect(() => {
+    if (searchAgentRef.current !== activeAgentId) {
+      searchAgentRef.current = activeAgentId;
+      composingRef.current = false;
+    }
+    if (!composingRef.current) setSearchDraft(search.query);
+  }, [search.query, activeAgentId]);
   const [showingHidden, setShowingHidden] = useState(false);
   const { filterVisible, pickHidden, hide, unhide, canHide } =
     useHiddenSharedExperts();
@@ -573,11 +635,43 @@ export default function SessionList({
           <input
             type="search"
             className={styles.sessionSearchInput}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            value={searchDraft}
+            maxLength={256}
+            onChange={(e) => {
+              setSearchDraft(e.target.value);
+              if (!composingRef.current) onSearchChange(e.target.value);
+            }}
+            onCompositionStart={() => {
+              composingRef.current = true;
+            }}
+            onCompositionEnd={(e) => {
+              composingRef.current = false;
+              onSearchChange(e.currentTarget.value);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                composingRef.current = false;
+                setSearchDraft("");
+                onSearchChange("");
+              }
+            }}
             placeholder={t("chat.searchSessions", "搜索会话")}
             aria-label={t("chat.searchSessions", "搜索会话")}
           />
+          {searchDraft ? (
+            <button
+              type="button"
+              className={styles.agentHideBtn}
+              aria-label={t("chat.clearSearch")}
+              onClick={() => {
+                composingRef.current = false;
+                setSearchDraft("");
+                onSearchChange("");
+              }}
+            >
+              <X size={14} aria-hidden />
+            </button>
+          ) : null}
         </div>
       ) : null}
 
@@ -618,16 +712,21 @@ export default function SessionList({
                       agent={agent}
                       sessions={sessions}
                       activeId={activeId}
-                      searchQuery={searchQuery}
-                      hasMore={hasMore}
-                      loadingMore={loadingMore}
-                      onLoadMore={onLoadMore}
-                      onFetchAllSessions={onFetchAllSessions}
+                      search={search}
+                      hasMore={search.query.trim() ? search.hasMore : hasMore}
+                      loadingMore={
+                        search.query.trim() ? search.loading : loadingMore
+                      }
+                      onLoadMore={
+                        search.query.trim() ? onLoadMoreSearch : onLoadMore
+                      }
+                      onRetrySearch={onRetrySearch}
                       onSelect={onSelect}
                       onNewChat={onNewChat}
                       onDelete={onDelete}
                       onRename={onRename}
                       onPin={onPin}
+                      onArchive={onArchive}
                       onFork={onFork}
                       activeForkDisabled={activeForkDisabled}
                       activeForkDisabledHint={activeForkDisabledHint}
@@ -653,7 +752,14 @@ export default function SessionList({
             <button
               type="button"
               className={styles.expertHiddenToggle}
-              onClick={() => setShowingHidden((v) => !v)}
+              onClick={() => {
+                if (!viewingHidden) {
+                  composingRef.current = false;
+                  setSearchDraft("");
+                  onSearchChange("");
+                }
+                setShowingHidden((v) => !v);
+              }}
             >
               {viewingHidden
                 ? t("chat.expertListShowVisible")

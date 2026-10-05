@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
@@ -27,13 +28,16 @@ def _insert_sso_provider(manager: UserManager, *, kind: str = "oidc") -> int:
 
 
 @pytest.fixture
-async def manager(tmp_path: Path) -> UserManager:
+async def manager(tmp_path: Path) -> AsyncIterator[UserManager]:
     paths = PathLayout(tmp_path / ".octop")
     paths.ensure_root()
     db = SqlitePool(paths.db)
     run_migrations(db)
     services = build_shared_services(db=db, paths=paths, config=OctopConfig())
-    return UserManager(services)
+    try:
+        yield UserManager(services)
+    finally:
+        db.close()
 
 
 async def test_create_user_writes_db(manager: UserManager):
@@ -470,3 +474,21 @@ async def test_boot_loads_users(tmp_path: Path):
         assert not hasattr(user, "agent_manager") or True  # just verify no crash
     finally:
         await manager.shutdown_all()
+
+
+async def test_remove_project_fk_failure_preserves_cache_directory_and_audit(manager: UserManager):
+    user = await manager.create(username="d2_protected", password="TestPass12", role=Role.USER)
+    manager._services.project_repo.create_with_owner(creator_user_id=user.id, name="protected")
+    user_dir = manager._services.paths.user_dir(user.username)
+    user_dir.mkdir(parents=True, exist_ok=True)
+    marker = user_dir / "owned.txt"
+    marker.write_text("owned synthetic content", encoding="utf-8")
+    with manager._services.db.connect() as conn:
+        before = [tuple(row) for row in conn.execute("SELECT * FROM audit_log")]
+    with pytest.raises(sqlite3.IntegrityError):
+        await manager.remove(user.username)
+    assert manager.get(user.username) is user
+    assert manager.get_row(user.id) is not None
+    assert marker.read_text(encoding="utf-8") == "owned synthetic content"
+    with manager._services.db.connect() as conn:
+        assert [tuple(row) for row in conn.execute("SELECT * FROM audit_log")] == before

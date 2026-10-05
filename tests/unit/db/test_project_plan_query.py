@@ -480,7 +480,7 @@ def test_full_expanding_title_keys_seek_without_putting_keys_into_cursor(query_c
         if cursor is None:
             break
         decoded = json.loads(base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)))
-        assert set(decoded) == {"v", "query_fingerprint", "last_todo_id", "last_version"}
+        assert set(decoded) == {"v", "query_fingerprint", "last_todo_id", "last_display_revision"}
         assert len(cursor) <= 2048 and not cursor.endswith("=")
     assert ids == [query_case["rows"][name].todo_id for name in ordered_names]
 
@@ -526,6 +526,10 @@ def test_current_anchor_must_still_match_every_query_scope(query_case, change):
                 "bucket": "start_date=NULL,due_date=NULL",
             }[change]
             conn.execute("UPDATE project_todos SET " + assignment + " WHERE todo_id=?", (anchor,))
+            conn.execute(
+                "UPDATE project_todo_display_state SET revision=revision+1 WHERE todo_id=?",
+                (anchor,),
+            )
     with pytest.raises(OctopError) as caught:
         query(query_case, cursor=first["next_cursor"], **kwargs)
     assert caught.value.status == 409 and caught.value.details == {"reason": "query_changed"}
@@ -634,7 +638,16 @@ def test_page_materializes_full_c1_dto_and_tags_once_without_any_persistent_chan
             "priority_id",
             "tag_ids",
             "catalog_revision",
+            "display_revision",
+            "parent_todo_id",
+            "children_count",
+            "done_children_count",
+            "children_revision",
+            "parent_title",
         }
+        assert item["parent_todo_id"] is None
+        assert item["children_count"] == item["done_children_count"] == 0
+        assert item["children_revision"] == 1
         assert item["tag_ids"] == sorted(item["tag_ids"])
         assert item["catalog_revision"] == query_case["revision"]
 
@@ -687,3 +700,211 @@ def test_unrelated_view_collection_revision_does_not_invalidate_target_cursor(qu
 def test_literal_nul_is_not_a_like_pattern_terminator(query_case, op, expected):
     page = query(query_case, filters=[{"field": "title", "op": op, "value": "\x00"}])
     assert {item["title"] for item in page["items"]} == expected
+
+
+@pytest.mark.parametrize("kind", ["table", "board", "list", "calendar", "gantt"])
+def test_all_existing_views_exclude_children_before_query_projection(query_case, kind):
+    from uuid import uuid4
+
+    from octop.infra.projects.todos import ProjectTodoService
+
+    parent = query_case["rows"]["A"]
+    svc = ProjectTodoService(
+        SimpleNamespace(
+            project_todo_repo=query_case["todos"], config=SimpleNamespace(default_timezone="UTC")
+        )
+    )
+    child = svc.create_child(
+        query_case["pid"],
+        parent.todo_id,
+        actor_user_id=query_case["owner"],
+        expected_children_revision=1,
+        client_request_id=str(uuid4()),
+        fields={"title": "only child needle", "start_date": "2026-10-05", "due_date": "2099-10-05"},
+    )["item"]
+    kwargs = {"view_id": create_view(query_case, kind)}
+    if kind in {"calendar", "gantt"}:
+        kwargs.update(
+            window={"start_date": "2026-10-05", "end_date": "2026-10-06"}, bucket="scheduled"
+        )
+    page = query(query_case, kind=kind, group_by=default_definition(kind)["group_by"], **kwargs)
+    assert page["total"] == 4
+    ids = {row["todo_id"] for row in page["items"]}
+    assert child["todo_id"] not in ids
+    assert all(row["parent_todo_id"] is None for row in page["items"])
+    root = next((row for row in page["items"] if row["todo_id"] == parent.todo_id), None)
+    if root is not None:
+        assert root["children_count"] == 1
+        assert root["children_revision"] == 2
+
+
+def _table_child(case, title="child", **fields):
+    from uuid import uuid4
+
+    from octop.infra.projects.todos import ProjectTodoService
+
+    parent = case["todos"].get(case["pid"], case["rows"]["A"].todo_id, user_id=case["owner"])
+    svc = ProjectTodoService(
+        SimpleNamespace(
+            project_todo_repo=case["todos"], config=SimpleNamespace(default_timezone="UTC")
+        )
+    )
+    return svc.create_child(
+        case["pid"],
+        parent.todo_id,
+        actor_user_id=case["owner"],
+        expected_children_revision=parent.children_revision,
+        client_request_id=str(uuid4()),
+        fields={"title": title, **fields},
+    )["item"]
+
+
+def _tabletrue(case, **values):
+    definition = default_definition("table")
+    definition["show_subtodos"] = True
+    definition.update(values.pop("definition", {}))
+    return query(case, override_definition=definition, **values)
+
+
+def test_tabletrue_child_filters_groups_sort_and_page_are_flat(query_case):
+    child = _table_child(query_case, "0 needle", status="done")
+    page = _tabletrue(
+        query_case,
+        definition={
+            "filters": [{"field": "title", "op": "contains", "value": "needle"}],
+            "group_by": "status",
+        },
+    )
+    assert [item["todo_id"] for item in page["items"]] == [child["todo_id"]]
+    assert page["total"] == page["matched_total"] == 1
+    assert next(group["count"] for group in page["groups"] if group["key"]["id"] == "done") == 1
+    assert page["items"][0]["parent_title"] == "A"
+    all_rows, cursor = [], None
+    while True:
+        page = _tabletrue(
+            query_case,
+            definition={"sort": [{"field": "title", "direction": "asc"}]},
+            limit=1,
+            cursor=cursor,
+        )
+        all_rows.extend(page["items"])
+        assert page["total"] == page["matched_total"] == 5
+        cursor = page["next_cursor"]
+        if cursor is None:
+            break
+    assert [item["title"] for item in all_rows] == ["0 needle", "A", "B", "C", "empty"]
+    assert all(item["parent_title"] is None for item in all_rows if item["parent_todo_id"] is None)
+    assert query(query_case)["total"] == 4
+
+
+def test_tabletrue_tag_groups_use_distinct_child_own_tags(query_case):
+    child = _table_child(
+        query_case,
+        tag_ids=[query_case["options"]["tA"], query_case["options"]["tB"]],
+        expected_catalog_revision=query_case["revision"],
+    )
+    page = _tabletrue(query_case, definition={"group_by": "tag"})
+    counts = {group["key"]["id"]: group["count"] for group in page["groups"]}
+    assert page["total"] == 5 and counts[query_case["options"]["tA"]] == 3
+    assert counts[query_case["options"]["tB"]] == 3
+    group = _tabletrue(
+        query_case,
+        definition={"group_by": "tag"},
+        group_key={"kind": "tag", "id": query_case["options"]["tB"]},
+    )
+    assert child["todo_id"] in {row["todo_id"] for row in group["items"]}
+    assert len(group["items"]) == 3
+
+
+def test_tabletrue_hierarchy_fingerprint_is_effective_mode_only(query_case):
+    from octop.infra.errors import OctopError
+
+    first_true = _tabletrue(query_case, limit=1)
+    first_false = query(query_case, limit=1)
+    with pytest.raises(OctopError) as error:
+        _tabletrue(query_case, cursor=first_false["next_cursor"])
+    assert error.value.status == 409
+    with query_case["pool"].transaction() as conn:
+        conn.execute(
+            "UPDATE project_plan_hierarchy_state SET revision=revision+1 WHERE project_id=?",
+            (query_case["pid"],),
+        )
+    with pytest.raises(OctopError) as error:
+        _tabletrue(query_case, cursor=first_true["next_cursor"])
+    assert error.value.details == {"reason": "query_changed"}
+    second_false = query(query_case, cursor=first_false["next_cursor"])
+    assert second_false["query_fingerprint"] == first_false["query_fingerprint"]
+
+
+@pytest.mark.parametrize("corruption", ["inactive", "cross_project", "missing"])
+def test_tabletrue_rejects_invalid_parent_in_same_authorized_snapshot(query_case, corruption):
+    child = _table_child(query_case)
+    parent_id = query_case["rows"]["A"].todo_id
+    foreign = (
+        query_case["projects"]
+        .create_with_owner(creator_user_id=query_case["owner"], name="foreign")
+        .project_id
+    )
+    # Corrupt only this synthetic database to exercise the integrity path.
+    query_case["pool"]._conn.execute("PRAGMA foreign_keys=OFF")
+    with query_case["pool"].transaction() as conn:
+        if corruption == "inactive":
+            conn.execute("UPDATE project_todos SET deleted_at=1 WHERE todo_id=?", (parent_id,))
+        elif corruption == "cross_project":
+            conn.execute(
+                "UPDATE project_todos SET project_id=? WHERE todo_id=?", (foreign, parent_id)
+            )
+        else:
+            conn.execute("DELETE FROM project_todos WHERE todo_id=?", (parent_id,))
+    query_case["pool"]._conn.execute("PRAGMA foreign_keys=ON")
+    with pytest.raises(RuntimeError, match="active parent"):
+        _tabletrue(
+            query_case,
+            definition={"filters": [{"field": "title", "op": "contains", "value": "child"}]},
+        )
+    assert child["parent_todo_id"] == parent_id
+
+
+def test_tabletrue_query_parent_projection_has_constant_statement_budget(query_case):
+    _table_child(query_case, "child 1")
+    statements = []
+    query_case["pool"]._conn.set_trace_callback(statements.append)
+    try:
+        first = _tabletrue(query_case, limit=100)
+    finally:
+        query_case["pool"]._conn.set_trace_callback(None)
+    first_selects = [sql for sql in statements if sql.lstrip().upper().startswith("SELECT")]
+    for index in range(2, 7):
+        _table_child(query_case, f"child {index}")
+    statements.clear()
+    query_case["pool"]._conn.set_trace_callback(statements.append)
+    try:
+        second = _tabletrue(query_case, limit=100)
+    finally:
+        query_case["pool"]._conn.set_trace_callback(None)
+    second_selects = [sql for sql in statements if sql.lstrip().upper().startswith("SELECT")]
+    assert len(first["items"]) == 5 and len(second["items"]) == 10
+    assert len(first_selects) == len(second_selects) <= 25
+    assert sum("query_parent.title AS __parent_title" in sql for sql in second_selects) == 1
+
+
+def test_tabletrue_child_anchor_display_change_and_child_bad_state_fail(query_case):
+    from octop.infra.errors import OctopError
+
+    child = _table_child(query_case, "0 first child")
+    sorts = {"sort": [{"field": "title", "direction": "asc"}]}
+    first = _tabletrue(query_case, definition=sorts, limit=1)
+    assert first["items"][0]["todo_id"] == child["todo_id"]
+    with query_case["pool"].transaction() as conn:
+        conn.execute(
+            "UPDATE project_todo_display_state SET revision=revision+1 WHERE todo_id=?",
+            (child["todo_id"],),
+        )
+    with pytest.raises(OctopError) as error:
+        _tabletrue(query_case, definition=sorts, cursor=first["next_cursor"])
+    assert error.value.status == 409 and error.value.details == {"reason": "query_changed"}
+    with query_case["pool"].transaction() as conn:
+        conn.execute("DELETE FROM project_todo_children_state WHERE todo_id=?", (child["todo_id"],))
+    with pytest.raises(RuntimeError, match="display state"):
+        _tabletrue(query_case)
+    assert query(query_case)["total"] == 4

@@ -6,6 +6,8 @@ import hashlib
 import json
 from typing import Any
 
+import pytest
+
 from tests.support.auth import create_user, resolve_user_id
 
 OWNER = "pb_owner"
@@ -528,6 +530,130 @@ async def test_invite_reject_flow_and_reapply(env) -> None:
     assert reaccepted.status_code == 200, reaccepted.text
     assert reaccepted.json()["status"] == "pending_approval"
     assert reaccepted.json()["request_id"] != request_id
+
+
+@pytest.mark.parametrize(
+    ("state", "expected", "reason"),
+    [
+        ("demoted", 403, None),
+        ("removed", 404, None),
+        ("disabled_resolver", 404, None),
+        ("archived", 403, "project_archived"),
+        ("disabled_applicant", 409, "applicant_unavailable"),
+    ],
+)
+async def test_atomic_join_api_fresh_qualification(
+    env, monkeypatch, state, expected, reason
+) -> None:
+    client, srv, admin_auth = env
+    owner_auth = await create_user(client, admin_auth, username=OWNER)
+    manager_auth = await create_user(client, admin_auth, username=ADMIN_MEMBER)
+    invitee_auth = await create_user(client, admin_auth, username=INVITEE)
+    pid = (await _create(client, owner_auth, {"name": "Atomic API"})).json()["project_id"]
+    manager = await resolve_user_id(client, admin_auth, ADMIN_MEMBER)
+    applicant = await resolve_user_id(client, admin_auth, INVITEE)
+    repo = srv.services.project_repo
+    repo.add_member(pid, manager, role="admin")
+    invite = await _create_invite(client, owner_auth, pid, {"requires_approval": True})
+    request_id = (await _accept(client, invitee_auth, invite.json()["token"])).json()["request_id"]
+    listed = await client.get(f"/api/projects/{pid}/join-requests", headers=manager_auth)
+    assert listed.status_code == 200
+    assert listed.json()["items"][0]["status"] == "pending"
+    with srv.services.db.connect() as conn:
+        before = [
+            tuple(row)
+            for row in conn.execute(
+                "SELECT * FROM project_events WHERE project_id=? ORDER BY id", (pid,)
+            ).fetchall()
+        ]
+    original = repo.resolve_join_request
+
+    # Change committed facts after HTTP authentication, before the real repository
+    # transaction. This exercises fresh authority, not a concurrent PG claim.
+    def changed_before_transaction(**kwargs):
+        with srv.services.db.connect() as conn:
+            if state == "demoted":
+                conn.execute(
+                    "UPDATE project_members SET role='member' WHERE project_id=? AND user_id=?",
+                    (pid, manager),
+                )
+            elif state == "removed":
+                conn.execute(
+                    "DELETE FROM project_members WHERE project_id=? AND user_id=?", (pid, manager)
+                )
+            elif state == "archived":
+                conn.execute("UPDATE project_spaces SET archived=1 WHERE project_id=?", (pid,))
+            else:
+                target = manager if state == "disabled_resolver" else applicant
+                conn.execute("UPDATE users SET disabled=1 WHERE id=?", (target,))
+        return original(**kwargs)
+
+    monkeypatch.setattr(repo, "resolve_join_request", changed_before_transaction)
+    response = await client.post(
+        f"/api/projects/{pid}/join-requests/{request_id}/approve", headers=manager_auth
+    )
+    assert response.status_code == expected, response.text
+    assert response.json()["error"]["code"] == (
+        "FORBIDDEN" if expected == 403 else "NOT_FOUND" if expected == 404 else "INVITE_INVALID"
+    )
+    if reason is not None:
+        assert response.json()["error"]["details"] == {"reason": reason}
+    assert repo.get_join_request(pid, request_id).status == "pending"
+    assert repo.get_membership(pid, applicant) is None
+    with srv.services.db.connect() as conn:
+        assert [
+            tuple(row)
+            for row in conn.execute(
+                "SELECT * FROM project_events WHERE project_id=? ORDER BY id", (pid,)
+            ).fetchall()
+        ] == before
+
+
+async def test_atomic_join_api_admin_success_and_disabled_rejection(env) -> None:
+    client, srv, admin_auth = env
+    owner_auth = await create_user(client, admin_auth, username=OWNER)
+    manager_auth = await create_user(client, admin_auth, username=ADMIN_MEMBER)
+    applicant_auth = await create_user(client, admin_auth, username=INVITEE)
+    second_auth = await create_user(client, admin_auth, username=SECOND)
+    pid = (await _create(client, owner_auth, {"name": "Admin approval"})).json()["project_id"]
+    manager = await resolve_user_id(client, admin_auth, ADMIN_MEMBER)
+    second = await resolve_user_id(client, admin_auth, SECOND)
+    srv.services.project_repo.add_member(pid, manager, role="admin")
+    first = await _create_invite(client, owner_auth, pid, {"requires_approval": True})
+    assert first.status_code == 201, first.text
+    assert first.json()["role"] == "member"
+    request_id = (await _accept(client, applicant_auth, first.json()["token"])).json()["request_id"]
+    approved = await client.post(
+        f"/api/projects/{pid}/join-requests/{request_id}/approve", headers=manager_auth
+    )
+    assert approved.status_code == 200, approved.text
+    assert set(approved.json()) == _REQUEST_KEYS
+    assert approved.json()["status"] == "approved"
+    assert approved.json()["resolved_by"] == manager
+    assert (await client.get(f"/api/projects/{pid}", headers=applicant_auth)).json()[
+        "my_role"
+    ] == "member"
+    other = await _create_invite(client, owner_auth, pid, {"requires_approval": True})
+    second_request = (await _accept(client, second_auth, other.json()["token"])).json()[
+        "request_id"
+    ]
+    with srv.services.db.connect() as conn:
+        conn.execute("UPDATE users SET disabled=1 WHERE id=?", (second,))
+    rejected = await client.post(
+        f"/api/projects/{pid}/join-requests/{second_request}/reject", headers=manager_auth
+    )
+    assert rejected.status_code == 200, rejected.text
+    assert set(rejected.json()) == _REQUEST_KEYS
+    assert rejected.json()["status"] == "rejected"
+    assert srv.services.project_repo.get_membership(pid, second) is None
+    repeat = await client.post(
+        f"/api/projects/{pid}/join-requests/{second_request}/approve", headers=manager_auth
+    )
+    assert repeat.status_code == 409, repeat.text
+    assert repeat.json()["error"]["details"] == {
+        "reason": "request_already_resolved",
+        "status": "rejected",
+    }
 
 
 async def test_invite_revoke_expire_invalid_no_disclosure(env) -> None:

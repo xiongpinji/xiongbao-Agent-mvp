@@ -14,6 +14,18 @@ const adminUser = {
 } as OctopUser;
 
 describe("sidebarNav", () => {
+  it("offers data management in ordinary authenticated settings without admin permissions", () => {
+    const sections = buildNavSections({
+      id: 2,
+      role: "user",
+      permissions: [],
+    } as OctopUser);
+    expect(
+      sections
+        .flatMap((section) => section.items)
+        .find((item) => item.key === "data-management")?.path,
+    ).toBe("/settings/data");
+  });
   it("marks catalog keys as grouped", () => {
     for (const key of SIDEBAR_GROUPED_NAV_KEYS) {
       expect(isGroupedNavKey(key)).toBe(true);

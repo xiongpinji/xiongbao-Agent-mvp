@@ -145,7 +145,16 @@ def _assert_035(conn: Any) -> None:
         user_columns = {str(r[1]) for r in columns if r[0] == "users"}
     assert "title_search_key" in todo_columns
     assert "project_plan_display_sort_key" in user_columns
-    assert conn.execute("SELECT version FROM _schema_version").fetchone()[0] == 35
+    dialect = "sqlite" if hasattr(conn, "in_transaction") else "postgresql"
+    assert conn.execute("SELECT version FROM _schema_version").fetchone()[
+        0
+    ] == _max_discovered_version(dialect)
+
+
+def _replay_035(pool: DatabasePool) -> None:
+    """Exercise the historical helper, rather than reentry of a later migration."""
+    migration = import_module("octop.infra.db.migrate")
+    migration._ensure_project_todo_views_v35(pool, MIGRATIONS / "035_project_todo_views.sql")
 
 
 def _assert_defaults(conn: Any, project_id: str) -> None:
@@ -191,7 +200,7 @@ def test_035_fresh_paired_schema(tmp_path: Path) -> None:
             _assert_035(conn)
             assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
             assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
-        assert _max_discovered_version("sqlite") == _max_discovered_version("postgresql") == 35
+        assert _max_discovered_version("sqlite") == _max_discovered_version("postgresql") >= 35
         assert (35, MIGRATIONS / "035_project_todo_views.sql") in _discover("sqlite")
         assert (35, MIGRATIONS / "035_project_todo_views.pg.sql") in _discover("postgresql")
     finally:
@@ -410,8 +419,8 @@ def test_035_seed_preserves_custom_default_order_versions_and_archived_config(
             table: [tuple(r) for r in conn.execute(f"SELECT * FROM {table} ORDER BY 1")]
             for table in VIEW_TABLES
         }
-    run_migrations(legacy34)  # same-watermark archives still need trustworthy derived keys
-    run_migrations(legacy34)
+    _replay_035(legacy34)  # explicitly exercise the historical same-watermark helper
+    _replay_035(legacy34)
     with legacy34.connect() as conn:
         for table, original in before.items():
             assert [tuple(r) for r in conn.execute(f"SELECT * FROM {table} ORDER BY 1")] == original
@@ -451,7 +460,7 @@ def test_035_persisted_partial_seed_is_rejected_without_guessing(
             )
         before = tuple(conn.iterdump())
     with pytest.raises(RuntimeError, match="incomplete view seed"):
-        run_migrations(legacy34)
+        _replay_035(legacy34)
     with legacy34.connect() as conn:
         assert tuple(conn.iterdump()) == before
 
@@ -861,7 +870,7 @@ def test_035_replay_unchanged_source_repairs_untrusted_key(
             conn.execute(
                 "UPDATE project_todos SET title_search_key='' WHERE todo_id=?", (todo.todo_id,)
             )
-        run_migrations(pool)
+        _replay_035(pool)
         with pool.connect() as conn:
             assert conn.execute(
                 "SELECT project_plan_display_sort_key FROM users WHERE id=?", (owner,)

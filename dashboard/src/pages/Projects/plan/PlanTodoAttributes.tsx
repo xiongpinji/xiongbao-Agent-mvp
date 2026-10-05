@@ -169,6 +169,24 @@ export function PlanTodoFieldValue({
   }
 }
 
+export function PlanSubtodoSummary({ todo }: { todo: ProjectTodo }) {
+  const { t } = useTranslation();
+  if (todo.parent_todo_id !== null || todo.children_count === 0) return null;
+  return (
+    <div className={styles.attribute} data-plan-field="subtodos">
+      <dt>{t("projects.subtodos.countLabel", "子待办")}</dt>
+      <dd>
+        <span className={styles.chip}>
+          {t("projects.subtodos.countSummary", "{{done}}/{{total}} 已完成", {
+            done: todo.done_children_count,
+            total: todo.children_count,
+          })}
+        </span>
+      </dd>
+    </div>
+  );
+}
+
 export default function PlanTodoAttributes(props: PlanTodoAttributesProps) {
   return (
     <dl className={styles.attributes}>
@@ -188,24 +206,12 @@ export default function PlanTodoAttributes(props: PlanTodoAttributesProps) {
           </dd>
         </div>
       ))}
+      <PlanSubtodoSummary todo={props.todo} />
     </dl>
   );
 }
 
-export function uniquePlanTodos(items: readonly ProjectTodo[]): ProjectTodo[] {
-  const unique = new Map<string, ProjectTodo>();
-  for (const todo of items) {
-    const old = unique.get(todo.todo_id);
-    if (
-      !old ||
-      todo.version > old.version ||
-      (todo.version === old.version &&
-        todo.catalog_revision > old.catalog_revision)
-    )
-      unique.set(todo.todo_id, todo);
-  }
-  return [...unique.values()];
-}
+export { uniqueTodoSnapshots as uniquePlanTodos } from "./todoSnapshot";
 
 export function planLaneLabel(
   lane: PlanLaneState,

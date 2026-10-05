@@ -26,6 +26,7 @@ from typing import Any
 
 from octop.infra.db.pool import DatabasePool
 from octop.infra.db.repos._base import DbRow, map_rows, now_ts
+from octop.infra.db.repos.threads import parse_archived_at
 
 _CONTEXT_JOIN = (
     "LEFT JOIN project_task_contexts ctx ON ctx.thread_id = l.thread_id "
@@ -40,7 +41,7 @@ _OWNER_PROJECTION = (
     "l.project_id, l.thread_id, l.owner_user_id, l.source, "
     "COALESCE(ctx.source_expert_id, t.agent_id) AS agent_id, t.title, t.last_active, "
     "t.created_at, COALESCE(ctx.mode, 'chat') AS mode, "
-    "t.agent_id AS chat_agent_id, ctx.source_expert_id AS source_expert_id"
+    "t.agent_id AS chat_agent_id, ctx.source_expert_id AS source_expert_id, t.archived_at"
 )
 # Reader projection: shared cards must never see the runtime id, the managed
 # root, or the source/runtime binding — only the public source expert id and
@@ -49,7 +50,7 @@ _READER_PROJECTION = (
     "l.project_id, l.thread_id, l.owner_user_id, l.source, "
     "COALESCE(ctx.source_expert_id, t.agent_id) AS agent_id, t.title, t.last_active, "
     "t.created_at, COALESCE(ctx.mode, 'chat') AS mode, NULL AS chat_agent_id, "
-    "NULL AS source_expert_id"
+    "NULL AS source_expert_id, NULL AS archived_at"
 )
 _SUMMARY_SELECT = (
     f"SELECT {_OWNER_PROJECTION} FROM project_task_links l "
@@ -126,6 +127,7 @@ class ProjectTaskSummary:
     mode: str = "chat"
     chat_agent_id: str | None = None
     source_expert_id: str | None = None
+    archived_at: int | None = None
 
     @classmethod
     def from_row(cls, row: DbRow) -> ProjectTaskSummary:
@@ -153,6 +155,7 @@ class ProjectTaskSummary:
             mode=mode,
             chat_agent_id=chat_agent_id,
             source_expert_id=source_expert_id,
+            archived_at=parse_archived_at(row["archived_at"]),
         )
 
 
@@ -713,6 +716,7 @@ class ProjectTaskRepo:
         q: str = "",
         limit: int = 20,
         offset: int = 0,
+        archived: bool = False,
     ) -> list[ProjectTaskSummary]:
         """Own links in one project, newest activity first.
 
@@ -721,6 +725,7 @@ class ProjectTaskRepo:
         on both dialects (%, _, and \\ are escaped).
         """
         sql = _SUMMARY_SELECT + "WHERE l.project_id = ? AND l.owner_user_id = ?"
+        sql += " AND t.archived_at IS " + ("NOT NULL" if archived else "NULL")
         params: list[object] = [project_id, user_id]
         needle = q.strip().lower()
         if needle:

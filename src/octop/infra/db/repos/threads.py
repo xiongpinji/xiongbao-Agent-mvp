@@ -8,8 +8,67 @@ from dataclasses import dataclass, field
 
 from octop.infra.db.pool import DatabasePool
 from octop.infra.db.repos._base import DbRow, bool_int, map_rows, now_ts
+from octop.infra.utils.project_plan_keys import normalize_project_plan_key
 
 MAX_THREAD_ARTIFACTS = 200
+MAX_ARCHIVE_TIMESTAMP = 9007199254740991
+
+
+def parse_archived_at(value: object) -> int | None:
+    if value is None:
+        return None
+    if type(value) is not int or not 0 < value <= MAX_ARCHIVE_TIMESTAMP:
+        raise ValueError("invalid stored thread archive timestamp")
+    return value
+
+
+@dataclass(frozen=True)
+class ArchiveMutationRow:
+    thread_id: str
+    agent_id: str
+    archived_at: int | None
+
+
+@dataclass(frozen=True)
+class ArchivedThreadSummary:
+    thread_id: str
+    agent_id: str
+    title: str | None
+    channel_type: str
+    created_at: int
+    last_active: int
+    archived_at: int
+    mode: str
+
+    @classmethod
+    def from_row(cls, row: DbRow) -> ArchivedThreadSummary:
+        timestamp = parse_archived_at(row["archived_at"])
+        assert timestamp is not None
+        return cls(
+            row["thread_id"],
+            row["agent_id"],
+            row["title"],
+            row["channel_type"],
+            row["created_at"],
+            row["last_active"],
+            timestamp,
+            row["mode"],
+        )
+
+
+def _archive_owned_qualification() -> str:
+    # All authority comes from held/current SQL rows, including the exact
+    # dashboard DM identity. Session binding and project attribution are not
+    # management prerequisites and are never changed by this operation.
+    return (
+        "t.user_id = ? AND ((a.runtime_kind = 'standard' AND "
+        "(a.user_id = t.user_id OR a.is_shared = 1 OR ? = 1)) OR "
+        "(a.runtime_kind = 'project_task_files' AND a.user_id = t.user_id "
+        "AND t.channel_type = 'dashboard' "
+        "AND t.session_key = a.agent_id || ':dashboard:' || CAST(t.user_id AS TEXT) || ':dm' "
+        "AND NOT EXISTS (SELECT 1 FROM threads sibling "
+        "WHERE sibling.agent_id = a.agent_id AND sibling.thread_id <> t.thread_id)))"
+    )
 
 
 def parse_thread_artifacts(raw: object) -> list[str]:
@@ -70,6 +129,7 @@ class ThreadRow:
     conversation_mode: str | None = None
     pending_plan_path: str | None = None
     hitl_policy: str | None = None
+    archived_at: int | None = None
 
     @classmethod
     def from_row(cls, r: DbRow) -> ThreadRow:
@@ -107,6 +167,7 @@ class ThreadRow:
             conversation_mode=str(conversation_mode) if conversation_mode else None,
             pending_plan_path=str(pending_plan_path) if pending_plan_path else None,
             hitl_policy=str(hitl_policy) if hitl_policy else None,
+            archived_at=parse_archived_at(r["archived_at"]),
         )
 
 
@@ -154,6 +215,20 @@ def repair_all_legacy_thread_titles(db: DatabasePool) -> int:
     """Persist :func:`repair_legacy_thread_title` for every row. Returns update count."""
     updated = 0
     with db.transaction() as conn:
+        if db.dialect == "postgresql":
+            has_key = (
+                conn.execute(
+                    "SELECT 1 FROM information_schema.columns "
+                    "WHERE table_schema=current_schema() AND table_name='threads' "
+                    "AND column_name='title_search_key'"
+                ).fetchone()
+                is not None
+            )
+        else:
+            has_key = any(
+                row["name"] == "title_search_key"
+                for row in conn.execute("PRAGMA table_info(threads)")
+            )
         rows = conn.execute(
             "SELECT thread_id, title FROM threads WHERE title IS NOT NULL"
         ).fetchall()
@@ -162,10 +237,15 @@ def repair_all_legacy_thread_titles(db: DatabasePool) -> int:
             title = r["title"]
             fixed = repair_legacy_thread_title(title if isinstance(title, str) else str(title))
             if fixed is not None and fixed != title:
-                conn.execute(
-                    "UPDATE threads SET title = ? WHERE thread_id = ?",
-                    (fixed, thread_id),
-                )
+                if has_key:
+                    conn.execute(
+                        "UPDATE threads SET title = ?, title_search_key = ? WHERE thread_id = ?",
+                        (fixed, normalize_project_plan_key(fixed), thread_id),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE threads SET title = ? WHERE thread_id = ?", (fixed, thread_id)
+                    )
                 updated += 1
     return updated
 
@@ -186,18 +266,20 @@ class ThreadRepo:
         last_active: int | None = None,
     ) -> None:
         ts = now_ts()
+        stored_title = clip_thread_title(title) if title else None
         with self._db.transaction() as conn:
             conn.execute(
                 "INSERT INTO threads(thread_id, agent_id, user_id, channel_type, "
-                "session_key, title, last_active, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "session_key, title, title_search_key, last_active, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     thread_id,
                     agent_id,
                     user_id,
                     channel_type,
                     session_key,
-                    clip_thread_title(title) if title else None,
+                    stored_title,
+                    normalize_project_plan_key(stored_title or ""),
                     ts if last_active is None else last_active,
                     ts,
                 ),
@@ -228,17 +310,118 @@ class ThreadRepo:
         return map_rows(rows, ThreadRow)
 
     def list_by_agent_user(
-        self, *, agent_id: str, user_id: int, limit: int = 50
+        self,
+        *,
+        agent_id: str,
+        user_id: int,
+        limit: int = 50,
+        q: str = "",
+        archived: bool | None = False,
     ) -> list[ThreadRow]:
-        with self._db.connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM threads WHERE agent_id = ? AND user_id = ? "
+        needle = normalize_project_plan_key(q.strip())
+        sql = "SELECT * FROM threads WHERE agent_id = ? AND user_id = ? "
+        params: list[object] = [agent_id, user_id]
+        if archived is not None:
+            sql += "AND archived_at IS " + ("NOT NULL " if archived else "NULL ")
+        if needle:
+            expression = (
+                'strpos(title_search_key COLLATE "C", ?)'
+                if self._db.dialect == "postgresql"
+                else "instr(title_search_key, ?)"
+            )
+            sql += f"AND {expression} > 0 "
+            params.append(needle)
+        sql += (
+            "ORDER BY archived_at DESC, thread_id DESC LIMIT ?"
+            if archived
+            else (
                 "ORDER BY pinned DESC, "
                 "CASE WHEN last_active > 0 THEN last_active ELSE created_at END DESC, "
-                "thread_id DESC LIMIT ?",
-                (agent_id, user_id, limit),
-            ).fetchall()
+                "thread_id DESC LIMIT ?"
+            )
+        )
+        params.append(limit)
+        with self._db.connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
         return map_rows(rows, ThreadRow)
+
+    def set_archive_owned(
+        self,
+        *,
+        thread_id: str,
+        user_id: int,
+        actor_is_admin: bool,
+        archived: bool,
+        now: int,
+    ) -> ArchiveMutationRow | None:
+        if type(archived) is not bool or type(actor_is_admin) is not bool:
+            raise ValueError("archive flags must be booleans")
+        timestamp = parse_archived_at(now)
+        if timestamp is None:
+            raise ValueError("archive time must be positive")
+        with self._db.transaction() as conn:
+            # PostgreSQL locks Agent before thread, then rechecks every fact.
+            # SQLite BEGIN IMMEDIATE serializes this entire qualification/write.
+            if self._db.dialect == "postgresql":
+                candidate = conn.execute(
+                    "SELECT agent_id FROM threads WHERE thread_id = ?", (thread_id,)
+                ).fetchone()
+                if candidate is None:
+                    return None
+                conn.execute(
+                    "SELECT agent_id FROM agents WHERE agent_id = ? FOR UPDATE",
+                    (candidate["agent_id"],),
+                ).fetchone()
+            sql = (
+                "SELECT t.thread_id,t.agent_id,t.archived_at FROM threads t "
+                "JOIN agents a ON a.agent_id=t.agent_id WHERE t.thread_id=? AND "
+                + _archive_owned_qualification()
+            )
+            params: list[object] = [thread_id, user_id, bool_int(actor_is_admin)]
+            if self._db.dialect == "postgresql":
+                sql += " AND a.agent_id=? FOR UPDATE OF t"
+                params.append(candidate["agent_id"])
+            row = conn.execute(sql, params).fetchone()
+            if row is None:
+                return None
+            previous = parse_archived_at(row["archived_at"])
+            value = (previous if previous is not None else timestamp) if archived else None
+            if value != previous:
+                conn.execute(
+                    "UPDATE threads SET archived_at=? WHERE thread_id=?", (value, thread_id)
+                )
+            return ArchiveMutationRow(row["thread_id"], row["agent_id"], value)
+
+    def list_archived_by_user(
+        self,
+        *,
+        user_id: int,
+        actor_is_admin: bool,
+        q: str = "",
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[ArchivedThreadSummary]:
+        sql = (
+            "SELECT t.thread_id,t.agent_id,t.title,t.channel_type,t.created_at,t.last_active,"
+            "t.archived_at,CASE WHEN a.runtime_kind='project_task_files' THEN 'files' ELSE 'chat' END AS mode "
+            "FROM threads t JOIN agents a ON a.agent_id=t.agent_id "
+            "WHERE t.archived_at IS NOT NULL AND " + _archive_owned_qualification()
+        )
+        params: list[object] = [user_id, bool_int(actor_is_admin)]
+        needle = normalize_project_plan_key(q.strip())
+        if needle:
+            expression = (
+                'strpos(t.title_search_key COLLATE "C", ?)'
+                if self._db.dialect == "postgresql"
+                else "instr(t.title_search_key, ?)"
+            )
+            sql += f" AND {expression} > 0"
+            params.append(needle)
+        sql += " ORDER BY t.archived_at DESC,t.thread_id DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+        with self._db.connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return map_rows(rows, ArchivedThreadSummary)
 
     def list_by_session(self, *, session_key: str, limit: int = 50) -> list[ThreadRow]:
         with self._db.connect() as conn:
@@ -252,17 +435,19 @@ class ThreadRepo:
         return map_rows(rows, ThreadRow)
 
     def set_title_if_null(self, thread_id: str, title: str) -> None:
+        stored_title = clip_thread_title(title)
         with self._db.transaction() as conn:
             conn.execute(
-                "UPDATE threads SET title = ? WHERE thread_id = ? AND title IS NULL",
-                (clip_thread_title(title), thread_id),
+                "UPDATE threads SET title = ?, title_search_key = ? WHERE thread_id = ? AND title IS NULL",
+                (stored_title, normalize_project_plan_key(stored_title), thread_id),
             )
 
     def update_title(self, thread_id: str, title: str) -> None:
+        stored_title = clip_thread_title(title)
         with self._db.transaction() as conn:
             conn.execute(
-                "UPDATE threads SET title = ? WHERE thread_id = ?",
-                (clip_thread_title(title), thread_id),
+                "UPDATE threads SET title = ?, title_search_key = ? WHERE thread_id = ?",
+                (stored_title, normalize_project_plan_key(stored_title), thread_id),
             )
 
     def set_pinned(self, thread_id: str, pinned: bool) -> None:

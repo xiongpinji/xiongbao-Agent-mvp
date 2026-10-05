@@ -1,4 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Button, Input, Select, Spin, Tag } from "antd";
 import { X } from "lucide-react";
@@ -15,6 +21,7 @@ import { useServerTimezone } from "../../hooks/useServerTimezone";
 import { formatServerDateTime } from "../../utils/formatMessageTime";
 import { apiErrorMessage, parseApiError } from "../../utils/apiError";
 import ProjectTodoMarkdown from "./ProjectTodoMarkdown";
+import ProjectTodoSubtodos from "./ProjectTodoSubtodos";
 import styles from "./ProjectTodoDetail.module.less";
 import TodoFields, {
   todoFieldsEqual,
@@ -26,6 +33,11 @@ import {
   catalogErrorMessage,
   isTodoAccessLost as isNotFoundApiError,
 } from "./TodoCatalogManager";
+import {
+  projectTodoCatalogApi,
+  type ProjectTodoCatalog,
+} from "../../api/modules/projectTodoCatalog";
+import { compareTodoSnapshot, validTodoSnapshot } from "./plan/todoSnapshot";
 
 interface Props {
   projectId: string;
@@ -34,8 +46,9 @@ interface Props {
   members: ProjectMember[];
   currentUserId: number | null;
   onClose: () => void;
-  onChanged: (todo: ProjectTodo) => void;
+  onChanged: (todo: ProjectTodo, catalog?: ProjectTodoCatalog) => void;
   onAccessLost: () => void;
+  onOpenChild: (todo: ProjectTodo) => void;
 }
 
 interface DetailState {
@@ -46,6 +59,7 @@ interface DetailState {
   nextCursor: string | null;
   error: unknown;
   notFound: boolean;
+  snapshotCatalog?: ProjectTodoCatalog;
 }
 
 const STATUS_VALUES: ProjectTodoStatus[] = ["todo", "in_progress", "done"];
@@ -80,10 +94,6 @@ function chronological(items: ProjectTodoComment[]): ProjectTodoComment[] {
     (a, b) =>
       a.created_at - b.created_at || a.comment_id.localeCompare(b.comment_id),
   );
-}
-
-function newerTodoSnapshot(current: ProjectTodo | null, incoming: ProjectTodo) {
-  return current && current.version > incoming.version ? current : incoming;
 }
 
 function isConflict(error: unknown): boolean {
@@ -193,6 +203,7 @@ export default function ProjectTodoDetail({
   onClose,
   onChanged,
   onAccessLost,
+  onOpenChild,
 }: Props) {
   const { t } = useTranslation();
   const timezone = useServerTimezone();
@@ -261,10 +272,18 @@ export default function ProjectTodoDetail({
   const postAbort = useRef<AbortController | null>(null);
   const postSeq = useRef(0);
   const fieldSeq = useRef(0);
+  const childSeq = useRef(0);
   const fetchSeq = useRef(0);
   const moreSeq = useRef(0);
   const currentKey = useRef(key);
   currentKey.current = key;
+  const acceptedSnapshot = useRef<{ key: string; todo: ProjectTodo | null }>({
+    key,
+    todo: null,
+  });
+  if (acceptedSnapshot.current.key !== key)
+    acceptedSnapshot.current = { key, todo: null };
+  const snapshotControllers = useRef(new Map<string, AbortController>());
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const descriptionTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const descriptionCursor = useRef<number | null>(null);
@@ -276,11 +295,76 @@ export default function ProjectTodoDetail({
   const current = state.key === key ? state : null;
   const fieldCompared =
     comparedVersion !== null && current?.todo?.version === comparedVersion;
-  const catalogState = useTodoCatalog(
+  const baseCatalogState = useTodoCatalog(
     projectId,
     currentUserId,
     () => catalogAccessLost.current(),
-    current?.todo ? [current.todo.catalog_revision] : [],
+    current?.todo &&
+      current.snapshotCatalog?.revision !== current.todo.catalog_revision
+      ? [current.todo.catalog_revision]
+      : [],
+  );
+  const catalogState = {
+    ...baseCatalogState,
+    catalog:
+      current?.snapshotCatalog &&
+      current.snapshotCatalog.revision >=
+        (baseCatalogState.catalog?.revision ?? 0)
+        ? current.snapshotCatalog
+        : baseCatalogState.catalog,
+  };
+
+  const resolveSnapshot = useCallback(
+    async (incoming: ProjectTodo, valid: () => boolean, channel: string) => {
+      if (!valid() || !validTodoSnapshot(incoming, projectId, todoId))
+        throw new Error("Invalid todo snapshot");
+      let known = acceptedSnapshot.current.todo;
+      let order = compareTodoSnapshot(known, incoming);
+      if (order === "invalid") throw new Error("Invalid todo snapshot");
+      let latest = incoming;
+      let catalog: ProjectTodoCatalog | undefined;
+      if (order === "incomparable") {
+        const controller = new AbortController();
+        snapshotControllers.current.get(channel)?.abort();
+        snapshotControllers.current.set(channel, controller);
+        try {
+          [latest, catalog] = await Promise.all([
+            projectTodosApi.get(projectId, todoId, {
+              signal: controller.signal,
+            }),
+            projectTodoCatalogApi.get(projectId, { signal: controller.signal }),
+          ]);
+          if (!valid()) throw new Error("Stale todo snapshot refresh");
+          known = acceptedSnapshot.current.todo;
+          if (
+            !validTodoSnapshot(latest, projectId, todoId) ||
+            catalog.project_id !== projectId ||
+            !Number.isSafeInteger(catalog.revision) ||
+            catalog.revision < 1 ||
+            latest.catalog_revision !== catalog.revision ||
+            latest.display_revision <
+              Math.max(
+                incoming.display_revision,
+                known?.display_revision ?? 0,
+              ) ||
+            latest.catalog_revision <
+              Math.max(incoming.catalog_revision, known?.catalog_revision ?? 0)
+          )
+            throw new Error("Incompatible todo snapshot refresh");
+          order = compareTodoSnapshot(known, latest);
+        } finally {
+          controller.abort();
+          if (snapshotControllers.current.get(channel) === controller)
+            snapshotControllers.current.delete(channel);
+        }
+      }
+      if (!valid() || order === "invalid" || order === "incomparable")
+        throw new Error("Incompatible todo snapshot refresh");
+      const todo = order === "keep" ? known! : latest;
+      acceptedSnapshot.current = { key, todo };
+      return { todo, catalog };
+    },
+    [key, projectId, todoId],
   );
 
   useLayoutEffect(() => {
@@ -288,10 +372,14 @@ export default function ProjectTodoDetail({
   }, []);
 
   useLayoutEffect(() => {
+    for (const controller of snapshotControllers.current.values())
+      controller.abort();
+    snapshotControllers.current.clear();
     postAbort.current?.abort();
     postAbort.current = null;
     postSeq.current += 1;
     fieldSeq.current += 1;
+    childSeq.current += 1;
     moreSeq.current += 1;
     draftRequestId.current = null;
     postBusy.current = false;
@@ -313,13 +401,17 @@ export default function ProjectTodoDetail({
   }, [key]);
 
   useLayoutEffect(() => {
+    const controllers = snapshotControllers.current;
     mounted.current = true;
     return () => {
       mounted.current = false;
+      for (const controller of controllers.values()) controller.abort();
+      controllers.clear();
       postAbort.current?.abort();
       fetchSeq.current += 1;
       postSeq.current += 1;
       fieldSeq.current += 1;
+      childSeq.current += 1;
       moreSeq.current += 1;
     };
   }, []);
@@ -342,6 +434,7 @@ export default function ProjectTodoDetail({
   }, [descriptionDraft, editingDescription, descriptionPreview]);
 
   useEffect(() => {
+    const controllers = snapshotControllers.current;
     const seq = ++fetchSeq.current;
     moreSeq.current += 1;
     setLoadingMore(false);
@@ -364,7 +457,21 @@ export default function ProjectTodoDetail({
         limit: PROJECT_TODO_COMMENTS_PAGE_SIZE,
       }),
     ])
-      .then(([todo, page]) => {
+      .then(async ([todo, page]) => {
+        if (
+          !mounted.current ||
+          key !== currentKey.current ||
+          seq !== fetchSeq.current
+        )
+          return;
+        const accepted = await resolveSnapshot(
+          todo,
+          () =>
+            mounted.current &&
+            key === currentKey.current &&
+            seq === fetchSeq.current,
+          "read",
+        );
         if (
           !mounted.current ||
           key !== currentKey.current ||
@@ -374,10 +481,10 @@ export default function ProjectTodoDetail({
         setState((previous) => ({
           key,
           loading: false,
-          todo: newerTodoSnapshot(
-            previous.key === key ? previous.todo : null,
-            todo,
-          ),
+          todo: accepted.todo,
+          snapshotCatalog:
+            accepted.catalog ??
+            (previous.key === key ? previous.snapshotCatalog : undefined),
           comments: chronological(page.items),
           nextCursor: page.next_cursor,
           error: null,
@@ -388,7 +495,7 @@ export default function ProjectTodoDetail({
           reloadRequest.compare &&
           conflictRef.current
         )
-          setComparedVersion(todo.version);
+          setComparedVersion(accepted.todo.version);
       })
       .catch((error: unknown) => {
         if (
@@ -415,6 +522,8 @@ export default function ProjectTodoDetail({
           );
       });
     return () => {
+      controllers.get("read")?.abort();
+      controllers.delete("read");
       fetchSeq.current += 1;
       moreSeq.current += 1;
     };
@@ -425,11 +534,16 @@ export default function ProjectTodoDetail({
     reloadKey,
     reloadRequest.key,
     reloadRequest.compare,
+    resolveSnapshot,
   ]);
 
   const clearPrivateState = () => {
     if (!mounted.current || key !== currentKey.current) return;
     catalogState.clear();
+    acceptedSnapshot.current = { key, todo: null };
+    for (const controller of snapshotControllers.current.values())
+      controller.abort();
+    snapshotControllers.current.clear();
     fetchSeq.current += 1;
     moreSeq.current += 1;
     postSeq.current += 1;
@@ -437,6 +551,7 @@ export default function ProjectTodoDetail({
     postAbort.current = null;
     fieldSeq.current += 1;
     postBusy.current = false;
+    childSeq.current += 1;
     setPosting(false);
     setUploadProgress(null);
     setFieldBusy(false);
@@ -502,9 +617,27 @@ export default function ProjectTodoDetail({
         seq !== fieldSeq.current
       )
         return;
+      const accepted = await resolveSnapshot(
+        updated,
+        () =>
+          mounted.current &&
+          key === currentKey.current &&
+          seq === fieldSeq.current,
+        "write",
+      );
+      if (
+        !mounted.current ||
+        key !== currentKey.current ||
+        seq !== fieldSeq.current
+      )
+        return;
       setState((previous) =>
         previous.key === key
-          ? { ...previous, todo: newerTodoSnapshot(previous.todo, updated) }
+          ? {
+              ...previous,
+              todo: accepted.todo,
+              snapshotCatalog: accepted.catalog ?? previous.snapshotCatalog,
+            }
           : previous,
       );
       if ("description" in field) setEditingDescription(false);
@@ -513,7 +646,24 @@ export default function ProjectTodoDetail({
         setConflict(false);
       } else if (!hasPendingProperties) setConflict(false);
       setComparedVersion(null);
-      onChangedRef.current(updated);
+      if (accepted.catalog)
+        onChangedRef.current(accepted.todo, accepted.catalog);
+      else onChangedRef.current(accepted.todo);
+      if (accepted.todo.parent_todo_id) {
+        const parent = await projectTodosApi.get(
+          projectId,
+          accepted.todo.parent_todo_id,
+        );
+        if (
+          !mounted.current ||
+          key !== currentKey.current ||
+          seq !== fieldSeq.current
+        )
+          return;
+        if (validTodoSnapshot(parent, projectId, accepted.todo.parent_todo_id))
+          onChangedRef.current(parent);
+        else throw new Error("Invalid parent snapshot");
+      }
     } catch (error: unknown) {
       if (
         !mounted.current ||
@@ -557,6 +707,37 @@ export default function ProjectTodoDetail({
         setFieldBusy(false);
     }
   };
+  const refreshParentFromSubtodos = useCallback(async () => {
+    const seq = ++childSeq.current;
+    const latest = await projectTodosApi.get(projectId, todoId);
+    const accepted = await resolveSnapshot(
+      latest,
+      () =>
+        mounted.current &&
+        key === currentKey.current &&
+        seq === childSeq.current,
+      "subtodos",
+    );
+    if (
+      !mounted.current ||
+      key !== currentKey.current ||
+      seq !== childSeq.current
+    )
+      throw new Error("Stale subtodo parent refresh");
+    setState((previous) =>
+      previous.key === key
+        ? {
+            ...previous,
+            todo: accepted.todo,
+            snapshotCatalog: accepted.catalog ?? previous.snapshotCatalog,
+          }
+        : previous,
+    );
+    if (accepted.catalog) onChangedRef.current(accepted.todo, accepted.catalog);
+    else onChangedRef.current(accepted.todo);
+    return accepted.todo;
+  }, [key, projectId, resolveSnapshot, todoId]);
+
   const saveProperties = () => {
     const todo = current?.todo,
       values = fieldDraft?.key === key ? fieldDraft.values : null;
@@ -862,7 +1043,7 @@ export default function ProjectTodoDetail({
             onClick={onClose}
           />
         </div>
-        {current?.loading !== false ? (
+        {!current || (current.loading && !todo) ? (
           <div className={styles.centered}>
             <Spin />
           </div>
@@ -1120,6 +1301,17 @@ export default function ProjectTodoDetail({
                       t("projects.todoDetail.noDescription", "暂无描述")
                     )}
                   </div>
+                )}
+                {currentUserId !== null && (
+                  <ProjectTodoSubtodos
+                    projectId={projectId}
+                    parent={todo}
+                    role={role}
+                    currentUserId={currentUserId}
+                    onOpenChild={onOpenChild}
+                    onParentRefresh={refreshParentFromSubtodos}
+                    onAccessLost={clearPrivateState}
+                  />
                 )}
                 <h3 className={styles.sectionTitle}>
                   {t("projects.todoDetail.comments", "评论")}

@@ -39,6 +39,7 @@ from octop.infra.gateway.hitl.coordinator import (
     HitlSlashOutcome,
     HitlStreamContext,
 )
+from octop.infra.gateway.hitl.store import HitlPendingRecord
 from octop.infra.gateway.media.attachment_hints import content_blocks_need_vision
 from octop.infra.gateway.media.tool_media import (
     attachment_frames_from_tool_result,
@@ -919,6 +920,19 @@ class GlobalProcessor:
         history_tracker = await self._begin_history(agent_id, thread_id, request)
         projection_state = StreamProjectionState()
         try:
+            trusted_actor = (
+                self._agent_manager.personal_mcp_actor(
+                    agent_id,
+                    user_id=user_id,
+                    thread_id=thread_id,
+                    session_key=session_key,
+                    source=channel_type,
+                    servers=mcp_servers,
+                    locale=str(locale),
+                )
+                if mcp_servers
+                else None
+            )
             async for ev in project_stream(
                 self._agent_manager,
                 agent_id,
@@ -929,6 +943,7 @@ class GlobalProcessor:
                 locale=locale,
                 projection_state=projection_state,
                 hitl_coordinator=self._hitl,
+                trusted_actor=trusted_actor,
                 hitl_ctx=HitlStreamContext(
                     thread_id=thread_id,
                     agent_id=agent_id,
@@ -1125,7 +1140,21 @@ class GlobalProcessor:
         usage_tracker = UsageTracker()
 
         try:
-            async for chunk in self._agent_manager.stream(agent_id, request):
+            trusted_actor = (
+                self._agent_manager.personal_mcp_actor(
+                    agent_id,
+                    user_id=user_id,
+                    thread_id=thread_id,
+                    session_key=session_key,
+                    source=channel_type,
+                    servers=request.get("mcp_servers"),
+                    locale=str(locale),
+                )
+                if request.get("mcp_servers")
+                else None
+            )
+            stream_kwargs = {"trusted_actor": trusted_actor} if trusted_actor is not None else {}
+            async for chunk in self._agent_manager.stream(agent_id, request, **stream_kwargs):
                 usage_tracker.observe(chunk)
                 history_tracker.observe(chunk)
                 from octop.infra.history.recorder import flush_tracker  # noqa: PLC0415
@@ -1214,6 +1243,7 @@ class GlobalProcessor:
         thread_id: str,
         user_id: int,
         decisions: list[dict[str, Any]],
+        pending: HitlPendingRecord | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """Resume a dashboard HITL turn with the normal history bookkeeping."""
         usage_tracker = UsageTracker()
@@ -1223,10 +1253,22 @@ class GlobalProcessor:
         traj_on = self._agent_trajectory_enabled(agent_id)
         team_host = is_team_agent(self._agent_manager.get_row(agent_id))
         try:
+            resume_kwargs = self._hitl.personal_resume_kwargs(
+                pending,
+                ctx=HitlStreamContext(
+                    thread_id=thread_id,
+                    agent_id=agent_id,
+                    user_id=user_id,
+                    session_key=pending.session_key if pending is not None else "",
+                    channel_type=pending.channel_type if pending is not None else "dashboard",
+                ),
+                decisions=decisions,
+            )
             async for chunk in self._agent_manager.resume_hitl(
                 agent_id,
                 thread_id,
                 decisions,
+                **resume_kwargs,
             ):
                 usage_tracker.observe(chunk)
                 history_tracker.observe(chunk)

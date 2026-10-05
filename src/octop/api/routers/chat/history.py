@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 
 from octop.api.common.agent import (
     assert_project_task_file_owner,
@@ -17,7 +17,16 @@ from octop.api.common.agent import (
 )
 from octop.api.common.agent_workspace import resolve_agent_workspace_dir
 from octop.api.deps import current_user, get_server
-from octop.api.routers.chat.models import ForkThreadBody, RebindSessionBody, RenameThreadBody
+from octop.api.routers.chat.models import (
+    ArchivedThreadSummaryResponse,
+    ForkThreadBody,
+    RebindSessionBody,
+    RenameThreadBody,
+    ThreadArchiveBody,
+    ThreadArchivePageResponse,
+    ThreadArchiveResponse,
+    ThreadMetadataResponse,
+)
 from octop.api.routers.chat.serialize import (
     HISTORY_DEFAULT_LIMIT,
     _backfill_thread_projection,
@@ -32,6 +41,7 @@ from octop.infra.agents.workspace_dir import agent_facing_workspace_dir_from_con
 from octop.infra.db.repos.agents import RUNTIME_KIND_PROJECT_TASK_FILES
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.gateway.hitl.coordinator import pending_hitl_payload
+from octop.infra.gateway.thread_archive import ThreadArchiveService
 from octop.infra.gateway.threads import ThreadRegistry, thread_row_has_messages
 from octop.infra.history.service import HistoryArchive
 from octop.infra.history.trajectory.service import TrajectoryService
@@ -119,46 +129,176 @@ def _require_thread(
     return row
 
 
+def _thread_metadata_payload(row: Any, bound: str | None, workspace_dir: Path) -> dict[str, Any]:
+    return {
+        "thread_id": row.thread_id,
+        "title": row.title,
+        "channel_type": row.channel_type,
+        "session_key": row.session_key,
+        "last_active": row.last_active,
+        "created_at": row.created_at,
+        "is_active": row.thread_id == bound,
+        "has_messages": thread_row_has_messages(row),
+        "pinned": row.pinned,
+        "model_ref": row.model_ref,
+        "reasoning_mode": row.reasoning_mode,
+        "reasoning_effort": row.reasoning_effort,
+        "conversation_mode": row.conversation_mode or "craft",
+        "pending_plan_path": row.pending_plan_path,
+        "hitl_policy": _hitl_policy_payload(row),
+        "artifacts": artifacts_for_response(row.artifacts, workspace_dir),
+        "archived_at": row.archived_at,
+    }
+
+
+def _readonly_agent_facing_workspace_dir(server: Any, agent_id: str) -> Path:
+    """Resolve display paths without initializing a legacy workspace or config."""
+    registry = server.app_runtime.agent_registry
+    paths = getattr(server, "paths", None) or server.services.paths
+    if is_project_task_file_runtime(registry.get_row(agent_id)):
+        return Path(paths.project_task_file_runtime_dir(agent_id))
+    facing = agent_facing_workspace_dir_from_config(registry.get_config(agent_id))
+    if facing:
+        return Path(facing)
+    return Path(paths.agent_workspace(agent_id))
+
+
+@router.get(
+    "/agents/{agent_id}/threads/{thread_id}",
+    summary="Read thread metadata",
+    description=(
+        "Read one effective-user-owned conversation without loading messages or starting the agent. "
+        "Internal project-task runtimes are owner-only and reject as_user. "
+        "Does not change bindings, workspace configuration or history projection."
+    ),
+    response_model=ThreadMetadataResponse,
+    response_model_exclude_unset=True,
+)
+async def get_thread_metadata(
+    agent_id: str,
+    thread_id: str,
+    as_user: int | None = None,
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> ThreadMetadataResponse:
+    def load() -> ThreadMetadataResponse:
+        row = _require_thread(server, agent_id, thread_id, user, as_user)
+        effective_uid = as_user if as_user is not None else user.id
+        registry = server.app_runtime.gateway.thread_registry
+        bound = registry.get_bound_thread_id(
+            ThreadRegistry.dashboard_key(agent_id=agent_id, user_id=effective_uid)
+        )
+        return ThreadMetadataResponse.model_validate(
+            _thread_metadata_payload(
+                row, bound, _readonly_agent_facing_workspace_dir(server, agent_id)
+            )
+        )
+
+    return await asyncio.get_running_loop().run_in_executor(None, load)
+
+
+@router.get(
+    "/threads/archived",
+    summary="List my archived threads",
+    description="Owned eligible records only. Personal organization does not grant project or execution access. Rejects as_user.",
+    response_model=ThreadArchivePageResponse,
+)
+async def list_archived_threads(
+    q: Annotated[str, Query(max_length=256, pattern=r"^[^\x00]*$")] = "",
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0, le=9007199254740991)] = 0,
+    as_user: str | None = None,
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> ThreadArchivePageResponse:
+    def load() -> ThreadArchivePageResponse:
+        page = ThreadArchiveService(server.services).list_archived(
+            user_id=user.id,
+            actor_is_admin=user.is_admin,
+            q=q,
+            limit=limit,
+            offset=offset,
+            as_user=as_user,
+        )
+        return ThreadArchivePageResponse(
+            items=[
+                ArchivedThreadSummaryResponse.model_validate(row, from_attributes=True)
+                for row in page.items
+            ],
+            limit=page.limit,
+            offset=page.offset,
+            has_more=page.has_more,
+        )
+
+    return await asyncio.get_running_loop().run_in_executor(None, load)
+
+
+@router.post(
+    "/threads/{thread_id}/archive",
+    summary="Set my thread archive state",
+    description="Idempotent personal visibility change. Preserves history, bindings, permissions and execution. Rejects as_user.",
+    response_model=ThreadArchiveResponse,
+)
+async def set_thread_archive(
+    thread_id: str,
+    body: ThreadArchiveBody,
+    as_user: str | None = None,
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> ThreadArchiveResponse:
+    def save() -> ThreadArchiveResponse:
+        row = ThreadArchiveService(server.services).set_archive(
+            thread_id=thread_id,
+            user_id=user.id,
+            actor_is_admin=user.is_admin,
+            archived=body.archived,
+            as_user=as_user,
+        )
+        return ThreadArchiveResponse.model_validate(row, from_attributes=True)
+
+    return await asyncio.get_running_loop().run_in_executor(None, save)
+
+
 @router.get("/agents/{agent_id}/threads", summary="List threads")
 async def list_threads(
     agent_id: str,
-    limit: int = 50,
+    limit: Annotated[int, Query(ge=1)] = 50,
+    q: Annotated[
+        str,
+        Query(
+            max_length=256,
+            pattern=r"^[^\x00]*$",
+            description="Literal title substring; blank lists all threads.",
+        ),
+    ] = "",
     as_user: int | None = None,
+    archived: bool = False,
     user: Any = Depends(current_user),
     server: Any = Depends(get_server),
 ) -> list[dict[str, Any]]:
     """List conversation threads for an agent, including which thread is active for this user."""
-    agent_row = require_agent_row(agent_id, user=user, as_user=as_user, server=server)
-    # 030A B4: the bound-thread list of an internal runtime is owner-only.
-    assert_project_task_file_owner(agent_row, user, as_user=as_user)
-    thread_registry = server.app_runtime.gateway.thread_registry
-    effective_uid = as_user if as_user is not None else user.id
-    rows = thread_registry.list_threads(agent_id=agent_id, user_id=effective_uid, limit=limit)
-    bound = thread_registry.get_bound_thread_id(
-        ThreadRegistry.dashboard_key(agent_id=agent_id, user_id=effective_uid)
-    )
-    workspace_dir = _agent_facing_workspace_dir(server, agent_id)
-    return [
-        {
-            "thread_id": r.thread_id,
-            "title": r.title,
-            "channel_type": r.channel_type,
-            "session_key": r.session_key,
-            "last_active": r.last_active,
-            "created_at": r.created_at,
-            "is_active": r.thread_id == bound,
-            "has_messages": thread_row_has_messages(r),
-            "pinned": r.pinned,
-            "model_ref": r.model_ref,
-            "reasoning_mode": r.reasoning_mode,
-            "reasoning_effort": r.reasoning_effort,
-            "conversation_mode": r.conversation_mode or "craft",
-            "pending_plan_path": r.pending_plan_path,
-            "hitl_policy": _hitl_policy_payload(r),
-            "artifacts": artifacts_for_response(r.artifacts, workspace_dir),
-        }
-        for r in rows
-    ]
+
+    def load() -> list[dict[str, Any]]:
+        agent_row = require_agent_row(agent_id, user=user, as_user=as_user, server=server)
+        # 030A B4: the bound-thread list of an internal runtime is owner-only.
+        assert_project_task_file_owner(agent_row, user, as_user=as_user)
+        thread_registry = server.app_runtime.gateway.thread_registry
+        effective_uid = as_user if as_user is not None else user.id
+        if q.strip():
+            rows = thread_registry.list_threads(
+                agent_id=agent_id, user_id=effective_uid, limit=limit, q=q, archived=archived
+            )
+        else:
+            rows = thread_registry.list_threads(
+                agent_id=agent_id, user_id=effective_uid, limit=limit, archived=archived
+            )
+        bound = thread_registry.get_bound_thread_id(
+            ThreadRegistry.dashboard_key(agent_id=agent_id, user_id=effective_uid)
+        )
+        workspace_dir = _agent_facing_workspace_dir(server, agent_id)
+        return [_thread_metadata_payload(r, bound, workspace_dir) for r in rows]
+
+    return await asyncio.get_running_loop().run_in_executor(None, load)
 
 
 @router.get(

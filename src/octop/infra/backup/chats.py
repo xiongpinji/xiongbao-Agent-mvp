@@ -9,6 +9,7 @@ from typing import Any
 from octop.infra.agents.workspace_dir import DEFAULT_SYSTEM_FILES_PATH
 from octop.infra.backup.snapshot import _patch_channel_metadata, _rewrite_session_key
 from octop.infra.db.pool import DatabasePool
+from octop.infra.utils.project_plan_keys import normalize_project_plan_key
 
 # Child-first for DELETE; reverse for INSERT.
 CHAT_TABLES_CHILD_FIRST = (
@@ -132,6 +133,7 @@ def restore_preserved_chats(pool: DatabasePool, spool_path: Path) -> tuple[int, 
         with pool.transaction() as conn:
             agent_ids = _id_set(conn, "agents", "agent_id", dialect=dialect)
             new_name_to_id = _load_live_usernames(conn, dialect=dialect)
+            has_title_key = _column_exists(conn, "threads", "title_search_key", dialect=dialect)
 
             for table in CHAT_TABLES_CHILD_FIRST:
                 if _table_exists(conn, table, dialect=dialect):
@@ -143,8 +145,11 @@ def restore_preserved_chats(pool: DatabasePool, spool_path: Path) -> tuple[int, 
                 if not columns or not _table_exists(conn, table, dialect=dialect):
                     continue
                 col_index = {name: i for i, name in enumerate(columns)}
-                placeholders = ", ".join("?" for _ in columns)
-                col_sql = ", ".join(columns)
+                insert_columns = list(columns)
+                if table == "threads" and has_title_key and "title_search_key" not in col_index:
+                    insert_columns.append("title_search_key")
+                placeholders = ", ".join("?" for _ in insert_columns)
+                col_sql = ", ".join(insert_columns)
                 insert_sql = f"INSERT INTO {table}({col_sql}) VALUES ({placeholders})"
                 cursor = spool.execute(f'SELECT * FROM "{table}"')
                 while rows := cursor.fetchmany(500):
@@ -162,6 +167,17 @@ def restore_preserved_chats(pool: DatabasePool, spool_path: Path) -> tuple[int, 
                         if mapped is None:
                             skipped += 1
                             continue
+                        if table == "threads" and has_title_key:
+                            values = list(mapped)
+                            title = mapped[col_index["title"]]
+                            key = normalize_project_plan_key(
+                                str(title) if title is not None else ""
+                            )
+                            if "title_search_key" in col_index:
+                                values[col_index["title_search_key"]] = key
+                            else:
+                                values.append(key)
+                            mapped = tuple(values)
                         batch.append(mapped)
                         if table == "threads" and "thread_id" in col_index:
                             kept_threads.add(str(mapped[col_index["thread_id"]]))

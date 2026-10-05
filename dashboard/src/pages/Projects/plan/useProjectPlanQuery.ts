@@ -1,6 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import {
   projectPlanViewsApi,
+  normalizePlanDefinition,
   type AnyPlanDefinition,
   type PlanQueryGroupKey,
   type PlanQueryRequest,
@@ -8,7 +9,19 @@ import {
   type PlanQueryWindow,
   type PlanView,
 } from "../../../api/modules/projectPlanViews";
-import type { ProjectTodo } from "../../../api/modules/projectTodos";
+import {
+  projectTodosApi,
+  type ProjectTodo,
+} from "../../../api/modules/projectTodos";
+import {
+  projectTodoCatalogApi,
+  type ProjectTodoCatalog,
+} from "../../../api/modules/projectTodoCatalog";
+import {
+  compareTodoSnapshot,
+  validTodoSnapshot,
+  uniqueTodoSnapshots,
+} from "./todoSnapshot";
 import { projectsApi } from "../../../api/modules/projects";
 import { parseApiError } from "../../../utils/apiError";
 import { isPlanDate } from "../planDates";
@@ -24,6 +37,7 @@ export interface ProjectPlanQueryOptions {
   accessKey?: string;
   onProjectAccessLost(): void;
   onViewUnavailable?(): void;
+  onCatalogSnapshot?(catalog: ProjectTodoCatalog): void;
 }
 interface QueryState {
   key: string;
@@ -53,7 +67,12 @@ interface QueryFrame {
   operations: Map<string, { generation: number; controller: AbortController }>;
   depths: Map<string, number>;
   highWater: Map<string, ProjectTodo>;
+  parentTitleGeneration: number;
   acceptedWrites: Set<string>;
+  snapshotRefreshes: Map<string, Promise<ProjectTodo>>;
+  snapshotCatalogs: Map<string, ProjectTodoCatalog>;
+  catalogReads: Map<string, Promise<ProjectTodoCatalog>>;
+  refreshedWrites: Set<string>;
 }
 let nextLifetime = 0;
 const prefix = "projects.planViews.";
@@ -143,33 +162,24 @@ const abortFrame = (frame: QueryFrame) => {
   for (const operation of frame.operations.values())
     operation.controller.abort();
 };
-const newerTodo = (a: ProjectTodo | undefined, b: ProjectTodo) =>
-  !a ||
-  b.version > a.version ||
-  (b.version === a.version && b.catalog_revision > a.catalog_revision)
-    ? b
-    : a;
-const uniqueItems = (
-  items: readonly ProjectTodo[],
-  highWater: Map<string, ProjectTodo>,
-): ProjectTodo[] => {
-  const unique = new Map<string, ProjectTodo>();
-  for (const incoming of items) {
-    const highest = newerTodo(highWater.get(incoming.todo_id), incoming);
-    highWater.set(incoming.todo_id, highest);
-    unique.set(
-      incoming.todo_id,
-      newerTodo(unique.get(incoming.todo_id), highest),
-    );
-  }
-  return [...unique.values()];
+const withoutParentTitle = (todo: ProjectTodo): ProjectTodo => {
+  if (todo.parent_todo_id === null) return todo;
+  const snapshot = { ...todo } as ProjectTodo & {
+    parent_title?: string | null;
+  };
+  delete snapshot.parent_title;
+  return snapshot;
 };
 
 export function useProjectPlanQuery(options: ProjectPlanQueryOptions) {
   const callbacks = useRef(options);
   callbacks.current = options;
-  const effectiveDefinition =
-    options.overrideDefinition ?? options.view?.definition;
+  const effectiveDefinition = options.view
+    ? normalizePlanDefinition(
+        options.view.type,
+        options.overrideDefinition ?? options.view.definition,
+      )
+    : undefined;
   const shapeKey = JSON.stringify([
     options.accountId,
     options.projectId,
@@ -215,10 +225,18 @@ export function useProjectPlanQuery(options: ProjectPlanQueryOptions) {
           ? previous!.paused
           : false,
       operations: new Map(),
+      snapshotRefreshes: new Map(),
+      snapshotCatalogs: new Map(),
+      catalogReads: new Map(),
+      refreshedWrites:
+        previous?.identityKey === identityKey
+          ? previous.refreshedWrites
+          : new Set(),
       preserveRead: !!sameShape,
       metadataAccepted: false,
       depths: sameShape ? new Map(previous!.depths) : new Map(),
       highWater: sameProject ? previous!.highWater : new Map(),
+      parentTitleGeneration: sameProject ? previous!.parentTitleGeneration : 0,
       acceptedWrites:
         previous?.identityKey === identityKey
           ? previous.acceptedWrites
@@ -338,7 +356,12 @@ export function useProjectPlanQuery(options: ProjectPlanQueryOptions) {
       expected_catalog_revision: current.catalogRevision,
       limit: metadata ? 1 : 50,
       ...(current.overrideDefinition
-        ? { override_definition: current.overrideDefinition }
+        ? {
+            override_definition: normalizePlanDefinition(
+              current.view!.type,
+              current.overrideDefinition,
+            ),
+          }
         : {}),
       ...(lane?.groupKey ? { group_key: lane.groupKey } : {}),
       ...(lane?.bucket ? { bucket: lane.bucket, window: current.window! } : {}),
@@ -434,6 +457,9 @@ export function useProjectPlanQuery(options: ProjectPlanQueryOptions) {
   };
   const validResponse = (target: QueryFrame, response: PlanQueryResponse) => {
     const current = target.options;
+    const definition = current.overrideDefinition ?? current.view?.definition;
+    const showSubtodos =
+      current.view?.type === "table" && definition?.show_subtodos === true;
     return (
       response &&
       response.view_id === current.view?.view_id &&
@@ -447,14 +473,88 @@ export function useProjectPlanQuery(options: ProjectPlanQueryOptions) {
       Array.isArray(response.items) &&
       response.items.every(
         (todo) =>
-          todo.project_id === current.projectId &&
-          Number.isSafeInteger(todo.version) &&
-          todo.version > 0,
+          validTodoSnapshot(todo, current.projectId) &&
+          (todo.parent_todo_id === null
+            ? todo.parent_title === null
+            : showSubtodos && typeof todo.parent_title === "string"),
       ) &&
       [response.total, response.matched_total].every(
         (count) => Number.isSafeInteger(count) && count >= 0,
       )
     );
+  };
+  const resolveTodo = async (
+    target: QueryFrame,
+    scope: PlanOperationScope,
+    incoming: ProjectTodo,
+  ): Promise<ProjectTodo | null> => {
+    if (!isCurrentOperation(scope)) return null;
+    if (!validTodoSnapshot(incoming, scope.projectId))
+      throw new Error("Invalid todo snapshot");
+    let known = target.highWater.get(incoming.todo_id);
+    let order = compareTodoSnapshot(known, incoming);
+    if (order === "invalid") throw new Error("Invalid todo snapshot");
+    if (order === "keep") return known!;
+    let latest = incoming;
+    if (order === "incomparable") {
+      const id = JSON.stringify([
+        scope.queryGeneration,
+        scope.channel,
+        scope.operationGeneration,
+        incoming.todo_id,
+      ]);
+      let pending = target.snapshotRefreshes.get(id);
+      if (!pending) {
+        const signal = target.operations.get(scope.channel)!.controller.signal;
+        const catalogKey = JSON.stringify([
+          scope.queryGeneration,
+          scope.channel,
+          scope.operationGeneration,
+        ]);
+        let catalogRead = target.catalogReads.get(catalogKey);
+        if (!catalogRead) {
+          catalogRead = projectTodoCatalogApi.get(scope.projectId, { signal });
+          target.catalogReads.set(catalogKey, catalogRead);
+        }
+        pending = Promise.all([
+          projectTodosApi.get(scope.projectId, incoming.todo_id, { signal }),
+          catalogRead,
+        ]).then(([todo, catalog]) => {
+          const accepted = target.highWater.get(incoming.todo_id);
+          if (
+            !validTodoSnapshot(todo, scope.projectId, incoming.todo_id) ||
+            catalog.project_id !== scope.projectId ||
+            !Number.isSafeInteger(catalog.revision) ||
+            catalog.revision < 1 ||
+            todo.catalog_revision !== catalog.revision ||
+            todo.display_revision <
+              Math.max(
+                incoming.display_revision,
+                accepted?.display_revision ?? 0,
+              ) ||
+            todo.catalog_revision <
+              Math.max(
+                incoming.catalog_revision,
+                accepted?.catalog_revision ?? 0,
+                target.options.catalogRevision ?? 0,
+              )
+          )
+            throw new Error("Incompatible todo snapshot refresh");
+          if (isCurrentOperation(scope))
+            target.snapshotCatalogs.set(todo.todo_id, catalog);
+          return todo;
+        });
+        target.snapshotRefreshes.set(id, pending);
+      }
+      latest = await pending;
+      if (!isCurrentOperation(scope)) return null;
+      known = target.highWater.get(latest.todo_id);
+      order = compareTodoSnapshot(known, latest);
+      if (order === "incomparable" || order === "invalid")
+        throw new Error("Incompatible todo snapshot refresh");
+    }
+    if (order === "accept") target.highWater.set(latest.todo_id, latest);
+    return order === "keep" ? known! : latest;
   };
   const requestPage = async (
     target: QueryFrame,
@@ -480,6 +580,7 @@ export function useProjectPlanQuery(options: ProjectPlanQueryOptions) {
       laneId ? `lane:${laneId}` : "query-metadata",
     );
     if (!scope) return false;
+    const parentTitleGeneration = target.parentTitleGeneration;
     if (laneId)
       setLane(target, laneId, (current) => ({
         ...current,
@@ -509,13 +610,27 @@ export function useProjectPlanQuery(options: ProjectPlanQueryOptions) {
           'Request failed: 409 - {"error":{"details":{"reason":"query_changed"}}}',
         );
       }
+      const snapshots: ProjectTodo[] = [];
+      for (const incoming of response.items) {
+        const accepted = await resolveTodo(
+          target,
+          scope,
+          parentTitleGeneration === target.parentTitleGeneration
+            ? incoming
+            : withoutParentTitle(incoming),
+        );
+        if (!accepted) return false;
+        snapshots.push(accepted);
+      }
+      if (!isCurrentOperation(scope) || target.paused) return false;
       acceptMetadata(target, response, lane ?? null);
       if (laneId)
         setLane(target, laneId, (current) => ({
           ...current,
-          items: uniqueItems(
-            append ? [...current.items, ...response.items] : response.items,
-            target.highWater,
+          items: uniqueTodoSnapshots(
+            (append ? [...current.items, ...snapshots] : snapshots).map(
+              (todo) => target.highWater.get(todo.todo_id) ?? todo,
+            ),
           ),
           serverCount: lane?.bucket
             ? response.matched_total
@@ -527,6 +642,17 @@ export function useProjectPlanQuery(options: ProjectPlanQueryOptions) {
           paused: false,
           errorKey: null,
         }));
+      if (isCurrentOperation(scope)) {
+        for (const todo of snapshots) {
+          const catalog = target.snapshotCatalogs.get(todo.todo_id);
+          if (
+            catalog &&
+            catalog.revision === todo.catalog_revision &&
+            catalog.revision >= (target.options.catalogRevision ?? 0)
+          )
+            callbacks.current.onCatalogSnapshot?.(catalog);
+        }
+      }
       return true;
     } catch (error: unknown) {
       await handleError(target, scope, error);
@@ -672,32 +798,118 @@ export function useProjectPlanQuery(options: ProjectPlanQueryOptions) {
     }));
     return reloadAll(current, new Map(current.depths));
   };
-  const acceptTodo = useCallback(
-    (scope: PlanOperationScope, todo: ProjectTodo) => {
-      const current = frameRef.current;
+  const acceptResolvedTodos = (
+    current: QueryFrame,
+    scope: PlanOperationScope,
+    todos: readonly ProjectTodo[],
+    highest: readonly ProjectTodo[],
+  ) => {
+    if (!isCurrentOperation(scope)) return false;
+    // Writes may also rename a parent without changing a child's revision.
+    // Only a fresh plan query can restore its authorized parent title projection.
+    current.parentTitleGeneration += 1;
+    for (const [id, todo] of current.highWater)
+      current.highWater.set(id, withoutParentTitle(todo));
+    const accepted = new Map(
+      highest.map((todo) => [
+        todo.todo_id,
+        current.highWater.get(todo.todo_id) ?? withoutParentTitle(todo),
+      ]),
+    );
+    let latestCatalog: ProjectTodoCatalog | undefined;
+    for (const todo of todos) {
+      const receipt = JSON.stringify([scope, todo.todo_id, todo.version]);
+      current.acceptedWrites.add(receipt);
+      const snapshot = accepted.get(todo.todo_id)!;
+      const catalog = current.snapshotCatalogs.get(todo.todo_id);
       if (
-        !current ||
-        !isCurrentOperation(scope) ||
-        todo.project_id !== scope.projectId
-      )
-        return;
-      const highest = newerTodo(current.highWater.get(todo.todo_id), todo);
-      current.highWater.set(todo.todo_id, highest);
-      current.acceptedWrites.add(
-        JSON.stringify([scope, todo.todo_id, todo.version]),
+        catalog &&
+        catalog.revision === snapshot.catalog_revision &&
+        catalog.revision >= (current.options.catalogRevision ?? 0)
+      ) {
+        current.refreshedWrites.add(receipt);
+        if (!latestCatalog || catalog.revision >= latestCatalog.revision)
+          latestCatalog = catalog;
+      }
+    }
+    commit(current, (value) => ({
+      ...value,
+      lanes: value.lanes.map((lane) => ({
+        ...lane,
+        items: lane.items.map(
+          (item) => accepted.get(item.todo_id) ?? withoutParentTitle(item),
+        ),
+      })),
+    }));
+    if (latestCatalog && isCurrentOperation(scope))
+      callbacks.current.onCatalogSnapshot?.(latestCatalog);
+    return true;
+  };
+  const acceptTodos = async (
+    scope: PlanOperationScope,
+    todos: readonly ProjectTodo[],
+  ): Promise<boolean> => {
+    const current = frameRef.current;
+    if (!current || !isCurrentOperation(scope)) return false;
+    try {
+      if (!todos.every((todo) => validTodoSnapshot(todo, scope.projectId)))
+        throw new Error("Invalid todo snapshot");
+      const highest: ProjectTodo[] = [];
+      for (const todo of todos) {
+        const accepted = await resolveTodo(current, scope, todo);
+        if (!accepted) return false;
+        highest.push(accepted);
+      }
+      return acceptResolvedTodos(current, scope, todos, highest);
+    } catch (error) {
+      await handleError(current, scope, error);
+      return false;
+    }
+  };
+  const acceptTodo = async (
+    scope: PlanOperationScope,
+    todo: ProjectTodo,
+    suppliedCatalog?: ProjectTodoCatalog,
+  ): Promise<boolean> => {
+    const current = frameRef.current;
+    if (
+      !current ||
+      !isCurrentOperation(scope) ||
+      todo.project_id !== scope.projectId
+    )
+      return false;
+    const acceptResolved = (highest: ProjectTodo | null) =>
+      highest ? acceptResolvedTodos(current, scope, [todo], [highest]) : false;
+    try {
+      if (!validTodoSnapshot(todo, scope.projectId))
+        throw new Error("Invalid todo snapshot");
+      if (suppliedCatalog) {
+        if (
+          suppliedCatalog.project_id !== scope.projectId ||
+          suppliedCatalog.revision !== todo.catalog_revision ||
+          !Number.isSafeInteger(suppliedCatalog.revision) ||
+          suppliedCatalog.revision < 1
+        )
+          throw new Error("Invalid supplied catalog snapshot");
+        current.snapshotCatalogs.set(todo.todo_id, suppliedCatalog);
+      }
+      const order = compareTodoSnapshot(
+        current.highWater.get(todo.todo_id),
+        todo,
       );
-      commit(current, (value) => ({
-        ...value,
-        lanes: value.lanes.map((lane) => ({
-          ...lane,
-          items: lane.items.map((item) =>
-            item.todo_id === todo.todo_id ? highest : item,
-          ),
-        })),
-      }));
-    },
-    [commit, isCurrentOperation],
-  );
+      if (order === "invalid") throw new Error("Invalid todo snapshot");
+      if (order === "accept") {
+        current.highWater.set(todo.todo_id, todo);
+        return acceptResolved(todo);
+      }
+      if (order === "keep")
+        return acceptResolved(current.highWater.get(todo.todo_id)!);
+      return acceptResolved(await resolveTodo(current, scope, todo));
+    } catch (error) {
+      await handleError(current, scope, error);
+      return false;
+    }
+  };
   const hasAcceptedTodo = useCallback(
     (scope: PlanOperationScope, todo: ProjectTodo) =>
       isSameContextOperation(scope) &&
@@ -706,6 +918,11 @@ export function useProjectPlanQuery(options: ProjectPlanQueryOptions) {
       ),
     [isSameContextOperation],
   );
+  const hasRefreshedTodo = (scope: PlanOperationScope, todo: ProjectTodo) =>
+    isSameContextOperation(scope) &&
+    !!frameRef.current?.refreshedWrites.has(
+      JSON.stringify([scope, todo.todo_id, todo.version]),
+    );
   const getKnownTodo = useCallback(
     (todoId: string) => frameRef.current?.highWater.get(todoId),
     [],
@@ -755,6 +972,7 @@ export function useProjectPlanQuery(options: ProjectPlanQueryOptions) {
     current.highWater.clear();
     current.depths.clear();
     current.acceptedWrites.clear();
+    current.refreshedWrites.clear();
     const next = emptyState(current);
     stateRef.current = next;
     setState(next);
@@ -805,12 +1023,14 @@ export function useProjectPlanQuery(options: ProjectPlanQueryOptions) {
     refresh,
     pauseForMetadata,
     acceptTodo,
+    acceptTodos,
     removeTodo,
     clear,
     captureOperation,
     isCurrentOperation,
     isSameContextOperation,
     hasAcceptedTodo,
+    hasRefreshedTodo,
     getKnownTodo,
     getAcceptedMetadata,
   };

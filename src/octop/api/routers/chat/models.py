@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_validator
 
 # Decision types understood by langchain's HumanInTheLoopMiddleware.
 _DECISION_TYPES: frozenset[str] = frozenset({"approve", "edit", "reject", "respond"})
@@ -18,6 +18,65 @@ class HitlSessionPolicyBody(BaseModel):
 
     mode: Literal["ask", "allow_all", "allow_tools"] = "ask"
     tools: list[str] = Field(default_factory=list)
+
+
+class ThreadMetadataResponse(BaseModel):
+    """Conversation metadata; contains no messages or runtime state."""
+
+    thread_id: str = Field(description="Public conversation identifier.")
+    title: str | None = Field(description="Stored title, or null for an unnamed conversation.")
+    channel_type: str
+    session_key: str
+    last_active: int = Field(description="Last activity as Unix seconds; zero when empty.")
+    created_at: int = Field(description="Creation time as Unix seconds.")
+    is_active: bool = Field(
+        description="Currently bound to the effective user's dashboard session."
+    )
+    has_messages: bool
+    pinned: bool
+    model_ref: str | None
+    reasoning_mode: str | None
+    reasoning_effort: str | None
+    conversation_mode: str
+    pending_plan_path: str | None
+    hitl_policy: HitlSessionPolicyBody
+    artifacts: list[str] = Field(
+        description="Normalized agent-facing artifact paths, without contents."
+    )
+    archived_at: StrictInt | None = Field(
+        ge=1,
+        le=9007199254740991,
+        description="Personal archive time in Unix seconds, or null. Does not affect execution.",
+    )
+
+
+class ThreadArchiveBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    archived: StrictBool
+
+
+class ThreadArchiveResponse(BaseModel):
+    thread_id: str
+    agent_id: str
+    archived_at: StrictInt | None = Field(ge=1, le=9007199254740991)
+
+
+class ArchivedThreadSummaryResponse(BaseModel):
+    thread_id: str
+    agent_id: str
+    title: str | None
+    channel_type: str
+    created_at: int
+    last_active: int
+    archived_at: StrictInt = Field(ge=1, le=9007199254740991)
+    mode: Literal["chat", "files"]
+
+
+class ThreadArchivePageResponse(BaseModel):
+    items: list[ArchivedThreadSummaryResponse]
+    limit: int
+    offset: int
+    has_more: bool
 
 
 class ChatTurnBody(BaseModel):

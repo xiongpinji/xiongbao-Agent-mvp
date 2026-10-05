@@ -1,8 +1,10 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-const { query, getProject } = vi.hoisted(() => ({
+const { query, getProject, getTodo, getCatalog } = vi.hoisted(() => ({
   query: vi.fn(),
   getProject: vi.fn(),
+  getTodo: vi.fn(),
+  getCatalog: vi.fn(),
 }));
 vi.mock("../../../api/modules/projectPlanViews", async (original) => ({
   ...(await original<typeof import("../../../api/modules/projectPlanViews")>()),
@@ -10,6 +12,16 @@ vi.mock("../../../api/modules/projectPlanViews", async (original) => ({
 }));
 vi.mock("../../../api/modules/projects", () => ({
   projectsApi: { get: getProject },
+}));
+vi.mock("../../../api/modules/projectTodos", async (original) => ({
+  ...(await original<typeof import("../../../api/modules/projectTodos")>()),
+  projectTodosApi: { get: getTodo },
+}));
+vi.mock("../../../api/modules/projectTodoCatalog", async (original) => ({
+  ...(await original<
+    typeof import("../../../api/modules/projectTodoCatalog")
+  >()),
+  projectTodoCatalogApi: { get: getCatalog },
 }));
 import {
   useProjectPlanQuery,
@@ -20,6 +32,7 @@ import {
   makePlanDefinition,
   makePlanQueryResponse,
   makePlanTodo,
+  makePlanCatalog,
   makePlanView,
 } from "./planView.testFixtures";
 import type {
@@ -51,8 +64,396 @@ const options = (
 beforeEach(() => {
   query.mockReset().mockResolvedValue(makePlanQueryResponse());
   getProject.mockReset().mockResolvedValue({ project_id: "p1" });
+  getTodo.mockReset().mockResolvedValue(makePlanTodo());
+  getCatalog.mockReset().mockResolvedValue(makePlanCatalog());
 });
 describe("bounded query lanes and original operation scopes", () => {
+  it("invalidates false cursors and ignores late false responses after switching to true", async () => {
+    const stale = deferred<PlanQueryResponse>();
+    const child = makePlanTodo({
+      todo_id: "child",
+      parent_todo_id: "parent",
+      parent_title: "Current parent",
+      children_revision: null,
+    });
+    query.mockImplementation((_p: string, body: PlanQueryRequest) =>
+      body.override_definition?.show_subtodos === true
+        ? Promise.resolve(
+            makePlanQueryResponse({
+              items: [child],
+              next_cursor: "true-cursor",
+            }),
+          )
+        : stale.promise,
+    );
+    const { result, rerender } = renderHook(
+      ({ flag }) =>
+        useProjectPlanQuery(
+          options({
+            overrideDefinition: {
+              ...makePlanDefinition(),
+              show_subtodos: flag,
+            },
+          }),
+        ),
+      { initialProps: { flag: false } },
+    );
+    await waitFor(() => expect(query).toHaveBeenCalled());
+    const oldSignal = query.mock.calls[0][2].signal;
+    rerender({ flag: true });
+    await waitFor(() =>
+      expect(result.current.lanes[0]?.items[0]).toEqual(child),
+    );
+    expect(oldSignal.aborted).toBe(true);
+    const trueCalls = query.mock.calls.filter(
+      (call) => call[1].override_definition.show_subtodos,
+    );
+    expect(trueCalls.every((call) => call[1].cursor === undefined)).toBe(true);
+    await act(async () =>
+      stale.resolve(
+        makePlanQueryResponse({
+          items: [makePlanTodo({ title: "Late false root" })],
+          next_cursor: "false-cursor",
+        }),
+      ),
+    );
+    expect(result.current.lanes[0].items).toEqual([child]);
+    expect(result.current.lanes[0].nextCursor).toBe("true-cursor");
+  });
+
+  it.each(["account", "project", "flag"] as const)(
+    "does not leak a late true response after %s changes",
+    async (change) => {
+      const stale = deferred<PlanQueryResponse>();
+      query.mockReturnValueOnce(stale.promise).mockImplementation((p: string) =>
+        Promise.resolve(
+          makePlanQueryResponse({
+            items: [makePlanTodo({ project_id: p, title: "Fresh root" })],
+          }),
+        ),
+      );
+      const { result, rerender } = renderHook(
+        ({ accountId, projectId, flag }) =>
+          useProjectPlanQuery(
+            options({
+              accountId,
+              projectId,
+              view: makePlanView({ project_id: projectId }),
+              overrideDefinition: {
+                ...makePlanDefinition(),
+                show_subtodos: flag,
+              },
+            }),
+          ),
+        { initialProps: { accountId: 1, projectId: "p1", flag: true } },
+      );
+      await waitFor(() => expect(query).toHaveBeenCalledTimes(1));
+      rerender({
+        accountId: change === "account" ? 2 : 1,
+        projectId: change === "project" ? "p2" : "p1",
+        flag: change !== "flag",
+      });
+      await waitFor(() =>
+        expect(result.current.lanes[0]?.items[0].title).toBe("Fresh root"),
+      );
+      await act(async () =>
+        stale.resolve(
+          makePlanQueryResponse({
+            items: [
+              makePlanTodo({
+                parent_todo_id: "parent",
+                parent_title: "Private parent",
+                children_revision: null,
+              }),
+            ],
+          }),
+        ),
+      );
+      expect(result.current.lanes[0].items[0].title).toBe("Fresh root");
+      expect(result.current.lanes[0].items[0].project_id).toBe(
+        change === "project" ? "p2" : "p1",
+      );
+    },
+  );
+
+  it("drops all child parent-title projections on a local parent write, then restores fresh query text", async () => {
+    const child = makePlanTodo({
+      todo_id: "child",
+      parent_todo_id: "parent",
+      parent_title: "Old parent",
+      children_revision: null,
+    });
+    query.mockResolvedValue(makePlanQueryResponse({ items: [child] }));
+    const { result } = renderHook(() =>
+      useProjectPlanQuery(
+        options({
+          overrideDefinition: { ...makePlanDefinition(), show_subtodos: true },
+        }),
+      ),
+    );
+    await waitFor(() =>
+      expect(result.current.lanes[0]?.items[0]).toEqual(child),
+    );
+    await act(async () => {
+      expect(
+        await result.current.acceptTodo(
+          result.current.captureOperation("parent-write")!,
+          makePlanTodo({ todo_id: "parent", title: "New parent", version: 2 }),
+        ),
+      ).toBe(true);
+    });
+    expect(result.current.lanes[0].items[0]).not.toHaveProperty("parent_title");
+    query.mockResolvedValue(
+      makePlanQueryResponse({
+        items: [{ ...child, parent_title: "New parent" }],
+      }),
+    );
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.lanes[0].items[0]).toMatchObject({
+      parent_title: "New parent",
+    });
+  });
+
+  it.each([undefined, null, 42])(
+    "rejects an invalid child parent_title projection %s",
+    async (parent_title) => {
+      query.mockResolvedValue(
+        makePlanQueryResponse({
+          items: [
+            makePlanTodo({
+              parent_todo_id: "parent",
+              children_revision: null,
+              parent_title: parent_title as string,
+            }),
+          ],
+        }),
+      );
+      const { result } = renderHook(() =>
+        useProjectPlanQuery(
+          options({
+            overrideDefinition: {
+              ...makePlanDefinition(),
+              show_subtodos: true,
+            },
+          }),
+        ),
+      );
+      await waitFor(() =>
+        expect(result.current.errorKey).toBe("projects.planViews.failed"),
+      );
+      expect(result.current.lanes.flatMap((lane) => lane.items)).toEqual([]);
+    },
+  );
+
+  it("does not restore a parent title from a page request started before a local write", async () => {
+    const child = makePlanTodo({
+      todo_id: "child",
+      parent_todo_id: "parent",
+      parent_title: "Old parent",
+      children_revision: null,
+    });
+    query.mockResolvedValue(
+      makePlanQueryResponse({ items: [child], next_cursor: "old-cursor" }),
+    );
+    const { result } = renderHook(() =>
+      useProjectPlanQuery(
+        options({
+          overrideDefinition: { ...makePlanDefinition(), show_subtodos: true },
+        }),
+      ),
+    );
+    await waitFor(() =>
+      expect(result.current.lanes[0]?.nextCursor).toBe("old-cursor"),
+    );
+    const pending = deferred<PlanQueryResponse>();
+    query.mockReturnValue(pending.promise);
+    let page!: Promise<boolean>;
+    act(() => {
+      page = result.current.loadMore("all");
+    });
+    await waitFor(() => expect(result.current.lanes[0].loadingMore).toBe(true));
+    await act(async () => {
+      await result.current.acceptTodo(
+        result.current.captureOperation("parent-write")!,
+        makePlanTodo({ todo_id: "parent", title: "New parent", version: 2 }),
+      );
+    });
+    await act(async () => {
+      pending.resolve(makePlanQueryResponse({ items: [child] }));
+      expect(await page).toBe(true);
+    });
+    expect(result.current.lanes[0].items[0]).not.toHaveProperty("parent_title");
+  });
+
+  it("D1 accepts a real display-only assignee projection with the same body token", async () => {
+    const assigned = {
+      ...makePlanTodo({ assignee_user_id: 7 }),
+      display_revision: 1,
+    };
+    query.mockResolvedValue(makePlanQueryResponse({ items: [assigned] }));
+    const { result } = renderHook(() => useProjectPlanQuery(options()));
+    await waitFor(() =>
+      expect(result.current.lanes[0]?.items[0].assignee_user_id).toBe(7),
+    );
+    await act(async () => {
+      await result.current.acceptTodo(
+        result.current.captureOperation("external-delete")!,
+        {
+          ...assigned,
+          assignee_user_id: null,
+          display_revision: 2,
+        },
+      );
+    });
+    expect(result.current.lanes[0].items[0]).toMatchObject({
+      version: assigned.version,
+      display_revision: 2,
+      assignee_user_id: null,
+    });
+  });
+  it("D1 resolves an incomparable pair with exactly one current todo/catalog read", async () => {
+    const accepted = makePlanTodo({
+      display_revision: 3,
+      assignee_user_id: null,
+    });
+    query.mockResolvedValue(makePlanQueryResponse({ items: [accepted] }));
+    const refreshed = { ...accepted, catalog_revision: 2 };
+    getTodo.mockResolvedValue(refreshed);
+    getCatalog.mockResolvedValue(makePlanCatalog({ revision: 2 }));
+    const onCatalogSnapshot = vi.fn();
+    const { result } = renderHook(() =>
+      useProjectPlanQuery(options({ onCatalogSnapshot })),
+    );
+    await waitFor(() =>
+      expect(result.current.lanes[0]?.items[0]).toEqual(accepted),
+    );
+    await act(async () => {
+      await result.current.acceptTodo(
+        result.current.captureOperation("compare")!,
+        makePlanTodo({
+          display_revision: 2,
+          catalog_revision: 2,
+          assignee_user_id: 7,
+        }),
+      );
+    });
+    expect(result.current.lanes[0].items[0]).toEqual(refreshed);
+    expect(getTodo).toHaveBeenCalledTimes(1);
+    expect(getCatalog).toHaveBeenCalledTimes(1);
+    expect(getTodo.mock.calls[0][2].signal).toBe(
+      getCatalog.mock.calls[0][1].signal,
+    );
+    expect(onCatalogSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({ revision: 2 }),
+    );
+  });
+  it("D1 preserves the accepted projection after a still-incompatible refresh without recursion", async () => {
+    const accepted = makePlanTodo({
+      display_revision: 3,
+      assignee_user_id: null,
+    });
+    query.mockResolvedValue(makePlanQueryResponse({ items: [accepted] }));
+    getTodo.mockResolvedValue(
+      makePlanTodo({ display_revision: 4, catalog_revision: 1 }),
+    );
+    getCatalog.mockResolvedValue(makePlanCatalog());
+    const { result } = renderHook(() => useProjectPlanQuery(options()));
+    await waitFor(() =>
+      expect(result.current.lanes[0]?.items[0]).toEqual(accepted),
+    );
+    await act(async () => {
+      expect(
+        await result.current.acceptTodo(
+          result.current.captureOperation("compare")!,
+          makePlanTodo({ display_revision: 2, catalog_revision: 2 }),
+        ),
+      ).toBe(false);
+    });
+    expect(result.current.lanes[0].items[0]).toEqual(accepted);
+    expect(result.current.errorKey).toBe("projects.planViews.failed");
+    expect(getTodo).toHaveBeenCalledTimes(1);
+    expect(getCatalog).toHaveBeenCalledTimes(1);
+  });
+  it.each(["project ABA", "unmount", "replacement operation"])(
+    "D1 aborts a bounded snapshot refresh on %s",
+    async (cancel) => {
+      const accepted = makePlanTodo({
+        display_revision: 3,
+        assignee_user_id: null,
+      });
+      query.mockImplementation((p: string) =>
+        Promise.resolve(
+          makePlanQueryResponse({ items: [{ ...accepted, project_id: p }] }),
+        ),
+      );
+      const pending = deferred<ReturnType<typeof makePlanTodo>>();
+      getTodo.mockReturnValue(pending.promise);
+      getCatalog.mockResolvedValue(makePlanCatalog({ revision: 2 }));
+      const onCatalogSnapshot = vi.fn();
+      const { result, rerender, unmount } = renderHook(
+        ({ p }) =>
+          useProjectPlanQuery(
+            options({
+              projectId: p,
+              view: makePlanView({ project_id: p }),
+              onCatalogSnapshot,
+            }),
+          ),
+        { initialProps: { p: "p1" } },
+      );
+      await waitFor(() =>
+        expect(result.current.lanes[0]?.items[0]).toEqual(accepted),
+      );
+      let operation!: Promise<boolean>;
+      act(() => {
+        operation = result.current.acceptTodo(
+          result.current.captureOperation("compare")!,
+          makePlanTodo({ display_revision: 2, catalog_revision: 2 }),
+        );
+      });
+      await waitFor(() => expect(getTodo).toHaveBeenCalledTimes(1));
+      const signal = getTodo.mock.calls[0][2].signal;
+      if (cancel === "project ABA") {
+        rerender({ p: "p2" });
+        rerender({ p: "p1" });
+      } else if (cancel === "unmount") unmount();
+      else
+        act(() => {
+          result.current.captureOperation("compare");
+        });
+      expect(signal.aborted).toBe(true);
+      await act(async () => {
+        pending.resolve({ ...accepted, catalog_revision: 2 });
+        expect(await operation).toBe(false);
+      });
+      expect(onCatalogSnapshot).not.toHaveBeenCalled();
+      if (cancel !== "unmount")
+        expect(result.current.getKnownTodo("todo1")?.catalog_revision).toBe(1);
+    },
+  );
+  it("D1 rejects malformed query snapshots and keeps the legal current row", async () => {
+    const { result } = renderHook(() => useProjectPlanQuery(options()));
+    await waitFor(() => expect(result.current.lanes[0]?.items).toHaveLength(1));
+    const accepted = result.current.lanes[0].items[0];
+    query.mockResolvedValue(
+      makePlanQueryResponse({
+        items: [
+          {
+            ...accepted,
+            display_revision: undefined,
+          } as unknown as typeof accepted,
+        ],
+      }),
+    );
+    await act(async () => {
+      expect(await result.current.loadFirst("all")).toBe(false);
+    });
+    expect(result.current.lanes[0].items[0]).toEqual(accepted);
+    expect(getTodo).not.toHaveBeenCalled();
+    expect(getCatalog).not.toHaveBeenCalled();
+  });
   it("uses server complete counts beyond 200 and requests only a bounded first page", async () => {
     query.mockResolvedValue(
       makePlanQueryResponse({

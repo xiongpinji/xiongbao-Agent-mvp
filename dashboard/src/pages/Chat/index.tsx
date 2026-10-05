@@ -34,7 +34,11 @@ import {
   type ChatQueueFlushContext,
   type QueuedChatItem,
 } from "./hooks/useChatMessageQueue";
-import { useChatNavigation } from "./hooks/useChatNavigation";
+import {
+  useChatNavigation,
+  useChatNavigationOwner,
+} from "./hooks/useChatNavigation";
+import type { NavigationToken } from "./hooks/useChatNavigation";
 import { useChatSessionActions } from "./hooks/useChatSessionActions";
 
 import { useChatComposerResources } from "./hooks/useChatComposerResources";
@@ -85,6 +89,7 @@ import {
   dockTabIdForToolCall,
 } from "./ChatToolDockContext";
 import ChatSidebarPanel from "./components/ChatSidebarPanel";
+import ThreadArchiveBanner from "./components/ThreadArchiveBanner";
 import ChatTitleBar from "./components/ChatTitleBar";
 import TeamChatBadge from "./components/TeamChatBadge";
 import ChatComposerChrome from "./components/ChatComposerChrome";
@@ -214,6 +219,11 @@ function ChatPageInner() {
     agentId?: string;
     threadId?: string;
   }>();
+  const navigationOwner = useChatNavigationOwner(
+    location,
+    routeAgentId,
+    threadId,
+  );
   const isMobile = useIsMobile();
   const user = useCurrentUser();
   const { layoutMode } = useLayoutMode();
@@ -251,7 +261,12 @@ function ChatPageInner() {
   // on subsequent visits or page refreshes.
   useEffect(() => {
     if (prefillInputRef.current) {
-      navigate(location.pathname, { replace: true, state: {} });
+      const token = navigationOwner.begin("explicit");
+      navigationOwner.navigate(token, location.pathname, {
+        replace: true,
+        state: {},
+      });
+      navigationOwner.release(token);
     }
     // Only run once on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -269,9 +284,14 @@ function ChatPageInner() {
     if (val && val !== prefillInputRef.current) {
       prefillInputRef.current = val;
       chatInputRef.current?.setPrefillText(val);
-      navigate(location.pathname, { replace: true, state: {} });
+      const token = navigationOwner.begin("explicit");
+      navigationOwner.navigate(token, location.pathname, {
+        replace: true,
+        state: {},
+      });
+      navigationOwner.release(token);
     }
-  }, [location.state, location.pathname, navigate]);
+  }, [location.state, location.pathname, navigationOwner]);
 
   const activeThreadId = threadId || null;
   const internalTaskRoute = useInternalTaskRoute(routeAgentId, threadId);
@@ -395,19 +415,25 @@ function ChatPageInner() {
     deleteSession,
     renameSession,
     pinSession,
+    archiveSession,
+    selectedSession,
     fetchSessions,
     loadMoreSessions,
-    fetchAllSessions,
     ensureThreadInList,
-  } = useSessions(chatAgentId ?? null, { internal: isInternalTask });
+    search,
+    setSearchQuery,
+    loadMoreSearch,
+    retrySearch,
+  } = useSessions(chatAgentId ?? null, {
+    internal: isInternalTask,
+    actorId: user?.id ?? null,
+    searchEnabled: !isMinimalLayout && !isInternalTask,
+    selectedThreadId: activeThreadId,
+  });
 
   const handleLoadMoreSessions = useCallback(() => {
     void loadMoreSessions(activeThreadId ?? undefined);
   }, [loadMoreSessions, activeThreadId]);
-
-  const handleFetchAllSessions = useCallback(() => {
-    void fetchAllSessions(activeThreadId ?? undefined);
-  }, [fetchAllSessions, activeThreadId]);
 
   useEffect(() => {
     if (routeAgentId && routeAgentId !== activeAgentId) {
@@ -628,8 +654,11 @@ function ChatPageInner() {
   }, [openToolUiTab, closeToolUiPanel]);
 
   const composerSession = useMemo(
-    () => sessions.find((session) => session.id === activeThreadId) ?? null,
-    [sessions, activeThreadId],
+    () =>
+      (selectedSession?.id === activeThreadId ? selectedSession : null) ??
+      sessions.find((session) => session.id === activeThreadId) ??
+      null,
+    [sessions, selectedSession, activeThreadId],
   );
 
   // Artifacts belong to the active thread only — an empty/loading thread
@@ -718,6 +747,7 @@ function ChatPageInner() {
   });
 
   const { resetNavForAgentSwitch, markInitialNavDone } = useChatNavigation({
+    navigationOwner,
     routeAgentId,
     threadId,
     resolvedAgentId: chatAgentId,
@@ -915,6 +945,7 @@ function ChatPageInner() {
     navigateToAgent,
     handleDeleteSession,
   } = useChatSessionActions({
+    navigationOwner,
     resolvedAgentId: chatAgentId,
     activeThreadId,
     sessions,
@@ -1094,6 +1125,13 @@ function ChatPageInner() {
   );
 
   const [forking, setForking] = useState(false);
+  const forkOperationRef = useRef<NavigationToken | null>(null);
+  useEffect(
+    () => () => {
+      forkOperationRef.current = null;
+    },
+    [],
+  );
   const forkDisabled =
     forking || isStreaming || hasPendingHitlPause || isInternalTask;
   const forkDisabledHint = isInternalTask
@@ -1123,28 +1161,40 @@ function ChatPageInner() {
     async (
       agent: string,
       created: { thread_id: string; copied_messages: number },
+      token: NavigationToken,
     ) => {
+      if (!navigationOwner.current(token)) return;
       await ensureThreadInList(created.thread_id);
-      navigate(`/chat/${agent}/${created.thread_id}`);
+      if (!navigationOwner.current(token)) return;
+      navigationOwner.navigate(token, `/chat/${agent}/${created.thread_id}`);
       antMessage.success(
         created.copied_messages > 0
           ? t("chat.forkSuccess")
           : t("chat.forkSuccessEmpty"),
       );
     },
-    [ensureThreadInList, navigate, t],
+    [ensureThreadInList, navigationOwner, t],
   );
 
   const handleForkAssistantMessage = useCallback(
     async (messageId: string) => {
       const agent = resolvedAgentId;
-      if (isInternalTask || !agent || !activeThreadId || forkDisabled) return;
+      if (
+        isInternalTask ||
+        !agent ||
+        !activeThreadId ||
+        forkDisabled ||
+        forkOperationRef.current
+      )
+        return;
       const idx = messages.findIndex((message) => message.id === messageId);
       if (idx < 0) return;
       const assistantMsg = messages[idx];
       if (assistantMsg.role !== "assistant" || assistantMsg.toolData) return;
       const turnsFromEnd = assistantTurnsFromEnd(messages, messageId);
       if (turnsFromEnd < 1) return;
+      const token = navigationOwner.begin("explicit");
+      forkOperationRef.current = token;
       setForking(true);
       try {
         const created = await octopThreadsApi.fork(agent, activeThreadId, {
@@ -1152,11 +1202,16 @@ function ChatPageInner() {
           content: assistantMsg.content,
           assistant_turns_from_end: turnsFromEnd,
         });
-        await navigateToForkedThread(agent, created);
+        await navigateToForkedThread(agent, created, token);
       } catch (error) {
-        antMessage.error(apiErrorMessage(error, t("chat.forkFailed"), t));
+        if (navigationOwner.current(token))
+          antMessage.error(apiErrorMessage(error, t("chat.forkFailed"), t));
       } finally {
-        setForking(false);
+        if (forkOperationRef.current === token) {
+          forkOperationRef.current = null;
+          if (token.lifetime === navigationOwner.lifetime()) setForking(false);
+        }
+        navigationOwner.release(token);
       }
     },
     [
@@ -1167,13 +1222,21 @@ function ChatPageInner() {
       navigateToForkedThread,
       resolvedAgentId,
       t,
+      navigationOwner,
     ],
   );
 
   const handleForkSession = useCallback(
     async (threadId: string, agentId?: string | null) => {
       const agent = agentId || resolvedAgentId;
-      if (isInternalTask || !agent || !threadId || forking) return;
+      if (
+        isInternalTask ||
+        !agent ||
+        !threadId ||
+        forking ||
+        forkOperationRef.current
+      )
+        return;
       if (threadId === activeThreadId && (isStreaming || hasPendingHitlPause)) {
         antMessage.warning(t("chat.forkDisabledWhileBusy"));
         return;
@@ -1182,16 +1245,23 @@ function ChatPageInner() {
         antMessage.warning(t("chat.forkNoAssistant"));
         return;
       }
+      const token = navigationOwner.begin("explicit");
+      forkOperationRef.current = token;
       setForking(true);
       try {
         const created = await octopThreadsApi.fork(agent, threadId, {
           assistant_turns_from_end: 1,
         });
-        await navigateToForkedThread(agent, created);
+        await navigateToForkedThread(agent, created, token);
       } catch (error) {
-        antMessage.error(apiErrorMessage(error, t("chat.forkFailed"), t));
+        if (navigationOwner.current(token))
+          antMessage.error(apiErrorMessage(error, t("chat.forkFailed"), t));
       } finally {
-        setForking(false);
+        if (forkOperationRef.current === token) {
+          forkOperationRef.current = null;
+          if (token.lifetime === navigationOwner.lifetime()) setForking(false);
+        }
+        navigationOwner.release(token);
       }
     },
     [
@@ -1204,6 +1274,7 @@ function ChatPageInner() {
       navigateToForkedThread,
       resolvedAgentId,
       t,
+      navigationOwner,
     ],
   );
 
@@ -1228,6 +1299,7 @@ function ChatPageInner() {
   const activeSession = useMemo(() => {
     if (!activeThreadId || showWelcome) return null;
     return (
+      (selectedSession?.id === activeThreadId ? selectedSession : null) ??
       sessions.find((s) => s.id === activeThreadId) ?? {
         id: activeThreadId,
         name: "New Chat",
@@ -1239,7 +1311,7 @@ function ChatPageInner() {
         pinned: false,
       }
     );
-  }, [activeThreadId, sessions, showWelcome]);
+  }, [activeThreadId, sessions, selectedSession, showWelcome]);
 
   const activeSessionTitle = useMemo(() => {
     if (!activeSession) return null;
@@ -1248,13 +1320,14 @@ function ChatPageInner() {
     return name;
   }, [activeSession, t]);
 
-  const refuseInternalTaskManagement = () => {
+  const refuseInternalTaskManagement = async () => {
     antMessage.warning(
       t(
         "chat.internalTask.manageRestricted",
         "此任务只允许继续既有对话；如需永久删除，请前往项目任务列表使用“删除整任务”。",
       ),
     );
+    return { status: "ignored", reason: "restricted" } as const;
   };
 
   const chatSidebarPanel = (
@@ -1271,15 +1344,21 @@ function ChatPageInner() {
       sessionsHasMore={sessionsHasMore}
       sessionsLoadingMore={sessionsLoadingMore}
       onLoadMoreSessions={handleLoadMoreSessions}
-      onFetchAllSessions={handleFetchAllSessions}
+      search={search}
+      onSearchChange={setSearchQuery}
+      onLoadMoreSearch={loadMoreSearch}
+      onRetrySearch={retrySearch}
       onSelectSession={(sessionId, agentId) => {
-        setActiveAgent(agentId);
         if (agentId && agentId !== resolvedAgentId) {
+          const token = navigationOwner.begin("explicit");
+          setActiveAgent(agentId);
           void octopThreadsApi.rebind(agentId, sessionId).catch(() => {});
-          navigate(`/chat/${agentId}/${sessionId}`);
+          navigationOwner.navigate(token, `/chat/${agentId}/${sessionId}`);
           if (isMobile) setSidebarOpen(false);
+          navigationOwner.release(token);
           return;
         }
+        setActiveAgent(agentId);
         handleSelectSession(sessionId);
       }}
       onAgentSelect={navigateToAgent}
@@ -1290,6 +1369,8 @@ function ChatPageInner() {
       onRenameSession={
         isInternalTask ? refuseInternalTaskManagement : renameSession
       }
+      actorId={user?.id ?? null}
+      onArchiveSession={user ? (id) => archiveSession(id, true) : undefined}
       onPinSession={isInternalTask ? refuseInternalTaskManagement : pinSession}
       onForkSession={handleForkSession}
       forkDisabled={sessionForkDisabled}
@@ -1352,6 +1433,12 @@ function ChatPageInner() {
               .filter(Boolean)
               .join(" ")}
           >
+            {composerSession?.archivedAt != null && user && activeThreadId ? (
+              <ThreadArchiveBanner
+                key={activeThreadId}
+                onRestore={() => archiveSession(activeThreadId, false)}
+              />
+            ) : null}
             {/* Mobile toolbar — session list + optional title + agent profile */}
             {isMobile && (
               <div className={styles.mobileToolbar}>

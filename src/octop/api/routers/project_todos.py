@@ -10,7 +10,10 @@ have no body.
 
 from __future__ import annotations
 
+import asyncio
+from functools import partial
 from typing import Annotated, Any, Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
@@ -31,6 +34,7 @@ from octop.infra.projects.todo_comments import (
 )
 from octop.infra.projects.todos import (
     BULK_MAX_ITEMS,
+    DISPLAY_REVISION_MAX,
     ProjectTodoService,
     TodoView,
     validate_todo_description,
@@ -71,6 +75,7 @@ def _todo_payload(view: TodoView) -> dict[str, Any]:
         "creator_user_id": view.creator_user_id,
         "assignee_user_id": view.assignee_user_id,
         "version": view.version,
+        "display_revision": view.display_revision,
         "created_at": view.created_at,
         "updated_at": view.updated_at,
         "start_date": view.start_date,
@@ -78,6 +83,10 @@ def _todo_payload(view: TodoView) -> dict[str, Any]:
         "priority_id": view.priority_id,
         "tag_ids": view.tag_ids,
         "catalog_revision": view.catalog_revision,
+        "parent_todo_id": view.parent_todo_id,
+        "children_count": view.children_count,
+        "done_children_count": view.done_children_count,
+        "children_revision": view.children_revision,
     }
 
 
@@ -201,6 +210,7 @@ class TodoResponse(BaseModel):
     creator_user_id: int
     assignee_user_id: int | None
     version: int
+    display_revision: Annotated[int, Field(strict=True, ge=1, le=DISPLAY_REVISION_MAX)]
     created_at: int
     updated_at: int
     start_date: str | None
@@ -208,6 +218,11 @@ class TodoResponse(BaseModel):
     priority_id: str | None
     tag_ids: list[str]
     catalog_revision: int
+
+    parent_todo_id: str | None
+    children_count: Annotated[int, Field(strict=True, ge=0, le=100)]
+    done_children_count: Annotated[int, Field(strict=True, ge=0, le=100)]
+    children_revision: Annotated[int, Field(strict=True, ge=1, le=DISPLAY_REVISION_MAX)] | None
 
 
 class TodoListResponse(BaseModel):
@@ -351,6 +366,149 @@ async def list_todos(
         "offset": page.offset,
         "has_more": page.has_more,
     }
+
+
+PositiveRevision = Annotated[int, Field(strict=True, ge=1, le=DISPLAY_REVISION_MAX)]
+
+
+class CreateChildBody(CreateTodoBody):
+    expected_children_revision: PositiveRevision
+    client_request_id: str = Field(
+        min_length=36, max_length=36, description="UUIDv4 retained across retries"
+    )
+
+    @field_validator("client_request_id")
+    @classmethod
+    def _request_uuid(cls, value: str) -> str:
+        parsed = UUID(value)
+        if parsed.version != 4 or str(parsed) != value.lower():
+            raise ValueError("client_request_id must be UUIDv4")
+        return str(parsed)
+
+
+class DeleteTreeBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_version: PositiveInt
+    expected_children_revision: PositiveRevision
+    children: list[BulkTodoItem] = Field(max_length=100)
+
+    @model_validator(mode="after")
+    def _unique_children(self) -> DeleteTreeBody:
+        if len({item.todo_id for item in self.children}) != len(self.children):
+            raise ValueError("children must have unique todo IDs")
+        return self
+
+
+class ChildReceipt(BaseModel):
+    children_revision: PositiveRevision
+    parent_display_revision: PositiveRevision
+    active_count: Annotated[int, Field(strict=True, ge=0, le=100)]
+    done_count: Annotated[int, Field(strict=True, ge=0, le=100)]
+
+
+class ChildrenResponse(ChildReceipt):
+    items: list[TodoResponse]
+    limit: int
+    has_more: bool
+    next_cursor: str | None
+
+
+class ChildCreateResponse(ChildReceipt):
+    item: TodoResponse
+    replayed: bool
+
+
+class DeleteTreeResponse(BaseModel):
+    deleted_todo_ids: list[str]
+    children_revision: PositiveRevision
+    hierarchy_revision: PositiveRevision
+
+
+@router.get(
+    "/{todo_id}/children",
+    response_model=ChildrenResponse,
+    summary="List live child todos with a bounded cursor",
+)
+async def list_children(
+    project_id: str,
+    todo_id: str,
+    server: OctopServer = Depends(get_server),
+    user: User = Depends(current_user),
+    limit: int = Query(50, ge=1, le=100),
+    cursor: str | None = Query(
+        None, description="Opaque collection/display cursor; maximum 2048 bytes"
+    ),
+) -> dict[str, Any]:
+    return await asyncio.get_running_loop().run_in_executor(
+        None,
+        partial(
+            _todo_service(server).list_children,
+            project_id,
+            todo_id,
+            actor_user_id=user.id,
+            limit=limit,
+            cursor=cursor,
+        ),
+    )
+
+
+@router.post(
+    "/{todo_id}/children",
+    status_code=201,
+    response_model=ChildCreateResponse,
+    summary="Create one child todo idempotently",
+)
+async def create_child(
+    project_id: str,
+    todo_id: str,
+    body: CreateChildBody,
+    response: Response,
+    server: OctopServer = Depends(get_server),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    fields = body.model_dump(exclude={"expected_children_revision", "client_request_id"})
+    if "expected_catalog_revision" not in body.model_fields_set:
+        fields.pop("expected_catalog_revision")
+    data = await asyncio.get_running_loop().run_in_executor(
+        None,
+        partial(
+            _todo_service(server).create_child,
+            project_id,
+            todo_id,
+            actor_user_id=user.id,
+            expected_children_revision=body.expected_children_revision,
+            client_request_id=body.client_request_id,
+            fields=fields,
+        ),
+    )
+    response.status_code = 200 if data["replayed"] else 201
+    return data
+
+
+@router.post(
+    "/{todo_id}/delete-tree",
+    response_model=DeleteTreeResponse,
+    summary="Delete a confirmed exact child tree atomically",
+)
+async def delete_tree(
+    project_id: str,
+    todo_id: str,
+    body: DeleteTreeBody,
+    server: OctopServer = Depends(get_server),
+    user: User = Depends(current_user),
+) -> dict[str, Any]:
+    return await asyncio.get_running_loop().run_in_executor(
+        None,
+        partial(
+            _todo_service(server).delete_tree,
+            project_id,
+            todo_id,
+            actor_user_id=user.id,
+            expected_version=body.expected_version,
+            expected_children_revision=body.expected_children_revision,
+            children=[(item.todo_id, item.expected_version) for item in body.children],
+        ),
+    )
 
 
 @router.get("/{todo_id}", response_model=TodoResponse, summary="Get one project todo")

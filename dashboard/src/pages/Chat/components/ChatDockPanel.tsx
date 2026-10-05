@@ -651,6 +651,7 @@ const ChatDockPanel: React.FC<ChatDockPanelProps> = ({
           >
             <WorkspaceDrawer
               agentId={agentId}
+              privateTask={privateTask}
               open
               onClose={() => onCloseTab("workspace")}
               embedded

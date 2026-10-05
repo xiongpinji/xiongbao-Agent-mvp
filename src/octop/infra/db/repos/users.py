@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 
 from octop.infra.db.pool import DatabasePool
 from octop.infra.db.repos._base import DbRow, bool_int, insert_returning_id, map_rows, now_ts
+from octop.infra.db.repos.project_plan_locks import prepare_user_delete_in_connection
 from octop.infra.utils.project_plan_keys import project_plan_display_sort_key
 
 
@@ -332,6 +333,7 @@ class UserRepo:
 
     def delete(self, user_id: int) -> None:
         with self._db.transaction() as conn:
+            prepare_user_delete_in_connection(self._db, conn, [user_id])
             conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
 
     def count(self) -> int:

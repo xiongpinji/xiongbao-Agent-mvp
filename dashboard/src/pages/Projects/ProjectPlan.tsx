@@ -42,6 +42,7 @@ import ProjectPlanViews, {
   type PlanTodoMutationResult,
 } from "./plan/ProjectPlanViews";
 import styles from "./ProjectPlan.module.less";
+import { compareTodoSnapshot, validTodoSnapshot } from "./plan/todoSnapshot";
 
 const TODO_STATUSES: ProjectTodoStatus[] = ["todo", "in_progress", "done"];
 const STATUS_FALLBACKS: Record<ProjectTodoStatus, string> = {
@@ -70,6 +71,12 @@ function httpStatus(error: unknown): number | null {
   const match = raw.match(/\b(4\d{2}|5\d{2})\b/);
   return match ? Number(match[1]) : null;
 }
+function isChildrenConfirmationError(error: unknown): boolean {
+  return (
+    parseApiError(error)?.details?.reason === "children_confirmation_required"
+  );
+}
+
 function isConflictApiError(error: unknown): boolean {
   const parsed = parseApiError(error);
   return (
@@ -92,6 +99,7 @@ function validTodo(
   projectId: string,
 ): todo is ProjectTodo {
   return (
+    validTodoSnapshot(todo, projectId) &&
     !!todo &&
     todo.project_id === projectId &&
     typeof todo.todo_id === "string" &&
@@ -465,6 +473,8 @@ function ProjectPlanContent({
   const views = useRef<ProjectPlanViewsHandle>(null);
   const active = useRef(true);
   const accessConfirmSeq = useRef(0);
+  const treeConfirmSeq = useRef(0);
+  const treeDialog = useRef<ReturnType<typeof Modal.confirm> | null>(null);
   const parentLossPublished = useRef(false);
   const [loadedTodos, setLoadedTodos] = useState<ProjectTodo[]>([]);
   const loaded = useRef<ProjectTodo[]>([]);
@@ -501,12 +511,24 @@ function ProjectPlanContent({
   detailRef.current = detail;
   const suppressedDeepLink = useRef<string | null>(null);
   const lostCallback = useRef<() => void>(() => {});
-  const catalogState = useTodoCatalog(
+  const [snapshotCatalog, setSnapshotCatalog] =
+    useState<ProjectTodoCatalog | null>(null);
+  const baseCatalogState = useTodoCatalog(
     projectId,
     currentUserId,
     () => lostCallback.current(),
-    loadedTodos.map((todo) => todo.catalog_revision),
+    loadedTodos
+      .filter((todo) => snapshotCatalog?.revision !== todo.catalog_revision)
+      .map((todo) => todo.catalog_revision),
   );
+  const catalogState = {
+    ...baseCatalogState,
+    catalog:
+      snapshotCatalog &&
+      snapshotCatalog.revision >= (baseCatalogState.catalog?.revision ?? 0)
+        ? snapshotCatalog
+        : baseCatalogState.catalog,
+  };
   const catalogRef = useRef(catalogState);
   catalogRef.current = catalogState;
   const catalog = catalogState.catalog;
@@ -523,8 +545,16 @@ function ProjectPlanContent({
       active.current = false;
       accessConfirmSeq.current += 1;
       editorSeq.current += 1;
+      treeConfirmSeq.current += 1;
+      treeDialog.current?.destroy();
     };
   }, []);
+
+  useEffect(() => {
+    treeConfirmSeq.current += 1;
+    treeDialog.current?.destroy();
+    treeDialog.current = null;
+  }, [projectId, currentUserId]);
 
   const current = useCallback(
     (scope: PlanOperationScope) =>
@@ -552,6 +582,9 @@ function ProjectPlanContent({
   }, []);
   const clearPrivate = () => {
     if (!active.current) return;
+    treeConfirmSeq.current += 1;
+    treeDialog.current?.destroy();
+    treeDialog.current = null;
     editorSeq.current += 1;
     editorShown.current = false;
     editorBusy.current = false;
@@ -561,6 +594,7 @@ function ProjectPlanContent({
     explicitEditorRefresh.current = null;
     views.current?.clearPrivate();
     catalogState.clear();
+    setSnapshotCatalog(null);
     loaded.current = [];
     setLoadedTodos([]);
     setAccessLost(true);
@@ -650,6 +684,16 @@ function ProjectPlanContent({
     attachDetail(todo.todo_id, scope, trigger);
     latestCallbacks.current.onOpenTodo?.(todo.todo_id);
   };
+  const openParentDetail = (
+    todoId: string,
+    trigger: HTMLElement | null,
+    scope: PlanOperationScope,
+  ) => {
+    if (!current(scope)) return;
+    suppressedDeepLink.current = null;
+    attachDetail(todoId, scope, trigger);
+    latestCallbacks.current.onOpenTodo?.(todoId);
+  };
 
   const loadedCallback = useRef<
     (todos: readonly ProjectTodo[], scope: PlanOperationScope) => void
@@ -659,14 +703,12 @@ function ProjectPlanContent({
     const deduped = new Map<string, ProjectTodo>();
     for (const todo of todos) {
       if (!validTodo(todo, projectId)) continue;
-      const prior = deduped.get(todo.todo_id);
-      if (
-        !prior ||
-        todo.version > prior.version ||
-        (todo.version === prior.version &&
-          todo.catalog_revision > prior.catalog_revision)
-      )
-        deduped.set(todo.todo_id, todo);
+      const prior =
+        deduped.get(todo.todo_id) ??
+        loaded.current.find((item) => item.todo_id === todo.todo_id);
+      const order = compareTodoSnapshot(prior, todo);
+      if (order === "accept") deduped.set(todo.todo_id, todo);
+      else if (prior && order !== "invalid") deduped.set(todo.todo_id, prior);
     }
     const next = [...deduped.values()];
     loaded.current = next;
@@ -747,17 +789,35 @@ function ProjectPlanContent({
     // Unknown transport text may contain internal details. Keep it out of the UI.
     return fallback;
   };
-  const acceptTodo = (scope: PlanOperationScope, todo: ProjectTodo) => {
+  const acceptTodo = async (
+    scope: PlanOperationScope,
+    todo: ProjectTodo,
+    catalog?: ProjectTodoCatalog,
+  ) => {
     if (!current(scope) || !validTodo(todo, projectId)) return false;
-    views.current?.acceptTodo(scope, todo);
+    if (
+      !(await views.current?.acceptTodo(scope, todo, catalog)) ||
+      !active.current ||
+      !views.current?.hasAcceptedTodo(scope, todo)
+    )
+      return false;
+    const accepted = views.current.getKnownTodo(todo.todo_id);
+    if (!accepted) return false;
     loaded.current = loaded.current.map((old) =>
-      old.todo_id === todo.todo_id && old.version <= todo.version ? todo : old,
+      old.todo_id === accepted.todo_id &&
+      compareTodoSnapshot(old, accepted) === "accept"
+        ? accepted
+        : old,
     );
     setLoadedTodos(loaded.current);
     return true;
   };
-  const refreshAccepted = () => {
-    void views.current?.refreshCurrent();
+  const refreshAccepted = (
+    scope?: PlanOperationScope,
+    todos?: readonly ProjectTodo[],
+  ) => {
+    if (scope && todos) void views.current?.refreshAfterTodos(scope, todos);
+    else void views.current?.refreshCurrent();
   };
   const mutationFailure = async (
     error: unknown,
@@ -837,6 +897,160 @@ function ProjectPlanContent({
       };
     return { status: "failed", messageKey: "projects.plan.actionFailed" };
   };
+  const loadTreeChildren = async (
+    todo: ProjectTodo,
+  ): Promise<ProjectTodo[]> => {
+    if (todo.children_revision === null)
+      throw new Error("Todo has no children revision");
+    const page = await projectTodosApi.listChildren(projectId, todo.todo_id, {
+      limit: 100,
+    });
+    if (
+      page.children_revision !== todo.children_revision ||
+      page.parent_display_revision !== todo.display_revision ||
+      page.has_more ||
+      page.next_cursor !== null ||
+      page.active_count !== page.items.length ||
+      page.active_count > 100 ||
+      page.active_count !== todo.children_count ||
+      page.done_count !== todo.done_children_count ||
+      page.limit !== 100 ||
+      page.items.some(
+        (child) =>
+          !validTodo(child, projectId) ||
+          child.parent_todo_id !== todo.todo_id ||
+          child.children_count !== 0 ||
+          child.done_children_count !== 0 ||
+          child.children_revision !== null,
+      ) ||
+      new Set(page.items.map((child) => child.todo_id)).size !==
+        page.items.length
+    )
+      throw new Error("Incomplete or invalid subtodo tree");
+    return page.items;
+  };
+
+  const confirmTreeDelete = async (
+    todo: ProjectTodo,
+    scope: PlanOperationScope,
+  ) => {
+    if (todo.children_revision === null) return;
+    const confirmation = ++treeConfirmSeq.current;
+    treeDialog.current?.destroy();
+    const isCurrent = () =>
+      current(scope) && confirmation === treeConfirmSeq.current;
+    try {
+      const children = await loadTreeChildren(todo);
+      if (!isCurrent()) return;
+      let submitting = false;
+      let completed = false;
+      treeDialog.current = Modal.confirm({
+        title: t("projects.subtodos.treeConfirmTitle", "删除待办和子待办？"),
+        content: t(
+          "projects.subtodos.treeConfirm",
+          "将删除该待办及 {{count}} 个活跃子待办。",
+          { count: children.length },
+        ),
+        okText: t("projects.subtodos.treeDelete", "删除待办和子待办"),
+        cancelText: t("common.cancel", "取消"),
+        okButtonProps: { danger: true },
+        onCancel: () => {
+          if (isCurrent()) treeConfirmSeq.current += 1;
+        },
+        onOk: (close: () => void) => {
+          if (!isCurrent()) {
+            close();
+            return;
+          }
+          if (submitting || completed) return;
+          submitting = true;
+          treeDialog.current?.update({
+            okButtonProps: { danger: true, loading: true },
+          });
+          void (async () => {
+            try {
+              const response = await projectTodosApi.deleteTree(
+                projectId,
+                todo.todo_id,
+                {
+                  expected_version: todo.version,
+                  expected_children_revision: todo.children_revision!,
+                  children: children
+                    .map((child) => ({
+                      todo_id: child.todo_id,
+                      expected_version: child.version,
+                    }))
+                    .sort((a, b) => a.todo_id.localeCompare(b.todo_id)),
+                },
+              );
+              if (!isCurrent()) return;
+              const expected = [
+                todo.todo_id,
+                ...children.map((child) => child.todo_id).sort(),
+              ];
+              if (
+                !Array.isArray(response.deleted_todo_ids) ||
+                !Number.isSafeInteger(response.children_revision) ||
+                response.children_revision <= 0 ||
+                !Number.isSafeInteger(response.hierarchy_revision) ||
+                response.hierarchy_revision <= 0 ||
+                response.deleted_todo_ids.length !== expected.length ||
+                response.deleted_todo_ids.some(
+                  (id, index) => id !== expected[index],
+                )
+              )
+                throw new Error("Invalid tree delete receipt");
+              completed = true;
+              const deleted = new Set(response.deleted_todo_ids);
+              loaded.current = loaded.current.filter(
+                (item) => !deleted.has(item.todo_id),
+              );
+              setLoadedTodos(loaded.current);
+              if (detailRef.current && deleted.has(detailRef.current.todoId))
+                closeDetail();
+              if (editing && deleted.has(editing.todo_id)) {
+                editorBusy.current = false;
+                closeEditor();
+              }
+              refreshAccepted();
+              void message.success(t("projects.plan.deleted"));
+              close();
+            } catch (error) {
+              if (!isCurrent()) return;
+              if (isNotFoundApiError(error))
+                await mutationFailure(error, scope, { todoId: todo.todo_id });
+              else
+                setActionError(
+                  todoErrorMessage(
+                    error,
+                    t("projects.subtodos.treeFailed", "删除待办树失败"),
+                  ),
+                );
+            } finally {
+              submitting = false;
+              if (isCurrent())
+                treeDialog.current?.update({
+                  okButtonProps: { danger: true, loading: false },
+                });
+            }
+          })();
+        },
+      });
+    } catch (error) {
+      if (!isCurrent()) return;
+      if (isNotFoundApiError(error)) {
+        await mutationFailure(error, scope, { todoId: todo.todo_id });
+        return;
+      }
+      setActionError(
+        todoErrorMessage(
+          error,
+          t("projects.subtodos.treeFailed", "删除待办树失败"),
+        ),
+      );
+    }
+  };
+
   const proposePatch = async (
     todo: ProjectTodo,
     proposal: PlanTodoPatchProposal,
@@ -919,8 +1133,9 @@ function ProjectPlanContent({
         updated.version <= proposal.baseVersion
       )
         throw new Error("Invalid todo mutation response");
-      acceptTodo(scope, updated);
-      refreshAccepted();
+      if (!(await acceptTodo(scope, updated)))
+        throw new Error("Todo snapshot was not accepted");
+      refreshAccepted(scope, [updated]);
       return { status: "saved", todo: updated };
     } catch (error) {
       if (!current(scope))
@@ -957,6 +1172,10 @@ function ProjectPlanContent({
       void message.success(t("projects.plan.deleted"));
     } catch (error) {
       if (!current(scope)) return;
+      if (isChildrenConfirmationError(error)) {
+        await confirmTreeDelete(todo, scope);
+        return;
+      }
       const failure = await mutationFailure(error, scope, {
         todoId: todo.todo_id,
       });
@@ -1013,8 +1232,20 @@ function ProjectPlanContent({
         new Set(updated.map((todo) => todo.todo_id)).size !== unique.size
       )
         throw new Error("Invalid bulk mutation response");
-      for (const todo of updated) acceptTodo(scope, todo);
-      refreshAccepted();
+      if (
+        !(await views.current?.acceptTodos(scope, updated)) ||
+        !active.current ||
+        !updated.every((todo) => views.current?.hasAcceptedTodo(scope, todo))
+      )
+        throw new Error("Todo snapshot was not accepted");
+      loaded.current = loaded.current.map((old) => {
+        const accepted = views.current?.getKnownTodo(old.todo_id);
+        return accepted && compareTodoSnapshot(old, accepted) === "accept"
+          ? accepted
+          : old;
+      });
+      setLoadedTodos(loaded.current);
+      refreshAccepted(scope, updated);
       void message.success(
         t("projects.plan.bulkSuccess", { count: items.length }),
       );
@@ -1138,12 +1369,13 @@ function ProjectPlanContent({
           updated.version <= editing.version
         )
           throw new Error("Invalid todo mutation response");
-        acceptTodo(scope, updated);
+        if (!(await acceptTodo(scope, updated)))
+          throw new Error("Todo snapshot was not accepted");
         editorShown.current = false;
         setEditorOpen(false);
         setEditing(null);
         void message.success(t("projects.plan.saved"));
-        refreshAccepted();
+        refreshAccepted(scope, [updated]);
       } else {
         const body: ProjectTodoCreateBody = {
           title: values.title,
@@ -1174,11 +1406,12 @@ function ProjectPlanContent({
         if (!owns()) return;
         if (!validTodo(created, projectId))
           throw new Error("Invalid todo create response");
-        acceptTodo(scope, created);
+        if (!(await acceptTodo(scope, created)))
+          throw new Error("Todo snapshot was not accepted");
         editorShown.current = false;
         setEditorOpen(false);
         void message.success(t("projects.plan.created"));
-        refreshAccepted();
+        refreshAccepted(scope, [created]);
       }
     } catch (error) {
       if (!owns()) return;
@@ -1387,6 +1620,13 @@ function ProjectPlanContent({
           catalogLoading={catalogState.loading}
           catalogError={catalogState.error}
           onCatalogRetry={catalogState.reload}
+          onCatalogSnapshot={(incoming) =>
+            setSnapshotCatalog((previous) =>
+              !previous || incoming.revision >= previous.revision
+                ? incoming
+                : previous,
+            )
+          }
           selectedTodoId={selectedTodoId}
           canEdit={canEditTodo}
           canDelete={canDeleteTodo}
@@ -1396,6 +1636,7 @@ function ProjectPlanContent({
             void deleteTodo(todo, scope);
           }}
           onOpenTodo={openDetail}
+          onOpenParentTodo={openParentDetail}
           onProposeTodoPatch={proposePatch}
           onBulkTodo={bulkTodos}
           onLoadedTodosChanged={onLoaded}
@@ -1468,9 +1709,15 @@ function ProjectPlanContent({
           onClose={() => {
             if (current(detail.scope)) closeDetail(detail);
           }}
-          onChanged={(todo) => {
-            if (current(detail.scope) && acceptTodo(detail.scope, todo))
-              refreshAccepted();
+          onChanged={(todo, catalog) => {
+            if (todo.parent_todo_id !== null) return;
+            if (current(detail.scope))
+              void acceptTodo(detail.scope, todo, catalog).then((accepted) => {
+                if (accepted) refreshAccepted(detail.scope, [todo]);
+              });
+          }}
+          onOpenChild={(todo) => {
+            if (current(detail.scope)) openDetail(todo, null, detail.scope);
           }}
           onAccessLost={() => {
             if (current(detail.scope))

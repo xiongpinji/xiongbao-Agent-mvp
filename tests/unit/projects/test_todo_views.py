@@ -309,3 +309,136 @@ def test_fixed_view_error_namespace_and_unknown_reason_never_echoes_private_data
         view_error("private-user-input")
     assert unknown.value.code == ErrorCode.INTERNAL_ERROR
     assert "private-user-input" not in str(unknown.value)
+
+
+@pytest.mark.parametrize("typed", [False, True])
+def test_table_patch_omission_preserves_locked_true_and_explicit_false_changes(service_case, typed):
+    from octop.api.routers.project_todo_views import UpdateViewBody
+
+    created = _create(
+        service_case, definition=dict(default_definition("table"), show_subtodos=True)
+    )
+    item = created["item"]
+    legacy = default_definition("table")
+    legacy.pop("show_subtodos")
+    legacy["sort"] = []
+    body = UpdateViewBody.model_validate(
+        {"expected_version": 1, "definition": legacy, "expected_catalog_revision": 1}
+    )
+    payload = body.definition if typed else legacy
+    changed = service_case["service"].update_view(
+        service_case["pid"],
+        item["view_id"],
+        actor_user_id=service_case["owner"],
+        expected_version=1,
+        definition=payload,
+        expected_catalog_revision=1,
+    )["item"]
+    assert changed["definition"]["show_subtodos"] is True
+    before = _raw(service_case)
+    with pytest.raises(OctopError) as caught:
+        service_case["service"].update_view(
+            service_case["pid"],
+            item["view_id"],
+            actor_user_id=service_case["owner"],
+            expected_version=1,
+            definition=dict(legacy, show_subtodos=False),
+            expected_catalog_revision=1,
+        )
+    assert caught.value.status == 409
+    assert caught.value.details["reason"] == "view_version_conflict"
+    assert _raw(service_case) == before
+    renamed = service_case["service"].update_view(
+        service_case["pid"],
+        item["view_id"],
+        actor_user_id=service_case["owner"],
+        expected_version=2,
+        name="renamed",
+    )["item"]
+    assert renamed["definition"]["show_subtodos"] is True
+    changed = service_case["service"].update_view(
+        service_case["pid"],
+        item["view_id"],
+        actor_user_id=service_case["owner"],
+        expected_version=3,
+        definition=dict(legacy, show_subtodos=False),
+        expected_catalog_revision=1,
+    )["item"]
+    assert changed["definition"]["show_subtodos"] is False
+
+
+def test_table_flag_merge_occurs_only_after_locked_acl_version_snapshot(service_case, monkeypatch):
+    created = _create(service_case)
+    target = created["item"]["view_id"]
+    original = service_case["repo"]._write_snapshot
+
+    def locked_snapshot(conn, *args, **kwargs):
+        current = conn.execute(
+            "SELECT definition_json FROM project_todo_views WHERE view_id=?", (target,)
+        ).fetchone()
+        stored = json.loads(current[0])
+        stored["show_subtodos"] = True
+        conn.execute(
+            "UPDATE project_todo_views SET definition_json=? WHERE view_id=?",
+            (json.dumps(stored), target),
+        )
+        return original(conn, *args, **kwargs)
+
+    monkeypatch.setattr(service_case["repo"], "_write_snapshot", locked_snapshot)
+    legacy = default_definition("table")
+    legacy.pop("show_subtodos")
+    legacy["sort"] = []
+    result = service_case["service"].update_view(
+        service_case["pid"],
+        target,
+        actor_user_id=service_case["owner"],
+        expected_version=1,
+        definition=legacy,
+        expected_catalog_revision=1,
+    )
+    assert result["item"]["definition"]["show_subtodos"] is True
+
+
+def test_table_type_switch_requires_clean_definition_and_defaults_false(service_case):
+    item = _create(service_case, definition=dict(default_definition("table"), show_subtodos=True))[
+        "item"
+    ]
+    with pytest.raises(OctopError):
+        service_case["service"].update_view(
+            service_case["pid"],
+            item["view_id"],
+            actor_user_id=service_case["owner"],
+            expected_version=1,
+            view_type="list",
+            definition=item["definition"],
+            expected_catalog_revision=1,
+        )
+    item = service_case["service"].update_view(
+        service_case["pid"],
+        item["view_id"],
+        actor_user_id=service_case["owner"],
+        expected_version=1,
+        view_type="list",
+        definition=default_definition("list"),
+        expected_catalog_revision=1,
+    )["item"]
+    assert "show_subtodos" not in item["definition"]
+    item = service_case["service"].update_view(
+        service_case["pid"],
+        item["view_id"],
+        actor_user_id=service_case["owner"],
+        expected_version=2,
+        view_type="table",
+        definition=default_definition("list"),
+        expected_catalog_revision=1,
+    )["item"]
+    assert item["definition"]["show_subtodos"] is False
+
+
+def test_legacy_table_read_payload_normalizes_flag_without_storage_write(service_case):
+    before = _raw(service_case)
+    item = service_case["service"].list_views(service_case["pid"], user_id=service_case["owner"])[
+        "items"
+    ][0]
+    assert item["definition"]["show_subtodos"] is False
+    assert _raw(service_case) == before

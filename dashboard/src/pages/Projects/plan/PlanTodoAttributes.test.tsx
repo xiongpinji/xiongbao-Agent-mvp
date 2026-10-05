@@ -77,6 +77,45 @@ describe("real visible plan attributes", () => {
     expect(screen.queryByText("标签")).toBeNull();
   });
 
+  it("shows root subtodo counts without rendering a child count chip", () => {
+    render(
+      <PlanTodoAttributes
+        {...base}
+        todo={makePlanTodo({ children_count: 3, done_children_count: 2 })}
+        fields={["title", "status"]}
+      />,
+    );
+    expect(screen.getByText("2/3 已完成")).toBeVisible();
+
+    const { rerender } = render(
+      <PlanTodoAttributes
+        {...base}
+        todo={makePlanTodo({
+          todo_id: "child1",
+          parent_todo_id: "root1",
+          children_count: 0,
+          done_children_count: 0,
+          children_revision: null,
+        })}
+        fields={["title", "status"]}
+      />,
+    );
+    rerender(
+      <PlanTodoAttributes
+        {...base}
+        todo={makePlanTodo({
+          todo_id: "child1",
+          parent_todo_id: "root1",
+          children_count: 0,
+          done_children_count: 0,
+          children_revision: null,
+        })}
+        fields={["title", "status"]}
+      />,
+    );
+    expect(screen.queryByText("0/0 已完成")).toBeNull();
+  });
+
   it("shows actual manual source without requiring a fictional DTO field", () => {
     const todo = makePlanTodo({ creator_user_id: 7 });
     const onOpenTodo = vi.fn();

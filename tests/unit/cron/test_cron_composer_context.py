@@ -86,6 +86,7 @@ async def test_deliver_agent_stamps_composer_on_human_message() -> None:
         )
     )
     agent_manager.prepare_chat_mcp = AsyncMock(return_value=[])
+    agent_manager.personal_mcp_actor = MagicMock(return_value=None)
     agent_manager.stream = _stream
     agent_manager.get_row = MagicMock(return_value=agent_row)
 
@@ -126,6 +127,7 @@ async def test_deliver_agent_merges_default_open_when_empty() -> None:
     agent_manager.merge_turn_mcp_servers = MagicMock(return_value=["always__1"])
     agent_manager.default_mcp_servers = MagicMock(return_value=[])
     agent_manager.prepare_chat_mcp = AsyncMock(return_value=[])
+    agent_manager.personal_mcp_actor = MagicMock(return_value=None)
     agent_manager.stream = _stream
     agent_manager.get_row = MagicMock(return_value=agent_row)
 
@@ -199,6 +201,7 @@ async def test_deliver_agent_explicit_mcp_overrides_defaults() -> None:
     agent_manager.merge_turn_mcp_servers = MagicMock(return_value=["picked__1"])
     agent_manager.default_mcp_servers = MagicMock(return_value=[])
     agent_manager.prepare_chat_mcp = AsyncMock(return_value=[])
+    agent_manager.personal_mcp_actor = MagicMock(return_value=None)
     agent_manager.stream = _stream
     agent_manager.get_row = MagicMock(return_value=agent_row)
 
@@ -219,6 +222,57 @@ async def test_deliver_agent_explicit_mcp_overrides_defaults() -> None:
         1, ["picked__1"], apply_defaults=False, extra_defaults=[]
     )
     gateway.push_session_text.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_deliver_agent_passes_server_actor_outside_harness_request() -> None:
+    from octop.infra.connectors.mcp_actor_scope import TrustedMCPActor
+
+    session = _dashboard_session()
+    actor = TrustedMCPActor(
+        user_id=1,
+        agent_id="a1",
+        thread_id="thr1",
+        session_key=session.session_key,
+        source="dashboard",
+        allowed_personal_servers=frozenset({"qa_personal"}),
+        locale="en",
+    )
+
+    async def _stream(_aid: str, request: dict, *, trusted_actor):
+        assert trusted_actor is actor
+        assert request["mcp_servers"] == ["qa_personal"]
+        assert "trusted_actor" not in request and "personal_mcp_receipt" not in request
+        yield {"type": "token", "content": "ok"}
+
+    agent_manager = MagicMock()
+    agent_manager.merge_turn_mcp_servers.return_value = ["qa_personal"]
+    agent_manager.default_mcp_servers.return_value = []
+    agent_manager.prepare_chat_mcp = AsyncMock(return_value=[])
+    agent_manager.personal_mcp_actor.return_value = actor
+    agent_manager.stream = _stream
+    agent_manager.get_row.return_value = SimpleNamespace(default_model=None, kind="agent")
+    repos = MagicMock()
+    repos.user_repo.get.return_value = SimpleNamespace(
+        role="user", locale="en", preferences_json="{}"
+    )
+    gateway = MagicMock()
+    gateway.run_in_session = _run_locked
+    gateway.require_session.return_value = session
+    gateway.push_session_text = AsyncMock()
+    gateway.notify_dashboard_push = AsyncMock()
+    service = CronDeliveryService(gateway=gateway, agent_manager=agent_manager, repos=repos)
+    await service.deliver(_command(mcp_servers=("qa_personal",)))
+    agent_manager.personal_mcp_actor.assert_called_once_with(
+        "a1",
+        user_id=1,
+        thread_id="thr1",
+        session_key=session.session_key,
+        source="dashboard",
+        servers=["qa_personal"],
+        locale="en",
+    )
+    gateway.push_session_text.assert_awaited_once()
 
 
 @pytest.mark.asyncio

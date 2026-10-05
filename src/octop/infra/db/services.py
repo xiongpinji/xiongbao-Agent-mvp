@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from octop.config import OctopConfig
 from octop.infra.db.pool import DatabasePool
@@ -19,6 +19,7 @@ from octop.infra.db.repos.proactive_care_config import ProactiveCareConfigRepo
 from octop.infra.db.repos.project_activity import ProjectActivityRepo
 from octop.infra.db.repos.project_assets import ProjectAssetRepo
 from octop.infra.db.repos.project_plan_query import ProjectPlanQueryRepo
+from octop.infra.db.repos.project_public_connectors import ProjectPublicConnectorRepo
 from octop.infra.db.repos.project_task_content import ProjectTaskContentRepo
 from octop.infra.db.repos.project_task_shares import ProjectTaskShareRepo
 from octop.infra.db.repos.project_tasks import ProjectTaskRepo
@@ -83,6 +84,12 @@ class RepoBundle:
     project_task_content_repo: ProjectTaskContentRepo
     project_activity_repo: ProjectActivityRepo
     project_asset_repo: ProjectAssetRepo
+    project_public_connector_repo: ProjectPublicConnectorRepo = field(init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "project_public_connector_repo", ProjectPublicConnectorRepo(self.db)
+        )
 
     @classmethod
     def from_pool(cls, db: DatabasePool) -> RepoBundle:
@@ -275,6 +282,10 @@ class SharedServices:
     @property
     def project_asset_repo(self) -> ProjectAssetRepo:
         return self.repos.project_asset_repo
+
+    @property
+    def project_public_connector_repo(self) -> ProjectPublicConnectorRepo:
+        return self.repos.project_public_connector_repo
 
 
 def build_shared_services(

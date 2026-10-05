@@ -5,11 +5,16 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote
 
 from octop.infra.db.pool import DatabasePool, SqlitePool
 from octop.infra.db.repos._base import now_ts
-from octop.infra.utils.project_plan_keys import project_plan_display_sort_key
+from octop.infra.db.repos.project_plan_locks import prepare_user_delete_in_connection
+from octop.infra.utils.project_plan_keys import (
+    normalize_project_plan_key,
+    project_plan_display_sort_key,
+)
 
 _JWT_SECRET_KEY = "jwt"
 
@@ -131,12 +136,42 @@ def upsert_users_into_pool(pool: DatabasePool, users: list[tuple[object, ...]]) 
                 )
 
 
+def repair_project_plan_keys_in_connection(conn: Any) -> None:
+    """Rebuild untrusted backup keys without changing logical row revisions."""
+    for row in conn.execute(
+        "SELECT todo_id,title,title_search_key FROM project_todos ORDER BY id"
+    ).fetchall():
+        key = normalize_project_plan_key(str(row["title"]))
+        if row["title_search_key"] != key:
+            conn.execute(
+                "UPDATE project_todos SET title_search_key=? WHERE todo_id=? AND title=?",
+                (key, row["todo_id"], row["title"]),
+            )
+    for row in conn.execute(
+        "SELECT id,username,display_name,project_plan_display_sort_key FROM users ORDER BY id"
+    ).fetchall():
+        key = project_plan_display_sort_key(
+            str(row["username"]),
+            None if row["display_name"] is None else str(row["display_name"]),
+        )
+        if row["project_plan_display_sort_key"] != key:
+            conn.execute(
+                "UPDATE users SET project_plan_display_sort_key=? WHERE id=? AND username=? "
+                "AND (display_name=? OR (display_name IS NULL AND CAST(? AS TEXT) IS NULL))",
+                (key, row["id"], row["username"], row["display_name"], row["display_name"]),
+            )
+
+
 def prune_users_not_in(pool: DatabasePool, saved_ids: list[object]) -> None:
     """Delete users whose id is not in *saved_ids*."""
     if not saved_ids:
         return
     placeholders = ", ".join("?" for _ in saved_ids)
     with pool.transaction() as conn:
+        targets = conn.execute(
+            f"SELECT id FROM users WHERE id NOT IN ({placeholders})", saved_ids
+        ).fetchall()
+        prepare_user_delete_in_connection(pool, conn, [int(row["id"]) for row in targets])
         conn.execute(f"DELETE FROM users WHERE id NOT IN ({placeholders})", saved_ids)
 
 

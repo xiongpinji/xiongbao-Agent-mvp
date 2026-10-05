@@ -63,6 +63,12 @@ interface PlanDefinitionFields {
   sort: readonly PlanSortSpec[];
 }
 export interface PlanDefinition extends PlanDefinitionFields {
+  show_subtodos?: never;
+  gantt?: never;
+  calendar?: never;
+}
+export interface PlanTableDefinition extends PlanDefinitionFields {
+  show_subtodos: boolean;
   gantt?: never;
   calendar?: never;
 }
@@ -70,22 +76,26 @@ export interface PlanBoardDefinition extends PlanDefinition {
   group_by: Exclude<PlanGroupBy, null>;
 }
 export interface PlanGanttDefinition extends PlanDefinitionFields {
+  show_subtodos?: never;
   group_by: null;
   gantt: { zoom: "day" | "week" | "month" };
   calendar?: never;
 }
 export interface PlanCalendarDefinition extends PlanDefinitionFields {
+  show_subtodos?: never;
   group_by: null;
   calendar: { date_basis: "due_date" | "start_date"; mode: "month" | "week" };
   gantt?: never;
 }
 export type AnyPlanDefinition =
   | PlanDefinition
+  | PlanTableDefinition
   | PlanBoardDefinition
   | PlanGanttDefinition
   | PlanCalendarDefinition;
 type TypedPlanDefinition =
-  | { type: "list" | "table"; definition: PlanDefinition }
+  | { type: "list"; definition: PlanDefinition }
+  | { type: "table"; definition: PlanTableDefinition }
   | { type: "board"; definition: PlanBoardDefinition }
   | { type: "gantt"; definition: PlanGanttDefinition }
   | { type: "calendar"; definition: PlanCalendarDefinition };
@@ -161,8 +171,11 @@ export interface PlanQueryRequest {
   limit?: number;
   cursor?: string;
 }
+export interface PlanQueryTodo extends ProjectTodo {
+  parent_title: string | null;
+}
 export interface PlanQueryResponse {
-  items: ProjectTodo[];
+  items: PlanQueryTodo[];
   next_cursor: string | null;
   total: number;
   matched_total: number;
@@ -174,6 +187,19 @@ export interface PlanQueryResponse {
   server_today: string;
   server_timezone: string;
   query_fingerprint: string;
+}
+
+// Older saved tables omit the flag. New definitions always carry an explicit bool.
+export function normalizePlanDefinition(
+  type: PlanViewType,
+  definition: AnyPlanDefinition,
+): AnyPlanDefinition {
+  return type === "table" &&
+    !definition.gantt &&
+    !definition.calendar &&
+    !("show_subtodos" in definition)
+    ? { ...definition, show_subtodos: false }
+    : definition;
 }
 
 const base = (projectId: string) =>

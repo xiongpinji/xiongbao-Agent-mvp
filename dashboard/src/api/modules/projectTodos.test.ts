@@ -31,6 +31,11 @@ const todo: ProjectTodo = {
   creator_user_id: 1,
   assignee_user_id: null,
   version: 2,
+  display_revision: 2,
+  parent_todo_id: null,
+  children_count: 0,
+  done_children_count: 0,
+  children_revision: 1,
   created_at: 1_700_000_000,
   updated_at: 1_700_000_100,
 };
@@ -42,6 +47,19 @@ beforeEach(() => {
 });
 
 describe("projectTodosApi", () => {
+  it("D1 GET retains AbortSignal and fixes its read method without adding a write token", () => {
+    const signal = new AbortController().signal;
+    projectTodosApi.get("p1", "t1", {
+      signal,
+      method: "DELETE",
+      body: "wrong",
+    });
+    expect(request).toHaveBeenCalledWith("/projects/p1/todos/t1", {
+      signal,
+      method: "GET",
+      body: undefined,
+    });
+  });
   it("preserves C1 null clears, omitted dates, full tag replacement and exact catalog revision", () => {
     projectTodosApi.update("p1", "t1", {
       expected_version: 3,
@@ -105,6 +123,68 @@ describe("projectTodosApi", () => {
     expect(request).toHaveBeenCalledWith(
       "/projects/p1/todos?assignee_user_id=7&limit=50&offset=100",
     );
+  });
+
+  it("uses dedicated D2 child routes and never leaks parent fields to old create", () => {
+    const signal = new AbortController().signal;
+    projectTodosApi.listChildren(
+      "p 1",
+      "root/1",
+      { limit: 100, cursor: "opaque.cursor" },
+      { signal },
+    );
+    projectTodosApi.createChild("p 1", "root/1", {
+      title: "child",
+      description: "body",
+      status: "todo",
+      expected_catalog_revision: 7,
+      expected_children_revision: 3,
+      client_request_id: "d6e47312-3f3d-4a27-a43a-23c5df13218b",
+    });
+    projectTodosApi.deleteTree("p 1", "root/1", {
+      expected_version: 4,
+      expected_children_revision: 3,
+      children: [{ todo_id: "child1", expected_version: 2 }],
+    });
+    projectTodosApi.create("p 1", { title: "root" });
+
+    expect(request).toHaveBeenNthCalledWith(
+      1,
+      "/projects/p%201/todos/root%2F1/children?limit=100&cursor=opaque.cursor",
+      { signal },
+    );
+    expect(request).toHaveBeenNthCalledWith(
+      2,
+      "/projects/p%201/todos/root%2F1/children",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          title: "child",
+          description: "body",
+          status: "todo",
+          expected_catalog_revision: 7,
+          expected_children_revision: 3,
+          client_request_id: "d6e47312-3f3d-4a27-a43a-23c5df13218b",
+        }),
+      },
+    );
+    expect(request).toHaveBeenNthCalledWith(
+      3,
+      "/projects/p%201/todos/root%2F1/delete-tree",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          expected_version: 4,
+          expected_children_revision: 3,
+          children: [{ todo_id: "child1", expected_version: 2 }],
+        }),
+      },
+    );
+    const oldCreateBody = JSON.parse(request.mock.calls[3][1].body);
+    expect(oldCreateBody).toEqual({ title: "root" });
+    expect(oldCreateBody).not.toHaveProperty("parent_todo_id");
+    expect(oldCreateBody).not.toHaveProperty("parent");
+    expect(oldCreateBody).not.toHaveProperty("source");
   });
 
   it("creates a todo via POST JSON without any actor id", () => {

@@ -38,6 +38,12 @@ beforeEach(() => {
 });
 
 describe("projectTasksApi against the PS-05B-1 contract", () => {
+  it("encodes the explicit owner archive filter without adding it to default URLs", () => {
+    projectTasksApi.list("p1", { scope: "own", archived: true });
+    expect(request).toHaveBeenCalledWith(
+      "/projects/p1/tasks?scope=own&limit=50&offset=0&archived=true",
+    );
+  });
   it("lists in the default own scope with encoded project id and literal search", () => {
     projectTasksApi.list("p 1/2", { q: "周报 100%_x" });
 

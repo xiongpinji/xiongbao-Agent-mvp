@@ -1,0 +1,68 @@
+.subtodos {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 20px 0;
+  padding: 14px;
+  border: 1px solid var(--fn-border-color-split, rgba(128, 128, 128, 0.18));
+  border-radius: 12px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.header h3,
+.header p,
+.createBox h4 {
+  margin: 0;
+}
+
+.header p,
+.muted {
+  color: var(--fn-text-secondary, #adb3bd);
+  font-size: 12px;
+}
+
+.body,
+.createBox,
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid var(--fn-border-color-split, rgba(128, 128, 128, 0.18));
+}
+
+.openChild {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  overflow-wrap: anywhere;
+  color: var(--fn-text-primary, #f2f2f2);
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.openChild:hover,
+.openChild:focus-visible {
+  color: var(--fn-primary-color, #d3aa67);
+}

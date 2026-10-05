@@ -9,8 +9,8 @@ import re
 import shutil
 import threading
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
-from contextlib import asynccontextmanager, suppress
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
+from contextlib import asynccontextmanager, contextmanager, suppress
 from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn, cast
@@ -75,6 +75,18 @@ from octop.infra.connectors.builder import (
     build_mcp_server_configs_for_user,
     gateway_mcp_server_names,
     inject_missing_gateway_tools,
+)
+from octop.infra.connectors.mcp_actor_scope import (
+    PersonalMCPReceipt,
+    TrustedMCPActor,
+    personal_mcp_denied,
+    trusted_mcp_actor_scope,
+    without_trusted_mcp_actor_scope,
+)
+from octop.infra.connectors.personal_mcp_middleware import (
+    PersonalMCPDescriptor,
+    PersonalMCPMiddleware,
+    fingerprint_personal_descriptor,
 )
 from octop.infra.connectors.service import ConnectorService
 from octop.infra.db.repos.agents import RUNTIME_KIND_PROJECT_TASK_FILES
@@ -1834,7 +1846,13 @@ class AgentManager:
         finally:
             self._end_invocation(agent_id)
 
-    async def stream(self, agent_id: str, request: dict[str, Any]) -> AsyncIterator[Any]:
+    async def stream(
+        self,
+        agent_id: str,
+        request: dict[str, Any],
+        *,
+        trusted_actor: TrustedMCPActor | None = None,
+    ) -> AsyncIterator[Any]:
         """Stream harness chunks (Langfuse tracing handled inside harness-agent)."""
         if self._harness_manager is None:
             raise self._unavailable_error(agent_id)
@@ -1846,19 +1864,33 @@ class AgentManager:
         ):
             self._apply_pending_bootstrap_graph_refresh(agent_id)
             req = self._prepare_stream_request(agent_id, request)
-            with hitl_thread_scope(thread_id_from_request(req)):
+            with (
+                hitl_thread_scope(thread_id_from_request(req)),
+                self._personal_mcp_invocation_scope(agent_id, thread_id, trusted_actor),
+            ):
                 async for chunk in self._harness_manager.stream(agent_id, cast(Any, req)):
                     yield chunk
             self._apply_pending_bootstrap_graph_refresh(agent_id)
 
-    async def call(self, agent_id: str, request: dict[str, Any]) -> dict[str, Any]:
+    async def call(
+        self,
+        agent_id: str,
+        request: dict[str, Any],
+        *,
+        trusted_actor: TrustedMCPActor | None = None,
+    ) -> dict[str, Any]:
         """Non-streaming harness invocation (one-shot agent call)."""
         if self._harness_manager is None:
             raise self._unavailable_error(agent_id)
         async with self._track_invocation(agent_id):
             self._apply_pending_bootstrap_graph_refresh(agent_id)
             req = self._prepare_stream_request(agent_id, request)
-            with hitl_thread_scope(thread_id_from_request(req)):
+            with (
+                hitl_thread_scope(thread_id_from_request(req)),
+                self._personal_mcp_invocation_scope(
+                    agent_id, thread_id_from_request(req), trusted_actor
+                ),
+            ):
                 result = await self._harness_manager.call(agent_id, cast(Any, req))
             self._apply_pending_bootstrap_graph_refresh(agent_id)
         if not isinstance(result, dict):
@@ -1870,6 +1902,10 @@ class AgentManager:
         agent_id: str,
         thread_id: str,
         decisions: list[dict[str, Any]],
+        *,
+        trusted_actor: TrustedMCPActor | None = None,
+        personal_mcp_receipt: PersonalMCPReceipt | None = None,
+        personal_mcp_receipt_expires_at: float | None = None,
     ) -> AsyncIterator[Any]:
         """Resume a paused HITL interrupt for *thread_id*."""
         if self._harness_manager is None:
@@ -1879,7 +1915,17 @@ class AgentManager:
             self._track_invocation(agent_id),
         ):
             self._apply_pending_bootstrap_graph_refresh(agent_id)
-            with hitl_thread_scope(thread_id):
+            if personal_mcp_receipt is not None and (
+                personal_mcp_receipt_expires_at is None
+                or time.time() >= personal_mcp_receipt_expires_at
+            ):
+                raise personal_mcp_denied("personal_mcp_pending_expired")
+            with (
+                hitl_thread_scope(thread_id),
+                self._personal_mcp_invocation_scope(
+                    agent_id, thread_id, trusted_actor, receipt=personal_mcp_receipt
+                ),
+            ):
                 async for chunk in self._harness_manager.resume_hitl(
                     agent_id, thread_id, decisions
                 ):
@@ -2116,11 +2162,130 @@ class AgentManager:
                 self._mcp_tool_cache_locks[key] = lock
             return lock
 
+    def _validate_personal_mcp_actor(self, actor: TrustedMCPActor) -> None:
+        user = self._repos.user_repo.get(actor.user_id)
+        row = self.get_row(actor.agent_id)
+        thread = self._repos.thread_repo.get(actor.thread_id)
+        if (
+            user is None
+            or user.disabled
+            or row is None
+            or not row.enabled
+            or thread is None
+            or thread.agent_id != actor.agent_id
+            or thread.user_id != actor.user_id
+            or thread.session_key != actor.session_key
+            or (row.user_id not in (None, actor.user_id) and user.role != "admin")
+            or _is_project_task_runtime(row)
+        ):
+            raise personal_mcp_denied("personal_mcp_actor_access", locale=actor.locale)
+
+    def personal_mcp_actor(
+        self,
+        agent_id: str,
+        *,
+        user_id: int,
+        thread_id: str,
+        session_key: str,
+        source: str,
+        servers: Sequence[str] | None,
+        locale: str,
+    ) -> TrustedMCPActor | None:
+        """Called only with identities resolved by a server transport/service."""
+        selected = frozenset(servers or ())
+        configs = self._connector_svc.custom_harness_configs(user_id)
+        personal = selected.intersection(configs)
+        if not personal:
+            return None
+        actor = TrustedMCPActor(
+            user_id=user_id,
+            agent_id=agent_id,
+            thread_id=thread_id,
+            session_key=session_key,
+            source=source,
+            allowed_personal_servers=personal,
+            locale=locale,
+        )
+        self._validate_personal_mcp_actor(actor)
+        return actor
+
+    @contextmanager
+    def _personal_mcp_invocation_scope(
+        self,
+        agent_id: str,
+        thread_id: str | None,
+        actor: TrustedMCPActor | None,
+        *,
+        receipt: PersonalMCPReceipt | None = None,
+    ) -> Iterator[None]:
+        if actor is None:
+            if receipt is not None:
+                raise personal_mcp_denied("personal_mcp_scope_missing")
+            with without_trusted_mcp_actor_scope():
+                yield
+            return
+        if actor.agent_id != agent_id or actor.thread_id != thread_id:
+            raise personal_mcp_denied("personal_mcp_invocation_binding", locale=actor.locale)
+        self._validate_personal_mcp_actor(actor)
+        with trusted_mcp_actor_scope(actor, receipt=receipt):
+            yield
+
+    async def _personal_mcp_connection_spec(self, spec: dict[str, Any]) -> dict[str, Any]:
+        from octop.infra.utils.env_file import (
+            env_file_path,
+            load_env_file,
+            overlay_stdio_spec_env,
+        )
+
+        env = await asyncio.get_running_loop().run_in_executor(
+            None, load_env_file, env_file_path(self._paths.root)
+        )
+        return overlay_stdio_spec_env(spec, env)
+
+    async def _resolve_personal_mcp_descriptors(
+        self, actor: TrustedMCPActor
+    ) -> Sequence[PersonalMCPDescriptor]:
+        from langchain_core.tools import BaseTool
+
+        from octop.infra.connectors.mcp_tool_cache import fingerprint_mcp_spec
+
+        self._validate_personal_mcp_actor(actor)
+        configs = self._connector_svc.custom_harness_configs(actor.user_id)
+        deferred = self.get_agent(actor.agent_id).config.deferred_tools
+        descriptors: list[PersonalMCPDescriptor] = []
+        for name in sorted(actor.allowed_personal_servers):
+            spec = configs.get(name)
+            if not isinstance(spec, dict) or not spec.get("transport"):
+                continue
+            effective = await self._personal_mcp_connection_spec(spec)
+            tools = await self._get_or_load_mcp_tools(actor.user_id, name, effective, prepared=True)
+            self._validate_personal_mcp_actor(actor)
+            if self._connector_svc.custom_harness_configs(actor.user_id).get(name) != spec:
+                raise personal_mcp_denied("personal_mcp_config_changed", locale=actor.locale)
+            for tool in tools:
+                if not isinstance(tool, BaseTool) or tool.name in deferred:
+                    raise personal_mcp_denied("personal_mcp_deferral_conflict", locale=actor.locale)
+                extras = dict(tool.extras or {})
+                extras.pop("defer_loading", None)
+                eager = tool.model_copy(update={"extras": extras})
+                descriptors.append(
+                    PersonalMCPDescriptor(
+                        actor=actor,
+                        server_name=name,
+                        tool=eager,
+                        connection_fingerprint=fingerprint_mcp_spec(effective),
+                        descriptor_fingerprint=fingerprint_personal_descriptor(eager),
+                    )
+                )
+        return descriptors
+
     async def _get_or_load_mcp_tools(
         self,
         user_id: int,
         server_name: str,
         spec: dict[str, Any],
+        *,
+        prepared: bool = False,
     ) -> list[Any]:
         """Load custom MCP tools once per user/server/fingerprint; share across agents."""
         from harness_agent.mcp import aload_mcp_tools
@@ -2130,7 +2295,8 @@ class AgentManager:
             wrap_tools_for_shared_use,
         )
 
-        fp = fingerprint_mcp_spec(spec)
+        load_spec = spec if prepared else await self._personal_mcp_connection_spec(spec)
+        fp = fingerprint_mcp_spec(load_spec)
         cache_key = (user_id, server_name, fp)
         cached = self._mcp_tool_cache.get(cache_key)
         if cached is not None:
@@ -2149,14 +2315,6 @@ class AgentManager:
             cached = self._mcp_tool_cache.get(cache_key)
             if cached is not None:
                 return cached
-            from octop.infra.utils.env_file import (  # noqa: PLC0415
-                env_file_path,
-                load_env_file,
-                overlay_stdio_spec_env,
-            )
-
-            global_env = load_env_file(env_file_path(self._paths.root))
-            load_spec = overlay_stdio_spec_env(spec, global_env)
             raw = await aload_mcp_tools({server_name: load_spec})
             server_lock = await self._server_lock(user_id, server_name)
             wrapped = wrap_tools_for_shared_use(raw, server_lock)
@@ -2236,8 +2394,31 @@ class AgentManager:
         if uid is None and connector_user_id is not None:
             uid = connector_user_id
 
+        custom_configs: dict[str, Any] = {}
+        if uid is not None:
+            custom_configs = self._connector_svc.custom_harness_configs(uid)
+        custom_names = [name for name in names if name in custom_configs]
+        custom_failed: list[str] = []
+        for name in custom_names:
+            spec = custom_configs[name]
+            if uid is None or not isinstance(spec, dict) or not spec.get("transport"):
+                custom_failed.append(name)
+                continue
+            try:
+                # Readiness is current-user scoped. Private schemas and specs
+                # never become part of the shared harness's global registry.
+                if not await self._get_or_load_mcp_tools(uid, name, spec):
+                    custom_failed.append(name)
+            except Exception:
+                custom_failed.append(name)
+                logger.exception("prepare_chat_mcp agent=%s: custom MCP load failed", agent_id)
+
         tool_set: frozenset[str] = getattr(agent, "_mcp_tool_name_set", frozenset())
-        missing_tools = [n for n in names if not any(t.startswith(f"{n}_") for t in tool_set)]
+        missing_tools = [
+            n
+            for n in names
+            if n not in custom_configs and not any(t.startswith(f"{n}_") for t in tool_set)
+        ]
         logger.info(
             "prepare_chat_mcp agent=%s connector_user_id=%s requested=%s tool_count=%d missing=%s",
             agent_id,
@@ -2253,40 +2434,9 @@ class AgentManager:
                 agent_id,
                 matched,
             )
-            return []
+            return sorted(custom_failed)
 
-        custom_configs: dict[str, Any] = {}
-        if uid is not None:
-            custom_configs = self._connector_svc.custom_harness_configs(uid)
-
-        custom_missing = [n for n in missing_tools if n in custom_configs]
-        builtin_missing = [n for n in missing_tools if n not in custom_configs]
-
-        if custom_missing and uid is not None:
-            for name in custom_missing:
-                spec = custom_configs[name]
-                if not isinstance(spec, dict) or not spec.get("transport"):
-                    continue
-                try:
-                    tools = await self._get_or_load_mcp_tools(uid, name, spec)
-                except Exception:
-                    logger.exception(
-                        "prepare_chat_mcp agent=%s: failed loading custom MCP %s",
-                        agent_id,
-                        name,
-                    )
-                    continue
-                if tools:
-                    try:
-                        agent.append_mcp_tools(tools)
-                    except Exception:
-                        logger.exception(
-                            "prepare_chat_mcp agent=%s: append_mcp_tools failed for %s",
-                            agent_id,
-                            name,
-                        )
-                        continue
-                agent.config.mcp_server_configs[name] = dict(spec)
+        builtin_missing = missing_tools
 
         gateway_missing: list[str] = []
         if builtin_missing and uid is not None:
@@ -2350,35 +2500,16 @@ class AgentManager:
                     if extra:
                         agent.append_mcp_tools(extra)
 
-            # Full reload drops previously appended custom tools — re-inject from cache.
-            if custom_configs and uid is not None:
-                agent = self.get_agent(agent_id)
-                tool_set = getattr(agent, "_mcp_tool_name_set", frozenset())
-                for name in names:
-                    if name not in custom_configs:
-                        continue
-                    if any(t.startswith(f"{name}_") for t in tool_set):
-                        continue
-                    spec = custom_configs[name]
-                    if not isinstance(spec, dict) or not spec.get("transport"):
-                        continue
-                    try:
-                        tools = await self._get_or_load_mcp_tools(uid, name, spec)
-                    except Exception:
-                        logger.exception(
-                            "prepare_chat_mcp agent=%s: re-inject custom MCP %s failed",
-                            agent_id,
-                            name,
-                        )
-                        continue
-                    if tools:
-                        agent.append_mcp_tools(tools)
-                        agent.config.mcp_server_configs[name] = dict(spec)
-                    tool_set = getattr(agent, "_mcp_tool_name_set", frozenset())
-
         agent = self.get_agent(agent_id)
         tool_set = getattr(agent, "_mcp_tool_name_set", frozenset())
-        still_missing = sorted(n for n in names if not any(t.startswith(f"{n}_") for t in tool_set))
+        still_missing = sorted(
+            set(custom_failed)
+            | {
+                n
+                for n in names
+                if n not in custom_configs and not any(t.startswith(f"{n}_") for t in tool_set)
+            }
+        )
         if still_missing:
             logger.warning(
                 "prepare_chat_mcp agent=%s: tools still missing for %s",
@@ -3761,6 +3892,11 @@ class AgentManager:
         # WorkspaceImageMaterialize expands path-only vision refs at model-call time.
         agent_middleware: list[Any] = [
             *plugin_middleware,
+            PersonalMCPMiddleware(
+                agent_id=row.agent_id,
+                resolver=self._resolve_personal_mcp_descriptors,
+                personal_tool_names=frozenset(),
+            ),
             TokenQuotaMiddleware(
                 policy_repo=self._repos.user_policy_repo,
                 usage_repo=self._repos.usage_repo,

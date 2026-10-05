@@ -10,14 +10,15 @@ import {
   Tag,
 } from "antd";
 import { useTranslation } from "react-i18next";
-import type {
-  AnyPlanDefinition,
-  PlanFilterClause,
-  PlanGroupBy,
-  PlanSortSpec,
-  PlanView,
-  PlanViewType,
-  PlanVisibleField,
+import {
+  normalizePlanDefinition,
+  type AnyPlanDefinition,
+  type PlanFilterClause,
+  type PlanGroupBy,
+  type PlanSortSpec,
+  type PlanView,
+  type PlanViewType,
+  type PlanVisibleField,
 } from "../../../api/modules/projectPlanViews";
 import type { ProjectTodoCatalog } from "../../../api/modules/projectTodoCatalog";
 import type { ProjectMember } from "../../../api/modules/projects";
@@ -143,6 +144,12 @@ export function planDefinitionForType(
     return { ...common, group_by: null, gantt: { zoom: "week" } };
   if (type === "board")
     return { ...common, group_by: previous?.group_by ?? "status" };
+  if (type === "table")
+    return {
+      ...common,
+      group_by: previous?.group_by ?? null,
+      show_subtodos: previous?.show_subtodos === true,
+    };
   return { ...common, group_by: previous?.group_by ?? null };
 }
 
@@ -331,6 +338,7 @@ function validateDefinition(
     "group_by",
     "filters",
     "sort",
+    ...(type === "table" ? ["show_subtodos"] : []),
     ...(type === "calendar" ? ["calendar"] : type === "gantt" ? ["gantt"] : []),
   ];
   let general =
@@ -354,6 +362,8 @@ function validateDefinition(
         (sort.direction === "asc" || sort.direction === "desc"),
     );
   if (type === "board") general &&= definition.group_by !== null;
+  if (type === "table")
+    general &&= typeof definition.show_subtodos === "boolean";
   if (type === "calendar")
     general &&=
       definition.group_by === null &&
@@ -453,6 +463,14 @@ export function PlanDefinitionSummary({
       <dd>
         {t("projects.planViews.groups." + (definition.group_by ?? "none"))}
       </dd>
+      {"show_subtodos" in definition && (
+        <>
+          <dt>{t("projects.planViews.showSubtodos", "显示子待办")}</dt>
+          <dd>
+            {t(definition.show_subtodos ? "common.enabled" : "common.disabled")}
+          </dd>
+        </>
+      )}
       <dt>{t("projects.planViews.filtersTitle", "筛选条件")}</dt>
       <dd>
         {definition.filters.length ? (
@@ -739,7 +757,8 @@ export default function PlanViewSettings(props: PlanViewSettingsProps) {
 function SettingsContent(props: PlanViewSettingsProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(true);
-  const [draft, setDraft] = useState(() => copy(props.definition));
+  const normalized = normalizePlanDefinition(props.view.type, props.definition);
+  const [draft, setDraft] = useState(() => copy(normalized));
   const [baseline, setBaseline] = useState(() => copy(props.baseline));
   const [comparison, setComparison] = useState<PlanViewComparison | null>(null);
   const [compareRequested, setCompareRequested] = useState(false);
@@ -748,7 +767,7 @@ function SettingsContent(props: PlanViewSettingsProps) {
   const [errorKey, setErrorKey] = useState<string | null>(null);
   const [confirmClose, setConfirmClose] = useState(false);
   const originalType = useRef(props.view.type).current;
-  const appliedDefinition = useRef(copy(props.definition));
+  const appliedDefinition = useRef(copy(normalized));
   const latest = useRef(props);
   latest.current = props;
   const mounted = useRef(true),
@@ -797,7 +816,10 @@ function SettingsContent(props: PlanViewSettingsProps) {
     viewUnavailable ||
     typeChanged ||
     !validation.valid ||
-    same(draft, baseline.view.definition);
+    same(
+      draft,
+      normalizePlanDefinition(baseline.view.type, baseline.view.definition),
+    );
   const candidate = comparison ?? (compareRequested ? props.comparison : null);
   const candidateStale =
     candidate !== null &&
@@ -1000,9 +1022,13 @@ function SettingsContent(props: PlanViewSettingsProps) {
           <div className={styles.settings}>
             <div className={styles.heading}>
               <strong>{baseline.view.name}</strong>
-              {!same(draft, baseline.view.definition) && (
-                <Tag>{t("projects.planViews.unsaved", "未保存调整")}</Tag>
-              )}
+              {!same(
+                draft,
+                normalizePlanDefinition(
+                  baseline.view.type,
+                  baseline.view.definition,
+                ),
+              ) && <Tag>{t("projects.planViews.unsaved", "未保存调整")}</Tag>}
             </div>
             {!props.isManager && (
               <Alert
@@ -1064,6 +1090,21 @@ function SettingsContent(props: PlanViewSettingsProps) {
                   "设置无效，请检查字段、筛选条件和排序。",
                 )}
               />
+            )}
+            {originalType === "table" && (
+              <Checkbox
+                checked={draft.show_subtodos === true}
+                disabled={controlsDisabled}
+                onChange={(event) => {
+                  if (draft.gantt || draft.calendar) return;
+                  update({
+                    ...draft,
+                    show_subtodos: event.target.checked,
+                  });
+                }}
+              >
+                {t("projects.planViews.showSubtodos", "显示子待办")}
+              </Checkbox>
             )}
             <fieldset className={styles.fields}>
               <legend>
@@ -1482,7 +1523,7 @@ function SettingsContent(props: PlanViewSettingsProps) {
             <p className={styles.hint}>
               {t(
                 "projects.planViews.unavailableFeatures",
-                "附件、子待办与外部数据源尚待独立实现。",
+                "附件与外部数据源尚待独立实现。",
               )}
             </p>
             {candidate && (
@@ -1550,7 +1591,16 @@ function SettingsContent(props: PlanViewSettingsProps) {
             <div className={styles.actions}>
               <Button
                 disabled={controlsDisabled || typeChanged}
-                onClick={() => update(copy(props.view.definition))}
+                onClick={() =>
+                  update(
+                    copy(
+                      normalizePlanDefinition(
+                        props.view.type,
+                        props.view.definition,
+                      ),
+                    ),
+                  )
+                }
               >
                 {t("projects.planViews.resetShared", "恢复共享设置")}
               </Button>

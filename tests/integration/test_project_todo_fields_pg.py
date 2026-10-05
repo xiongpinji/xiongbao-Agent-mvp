@@ -30,6 +30,7 @@ from octop.infra.db.repos.projects import ProjectRepo
 from octop.infra.db.repos.users import UserRepo
 from octop.infra.utils.paths import PathLayout
 from octop.infra.utils.ulid import new_ulid
+from tests.support.postgresql import validate_ps04c_cluster_path
 from tests.unit.backup.test_project_todo_fields_archive import _seed_archive_rows
 
 
@@ -69,9 +70,7 @@ def postgres_pair(
     assert 1024 < context["port"] < 65536 and context["port"] != 5432
     assert context["user"].startswith("ps04c_qa_")
     assert context["database_prefix"].startswith("ps04c_")
-    cluster = Path(context["cluster"]).resolve()
-    assert cluster.parent.parent == Path("/tmp")
-    assert cluster.parent.name.startswith("xiongbao-ps04c-http-")
+    validate_ps04c_cluster_path(context["cluster"])
     database = context["database_prefix"] + uuid4().hex[:12]
     pools: list[PostgresPool] = []
     report: dict[str, Any] = {"nodeid": request.node.nodeid, "database": database, "races": []}

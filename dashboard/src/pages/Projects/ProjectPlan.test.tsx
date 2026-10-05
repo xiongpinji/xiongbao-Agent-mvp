@@ -135,6 +135,8 @@ const {
   update,
   remove,
   bulk,
+  listChildren,
+  deleteTree,
 } = vi.hoisted(() => ({
   legacyList: vi.fn(),
   planRows: vi.fn(),
@@ -146,6 +148,8 @@ const {
   update: vi.fn(),
   remove: vi.fn(),
   bulk: vi.fn(),
+  listChildren: vi.fn(),
+  deleteTree: vi.fn(),
 }));
 
 const { currentUserId } = vi.hoisted(() => ({
@@ -167,6 +171,8 @@ vi.mock("../../api/modules/projectTodos", async (importOriginal) => {
       update,
       remove,
       bulk,
+      listChildren,
+      deleteTree,
     },
   };
 });
@@ -245,6 +251,11 @@ const todoOpen: ProjectTodo = {
   creator_user_id: 1,
   assignee_user_id: 2,
   version: 3,
+  display_revision: 3,
+  parent_todo_id: null,
+  children_count: 0,
+  done_children_count: 0,
+  children_revision: 1,
   created_at: 1_700_000_000,
   updated_at: 1_700_000_000,
 };
@@ -264,6 +275,11 @@ const todoDoing: ProjectTodo = {
   creator_user_id: 2,
   assignee_user_id: null,
   version: 1,
+  display_revision: 1,
+  parent_todo_id: null,
+  children_count: 0,
+  done_children_count: 0,
+  children_revision: 1,
   created_at: 1_700_000_000,
   updated_at: 1_700_000_000,
 };
@@ -283,6 +299,11 @@ const todoOther: ProjectTodo = {
   creator_user_id: 1,
   assignee_user_id: null,
   version: 1,
+  display_revision: 1,
+  parent_todo_id: null,
+  children_count: 0,
+  done_children_count: 0,
+  children_revision: 1,
   created_at: 1_700_000_000,
   updated_at: 1_700_000_000,
 };
@@ -319,6 +340,7 @@ async function queryFixture(
     body.override_definition ?? viewById(body.view_id).definition;
   const items = source.items.map((todo) => ({
     ...todo,
+    parent_title: null,
     catalog_revision: body.expected_catalog_revision,
   }));
   const groups =
@@ -451,6 +473,8 @@ beforeEach(() => {
   update.mockReset();
   remove.mockReset();
   bulk.mockReset();
+  listChildren.mockReset();
+  deleteTree.mockReset();
   currentUserId.value = 2;
   vi.stubGlobal(
     "IntersectionObserver",
@@ -479,6 +503,131 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("ProjectPlan table/board against the PS-04 contract", () => {
+  it("D1 accepts every atomic bulk row before publishing its newer pair catalog", async () => {
+    const user = userEvent.setup();
+    const accepted = [todoOpen, todoDoing].map((todo) => ({
+      ...todo,
+      priority_id: "pr1",
+      catalog_revision: 2,
+    }));
+    const written = accepted.map((todo) => ({
+      ...todo,
+      status: "done" as const,
+      version: todo.version + 1,
+      display_revision: todo.display_revision + 1,
+      catalog_revision: 1,
+    }));
+    const fresh = written.map((todo) => ({ ...todo, catalog_revision: 3 }));
+    let resolveSecond!: (todo: ProjectTodo) => void;
+    const pending = new Promise<ProjectTodo>((yes) => {
+      resolveSecond = yes;
+    });
+    catalogGet
+      .mockReset()
+      .mockResolvedValueOnce({ ...catalogFixture, revision: 2 })
+      .mockResolvedValue({ ...catalogFixture, revision: 3 });
+    planRows.mockResolvedValue(planRowsResponse(accepted));
+    bulk.mockResolvedValue({ items: written });
+    get
+      .mockReset()
+      .mockResolvedValueOnce(fresh[0])
+      .mockReturnValueOnce(pending);
+    renderPlan();
+    await screen.findByText(accepted[0].title);
+    for (const todo of accepted)
+      fireEvent.click(within(rowFor(todo.title)).getByRole("checkbox"));
+    fireEvent.change(screen.getByRole("combobox", { name: "批量状态" }), {
+      target: { value: "done" },
+    });
+    await user.click(screen.getByRole("button", { name: "应用批量修改" }));
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+    planRows.mockResolvedValue(planRowsResponse(fresh));
+    await act(async () => {
+      resolveSecond(fresh[1]);
+    });
+    await waitFor(() =>
+      expect(screen.queryByText("已选择 2 条待办，最多 50 条")).toBeNull(),
+    );
+    for (const todo of fresh)
+      await waitFor(() =>
+        expect(within(rowFor(todo.title)).getByText("已完成")).toBeVisible(),
+      );
+    expect(bulk).toHaveBeenCalledWith("p1", {
+      items: [
+        { todo_id: "t1", expected_version: 3 },
+        { todo_id: "t2", expected_version: 1 },
+      ],
+      status: "done",
+    });
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(catalogGet).toHaveBeenCalledTimes(2);
+  });
+  it("D1 publishes a bounded pair catalog into visible rows and reuses it for mutation refresh", async () => {
+    const accepted = { ...todoOpen, priority_id: "pr1", catalog_revision: 2 };
+    const written = {
+      ...accepted,
+      status: "done" as const,
+      version: 4,
+      display_revision: 4,
+      catalog_revision: 1,
+    };
+    const fresh = { ...written, catalog_revision: 3 };
+    let resolve!: (todo: ProjectTodo) => void;
+    const pending = new Promise<ProjectTodo>((yes) => {
+      resolve = yes;
+    });
+    const freshCatalog = {
+      ...catalogFixture,
+      revision: 3,
+      priorities: catalogFixture.priorities.map((priority) =>
+        priority.priority_id === "pr1"
+          ? { ...priority, name: "今日紧急" }
+          : priority,
+      ),
+    };
+    catalogGet
+      .mockReset()
+      .mockResolvedValueOnce({ ...catalogFixture, revision: 2 })
+      .mockResolvedValue(freshCatalog);
+    planRows.mockResolvedValue(planRowsResponse([accepted]));
+    update.mockResolvedValue(written);
+    get.mockReturnValue(pending);
+    renderPlan();
+    await screen.findByText(accepted.title);
+    expect(within(rowFor(accepted.title)).getByText("紧急")).toBeVisible();
+    await changeRowStatus(accepted.title, "done");
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(1));
+    expect(within(rowFor(accepted.title)).getByText("紧急")).toBeVisible();
+    expect(screen.getByRole("dialog", { name: "修改状态" })).toBeVisible();
+    planRows.mockResolvedValue(planRowsResponse([fresh]));
+    await act(async () => {
+      resolve(fresh);
+    });
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "修改状态" })).toBeNull(),
+    );
+    await waitFor(() =>
+      expect(
+        within(rowFor(accepted.title)).getByText("今日紧急"),
+      ).toBeVisible(),
+    );
+    await waitFor(() =>
+      expect(
+        planViewsQuery.mock.calls.some(
+          ([, body]) => body.expected_catalog_revision === 3,
+        ),
+      ).toBe(true),
+    );
+    expect(update).toHaveBeenCalledWith("p1", "t1", {
+      expected_version: 3,
+      status: "done",
+    });
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(catalogGet).toHaveBeenCalledTimes(2);
+    expect(get.mock.calls[0][2].signal).toBe(
+      catalogGet.mock.calls[1][1].signal,
+    );
+  });
   it("loads shared plan views and queries their fixed view and catalog versions", async () => {
     renderPlan();
     await waitFor(() => expect(planViewsList).toHaveBeenCalled());
@@ -715,11 +864,22 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
       title: "另一条逾期待办",
       due_date: "2020-02-01",
       version: 7,
+      display_revision: 7,
     };
     planRows.mockResolvedValue(planRowsResponse([overdue, other]));
     update
-      .mockResolvedValueOnce({ ...overdue, due_date: null, version: 4 })
-      .mockResolvedValue({ ...other, title: "改标题保留逾期", version: 8 });
+      .mockResolvedValueOnce({
+        ...overdue,
+        due_date: null,
+        version: 4,
+        display_revision: 4,
+      })
+      .mockResolvedValue({
+        ...other,
+        title: "改标题保留逾期",
+        version: 8,
+        display_revision: 8,
+      });
     renderPlan();
     await screen.findByText("写周报");
     await user.click(
@@ -1099,8 +1259,18 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
           '409 - {"error":{"code":"CONFLICT","details":{"reason":"version_conflict"}}}',
         ),
       )
-      .mockResolvedValue({ ...todoOpen, title: "我的草稿", version: 5 });
-    get.mockResolvedValue({ ...todoOpen, title: "服务端更新", version: 4 });
+      .mockResolvedValue({
+        ...todoOpen,
+        title: "我的草稿",
+        version: 5,
+        display_revision: 5,
+      });
+    get.mockResolvedValue({
+      ...todoOpen,
+      title: "服务端更新",
+      version: 4,
+      display_revision: 4,
+    });
     renderPlan();
     await screen.findByText("写周报");
     await user.click(
@@ -1205,6 +1375,64 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "待办详情" })).toBeNull();
     await waitFor(() => expect(boardTrigger).toHaveFocus());
+  });
+  it("freshly reads an off-page parent from a child action and restores focus while preserving the deep-link callback", async () => {
+    const user = userEvent.setup();
+    const parent = {
+      ...todoOpen,
+      todo_id: "off-page-parent",
+      title: "Fresh parent detail",
+    };
+    const child = {
+      ...todoDoing,
+      todo_id: "child",
+      parent_todo_id: parent.todo_id,
+      children_revision: null,
+      children_count: 0,
+      done_children_count: 0,
+      parent_title: "Snapshot parent",
+    };
+    serverViews[0] = {
+      ...serverViews[0],
+      type: "table",
+      definition: { ...serverViews[0].definition, show_subtodos: true },
+    };
+    planViewsQuery.mockImplementation((_p: string, body: PlanQueryRequest) =>
+      Promise.resolve(
+        makePlanQueryResponse({
+          items: [child],
+          view_id: body.view_id,
+          view_version: body.expected_view_version,
+          catalog_revision: body.expected_catalog_revision,
+        }),
+      ),
+    );
+    get.mockResolvedValue(parent);
+    const onOpenTodo = vi.fn();
+    render(
+      <ProjectPlan
+        projectId="p1"
+        role="member"
+        members={members}
+        onOpenTodo={onOpenTodo}
+      />,
+    );
+    const trigger = await screen.findByRole("button", {
+      name: "父待办：Snapshot parent",
+    });
+    expect(screen.queryByText("Fresh parent detail")).toBeNull();
+    await user.click(trigger);
+    expect(
+      await screen.findByRole("dialog", { name: "待办详情" }),
+    ).toBeVisible();
+    await screen.findByText("Fresh parent detail");
+    expect(get).toHaveBeenCalledWith("p1", parent.todo_id);
+    expect(onOpenTodo).toHaveBeenCalledWith(parent.todo_id);
+    await user.click(
+      screen.getByRole("textbox", { name: "评论", exact: true }),
+    );
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
   it("renders the same todo ids in the table and the board from one response", async () => {
     renderPlan("owner");
@@ -1326,7 +1554,12 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
 
   it("changes status with the current version and refreshes persisted server state", async () => {
     const user = userEvent.setup();
-    update.mockResolvedValue({ ...todoOpen, status: "done", version: 4 });
+    update.mockResolvedValue({
+      ...todoOpen,
+      status: "done",
+      version: 4,
+      display_revision: 4,
+    });
     renderPlan("owner");
     await screen.findByText("写周报");
 
@@ -1346,6 +1579,7 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
             title: "写周报（服务器）",
             status: "done",
             version: 5,
+            display_revision: 5,
           },
         ],
         null,
@@ -1379,7 +1613,7 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
     );
     update.mockImplementation(async () => {
       persisted = true;
-      return { ...todoDoing, status: "done", version: 2 };
+      return { ...todoDoing, status: "done", version: 2, display_revision: 2 };
     });
     renderPlan("owner");
     await screen.findByText("修缺陷");
@@ -1397,7 +1631,12 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
 
   it("edits only changed fields with the current version", async () => {
     const user = userEvent.setup();
-    update.mockResolvedValue({ ...todoOpen, title: "写月报", version: 4 });
+    update.mockResolvedValue({
+      ...todoOpen,
+      title: "写月报",
+      version: 4,
+      display_revision: 4,
+    });
     renderPlan("owner");
     await screen.findByText("写周报");
 
@@ -1429,6 +1668,7 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
       ...markdownTodo,
       description: "# 更新版",
       version: 4,
+      display_revision: 4,
     });
     renderPlan("owner");
     await screen.findByText("写周报");
@@ -1456,6 +1696,7 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
       ...todoOpen,
       description: "新进展",
       version: 4,
+      display_revision: 4,
     });
     renderPlan("owner");
     await screen.findByText("写周报");
@@ -1479,7 +1720,12 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
 
   it("lets a manager reassign through the edit form", async () => {
     const user = userEvent.setup();
-    update.mockResolvedValue({ ...todoOpen, assignee_user_id: 1, version: 4 });
+    update.mockResolvedValue({
+      ...todoOpen,
+      assignee_user_id: 1,
+      version: 4,
+      display_revision: 4,
+    });
     renderPlan("owner");
     await screen.findByText("写周报");
 
@@ -1544,8 +1790,13 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
           '409 - {"error":{"code":"CONFLICT","details":{"reason":"version_conflict"}}}',
         ),
       )
-      .mockResolvedValue({ ...todoOpen, status: "done", version: 5 });
-    get.mockResolvedValue({ ...todoOpen, version: 4 });
+      .mockResolvedValue({
+        ...todoOpen,
+        status: "done",
+        version: 5,
+        display_revision: 5,
+      });
+    get.mockResolvedValue({ ...todoOpen, version: 4, display_revision: 4 });
     renderPlan("owner");
     await screen.findByText("写周报");
     await changeRowStatus("写周报", "done");
@@ -1578,11 +1829,16 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
   });
 
   it("reloads assignment after the member list changes", async () => {
-    planRows
-      .mockResolvedValueOnce(planRowsResponse())
-      .mockResolvedValue(
-        planRowsResponse([{ ...todoOpen, assignee_user_id: null, version: 4 }]),
-      );
+    planRows.mockResolvedValueOnce(planRowsResponse()).mockResolvedValue(
+      planRowsResponse([
+        {
+          ...todoOpen,
+          assignee_user_id: null,
+          version: 4,
+          display_revision: 4,
+        },
+      ]),
+    );
     const { rerender } = renderPlan("owner");
     await screen.findByText("写周报");
     expect(within(rowFor("写周报")).getByText("bob")).toBeInTheDocument();
@@ -1966,8 +2222,8 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
     const user = userEvent.setup();
     bulk.mockResolvedValue({
       items: [
-        { ...todoOpen, status: "done", version: 4 },
-        { ...todoDoing, status: "done", version: 2 },
+        { ...todoOpen, status: "done", version: 4, display_revision: 4 },
+        { ...todoDoing, status: "done", version: 2, display_revision: 2 },
       ],
     });
     renderPlan("owner");
@@ -2026,4 +2282,219 @@ describe("ProjectPlan table/board against the PS-04 contract", () => {
     await waitFor(() => expect(remove).toHaveBeenCalledWith("p1", "t1", 3));
     await waitFor(() => expect(screen.queryByText("写周报")).toBeNull());
   });
+
+  it("confirms a complete child version set and removes exact tree receipt ids without GET of the deleted parent", async () => {
+    const user = userEvent.setup();
+    const root = { ...todoOpen, children_count: 1, children_revision: 2 };
+    const child = {
+      ...todoDoing,
+      todo_id: "child-tree",
+      parent_todo_id: root.todo_id,
+      children_revision: null,
+      children_count: 0,
+      done_children_count: 0,
+    };
+    planRows.mockResolvedValue(planRowsResponse([root, todoOther]));
+    remove.mockRejectedValue(
+      new Error(
+        '409 - {"error":{"code":"CONFLICT","details":{"reason":"children_confirmation_required"}}}',
+      ),
+    );
+    listChildren.mockResolvedValue({
+      items: [child],
+      limit: 100,
+      has_more: false,
+      next_cursor: null,
+      children_revision: 2,
+      parent_display_revision: 3,
+      active_count: 1,
+      done_count: 0,
+    });
+    deleteTree.mockImplementation(async () => {
+      planRows.mockResolvedValue(planRowsResponse([todoOther]));
+      return {
+        deleted_todo_ids: [root.todo_id, child.todo_id],
+        children_revision: 3,
+        hierarchy_revision: 2,
+      };
+    });
+    renderPlan("owner");
+    await screen.findByText("写周报");
+    await user.click(
+      within(rowFor("写周报")).getByRole("button", { name: "删除待办" }),
+    );
+    await user.click(await screen.findByRole("button", { name: "确认删除" }));
+    await user.click(
+      await screen.findByRole("button", { name: "删除待办和子待办" }),
+    );
+    await waitFor(() =>
+      expect(deleteTree).toHaveBeenCalledWith("p1", "t1", {
+        expected_version: 3,
+        expected_children_revision: 2,
+        children: [{ todo_id: "child-tree", expected_version: 1 }],
+      }),
+    );
+    await waitFor(() => expect(screen.queryByText("写周报")).toBeNull());
+    expect(get).not.toHaveBeenCalled();
+    expect(screen.getByText("alice 的待办")).toBeVisible();
+  });
+
+  it("blocks tree confirmation when its child page is incomplete", async () => {
+    const user = userEvent.setup();
+    const root = { ...todoOpen, children_count: 1, children_revision: 2 };
+    planRows.mockResolvedValue(planRowsResponse([root]));
+    remove.mockRejectedValue(
+      new Error(
+        '409 - {"error":{"code":"CONFLICT","details":{"reason":"children_confirmation_required"}}}',
+      ),
+    );
+    listChildren.mockResolvedValue({
+      items: [],
+      limit: 100,
+      has_more: true,
+      next_cursor: "opaque",
+      children_revision: 2,
+      parent_display_revision: 3,
+      active_count: 1,
+      done_count: 0,
+    });
+    renderPlan("owner");
+    await screen.findByText("写周报");
+    await user.click(
+      within(rowFor("写周报")).getByRole("button", { name: "删除待办" }),
+    );
+    await user.click(await screen.findByRole("button", { name: "确认删除" }));
+    await screen.findByText("删除待办树失败");
+    expect(deleteTree).not.toHaveBeenCalled();
+    expect(screen.getByText("写周报")).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "删除待办和子待办" }),
+    ).toBeNull();
+  });
+
+  it("keeps root rows visible when confirmed tree deletion is rejected", async () => {
+    const user = userEvent.setup();
+    const root = { ...todoOpen, children_count: 1, children_revision: 2 };
+    const child = {
+      ...todoDoing,
+      todo_id: "child-tree",
+      parent_todo_id: root.todo_id,
+      children_revision: null,
+      children_count: 0,
+      done_children_count: 0,
+    };
+    planRows.mockResolvedValue(planRowsResponse([root]));
+    remove.mockRejectedValue(
+      new Error(
+        '409 - {"error":{"code":"CONFLICT","details":{"reason":"children_confirmation_required"}}}',
+      ),
+    );
+    listChildren.mockResolvedValue({
+      items: [child],
+      limit: 100,
+      has_more: false,
+      next_cursor: null,
+      children_revision: 2,
+      parent_display_revision: 3,
+      active_count: 1,
+      done_count: 0,
+    });
+    deleteTree.mockRejectedValue(
+      new Error(
+        '409 - {"error":{"code":"CONFLICT","details":{"reason":"version_conflict"}}}',
+      ),
+    );
+    renderPlan("owner");
+    await screen.findByText("写周报");
+    await user.click(
+      within(rowFor("写周报")).getByRole("button", { name: "删除待办" }),
+    );
+    await user.click(await screen.findByRole("button", { name: "确认删除" }));
+    await user.click(
+      await screen.findByRole("button", { name: "删除待办和子待办" }),
+    );
+    await screen.findByText("删除待办树失败");
+    expect(screen.getByText("写周报")).toBeVisible();
+    expect(get).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: /^取\s*消$/ }));
+  });
+
+  it.each([false, true])(
+    "closes tree confirmation on same-actor project revocation and drops late receipt (pending=%s)",
+    async (pending) => {
+      const user = userEvent.setup();
+      const loss = vi.fn();
+      const root = { ...todoOpen, children_count: 1, children_revision: 2 };
+      const child = {
+        ...todoDoing,
+        todo_id: "child-tree",
+        parent_todo_id: root.todo_id,
+        children_revision: null,
+        children_count: 0,
+        done_children_count: 0,
+      };
+      let resolve!: (receipt: {
+        deleted_todo_ids: string[];
+        children_revision: number;
+        hierarchy_revision: number;
+      }) => void;
+      deleteTree.mockReturnValue(
+        new Promise((resolution) => {
+          resolve = resolution;
+        }),
+      );
+      planRows.mockResolvedValue(planRowsResponse([root]));
+      remove.mockRejectedValue(
+        new Error(
+          '409 - {"error":{"code":"CONFLICT","details":{"reason":"children_confirmation_required"}}}',
+        ),
+      );
+      listChildren.mockResolvedValue({
+        items: [child],
+        limit: 100,
+        has_more: false,
+        next_cursor: null,
+        children_revision: 2,
+        parent_display_revision: 3,
+        active_count: 1,
+        done_count: 0,
+      });
+      renderPlan("owner", loss);
+      await screen.findByText("写周报");
+      await user.click(
+        within(rowFor("写周报")).getByRole("button", { name: "删除待办" }),
+      );
+      await user.click(await screen.findByRole("button", { name: "确认删除" }));
+      const confirmation = await screen.findByRole("button", {
+        name: "删除待办和子待办",
+      });
+      if (pending) {
+        await user.click(confirmation);
+        await waitFor(() => expect(deleteTree).toHaveBeenCalledTimes(1));
+      }
+      const denied = new Error('404 - {"error":{"code":"NOT_FOUND"}}');
+      planRows.mockRejectedValue(denied);
+      projectRead.mockRejectedValue(denied);
+      fireEvent.click(screen.getByRole("button", { name: /^刷\s*新$/ }));
+      await waitFor(() => expect(loss).toHaveBeenCalledTimes(1));
+      expect(loss.mock.calls[0][0].account_id).toBe(2);
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("button", { name: "删除待办和子待办" }),
+        ).toBeNull(),
+      );
+      if (pending)
+        await act(async () =>
+          resolve({
+            deleted_todo_ids: [root.todo_id, child.todo_id],
+            children_revision: 3,
+            hierarchy_revision: 2,
+          }),
+        );
+      else expect(deleteTree).not.toHaveBeenCalled();
+      expect(screen.queryByText("待办已删除")).toBeNull();
+      expect(screen.queryByText("写周报")).toBeNull();
+      expect(get).not.toHaveBeenCalled();
+    },
+  );
 });

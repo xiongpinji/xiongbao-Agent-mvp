@@ -226,6 +226,7 @@ const props = (
   onEditTodo: vi.fn(),
   onDeleteTodo: vi.fn(),
   onOpenTodo: vi.fn(),
+  onOpenParentTodo: vi.fn(),
   onProposeTodoPatch: vi.fn(async () => ({
     status: "failed",
     messageKey: "projects.planViews.failed",
@@ -295,6 +296,57 @@ afterEach(() => vi.restoreAllMocks());
 const ready = async () =>
   waitFor(() => expect(screen.getByTestId("renderer")).toBeInTheDocument());
 describe("shared shell query configuration and C1 bridges", () => {
+  it("opens an off-page parent by ID in the current detail scope and rejects a stale renderer callback", async () => {
+    const current = props();
+    const { rerender } = render(<ProjectPlanViews {...current} />);
+    await ready();
+    const old = mocks.ui.renderer!;
+    act(() => old.onOpenParentTodo("off-page-parent", null));
+    expect(current.onOpenParentTodo).toHaveBeenCalledWith(
+      "off-page-parent",
+      null,
+      expect.objectContaining({
+        accountId: 1,
+        projectId: "p1",
+        viewId: "v1",
+        channel: "detail",
+      }),
+    );
+    expect(mocks.getTodo).not.toHaveBeenCalled();
+    const next = props({ accountId: 2 });
+    rerender(<ProjectPlanViews {...next} />);
+    await ready();
+    act(() => old.onOpenParentTodo("private-parent", null));
+    expect(next.onOpenParentTodo).not.toHaveBeenCalled();
+  });
+  it("D1 bridges a display-only projection to the parent exactly once", async () => {
+    const ref = createRef<ProjectPlanViewsHandle>();
+    const current = props();
+    render(<ProjectPlanViews {...current} ref={ref} />);
+    await ready();
+    const loaded = current.onLoadedTodosChanged as ReturnType<typeof vi.fn>;
+    await waitFor(() => expect(loaded.mock.calls.at(-1)?.[0]).toHaveLength(1));
+    const previous = loaded.mock.calls.at(-1)![0][0];
+    const count = loaded.mock.calls.length;
+    await act(async () => {
+      expect(
+        await ref.current!.acceptTodo(
+          ref.current!.captureOperation("external-delete")!,
+          {
+            ...previous,
+            assignee_user_id: null,
+            display_revision: previous.display_revision + 1,
+          },
+        ),
+      ).toBe(true);
+    });
+    await waitFor(() => expect(loaded.mock.calls.length).toBe(count + 1));
+    expect(loaded.mock.calls.at(-1)![0][0]).toMatchObject({
+      version: previous.version,
+      display_revision: previous.display_revision + 1,
+    });
+    expect(mocks.query).toHaveBeenCalledTimes(1);
+  });
   it("loads server views and the POST query source without legacy GET pages", async () => {
     render(<ProjectPlanViews {...props()} />);
     await ready();

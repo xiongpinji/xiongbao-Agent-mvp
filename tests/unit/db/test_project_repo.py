@@ -6,7 +6,10 @@ import hashlib
 import json
 import sqlite3
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from tests.unit.db.test_project_todo_views_migration import _build_legacy
@@ -30,10 +33,13 @@ from octop.infra.utils.ulid import new_ulid
 
 
 @pytest.fixture
-def db(tmp_path: Path) -> SqlitePool:
+def db(tmp_path: Path) -> Iterator[SqlitePool]:
     pool = SqlitePool(tmp_path / "octop.db")
     run_migrations(pool)
-    return pool
+    try:
+        yield pool
+    finally:
+        pool.close()
 
 
 @pytest.fixture
@@ -115,6 +121,19 @@ def _events(db: SqlitePool, project_id: str) -> list[sqlite3.Row]:
             "FROM project_events WHERE project_id = ? ORDER BY id",
             (project_id,),
         ).fetchall()
+
+
+def _join_resolution_state(db: SqlitePool, project_id: str) -> dict[str, list[tuple]]:
+    with db.connect() as conn:
+        return {
+            table: [
+                tuple(row)
+                for row in conn.execute(
+                    f"SELECT * FROM {table} WHERE project_id=? ORDER BY id", (project_id,)
+                ).fetchall()
+            ]
+            for table in ("project_members", "project_join_requests", "project_events")
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -1158,6 +1177,428 @@ def test_list_join_requests_status_filter(
     rejected = repo.list_join_requests(project.project_id, status="rejected")
     assert [r.user_id for r in rejected] == [bob_id]
     assert repo.list_join_requests(project.project_id, status="approved") == []
+
+
+@pytest.mark.parametrize("approve", [True, False])
+@pytest.mark.parametrize(
+    ("state", "expected"),
+    [
+        ("resolver_member", "forbidden"),
+        ("resolver_removed", "missing"),
+        ("resolver_disabled", "missing"),
+        ("resolver_deleted", "missing"),
+        ("archived", "project_archived"),
+    ],
+)
+def test_atomic_join_current_qualification(
+    repo: ProjectRepo,
+    db: SqlitePool,
+    users: UserRepo,
+    owner_id: int,
+    admin_member_id: int,
+    alice_id: int,
+    state: str,
+    expected: str,
+    approve: bool,
+) -> None:
+    project = repo.create_with_owner(creator_user_id=owner_id, name="Atomic")
+    pid = project.project_id
+    repo.add_member(pid, admin_member_id, role="admin")
+    _make_invite(repo, pid, created_by=owner_id, token="atomic", requires_approval=True)
+    request = repo.redeem_invite(token_hash=hash_invite_token("atomic"), user_id=alice_id)
+    with db.connect() as conn:
+        if state == "resolver_member":
+            conn.execute(
+                "UPDATE project_members SET role='member' WHERE project_id=? AND user_id=?",
+                (pid, admin_member_id),
+            )
+        elif state == "resolver_removed":
+            conn.execute(
+                "DELETE FROM project_members WHERE project_id=? AND user_id=?",
+                (pid, admin_member_id),
+            )
+        elif state == "resolver_deleted":
+            conn.execute("DELETE FROM users WHERE id=?", (admin_member_id,))
+        elif state == "resolver_disabled":
+            users.set_disabled(admin_member_id, True)
+        # Competing applicant/archive facts must not bypass resolver qualification.
+        conn.execute("UPDATE project_spaces SET archived=1 WHERE project_id=?", (pid,))
+        users.set_disabled(alice_id, True)
+    before = _join_resolution_state(db, pid)
+    result = repo.resolve_join_request(
+        project_id=pid,
+        request_id=request.request_id,
+        resolver_user_id=admin_member_id,
+        approve=approve,
+    )
+    assert result.outcome == expected
+    assert repo.get_join_request(pid, request.request_id).status == "pending"
+    assert repo.get_membership(pid, alice_id) is None
+    assert _join_resolution_state(db, pid) == before
+
+
+@pytest.mark.parametrize(
+    ("state", "approve", "expected"),
+    [
+        ("disabled", True, "applicant_unavailable"),
+        ("disabled", False, "rejected"),
+        ("resolved_disabled", True, "resolved"),
+        ("member_disabled", True, "already_member"),
+        ("deleted", True, "missing"),
+    ],
+)
+def test_atomic_join_applicant_priority(
+    repo: ProjectRepo,
+    db: SqlitePool,
+    users: UserRepo,
+    owner_id: int,
+    alice_id: int,
+    state: str,
+    approve: bool,
+    expected: str,
+) -> None:
+    pid = repo.create_with_owner(creator_user_id=owner_id, name="Priority").project_id
+    _make_invite(repo, pid, created_by=owner_id, token="priority", requires_approval=True)
+    request = repo.redeem_invite(token_hash=hash_invite_token("priority"), user_id=alice_id)
+    if state == "resolved_disabled":
+        assert (
+            repo.resolve_join_request(
+                project_id=pid,
+                request_id=request.request_id,
+                resolver_user_id=owner_id,
+                approve=False,
+            ).outcome
+            == "rejected"
+        )
+    if state == "member_disabled":
+        repo.add_member(pid, alice_id, role="member")
+    if state == "deleted":
+        users.delete(alice_id)
+    else:
+        users.set_disabled(alice_id, True)
+    before = [tuple(row) for row in _events(db, pid)]
+    result = repo.resolve_join_request(
+        project_id=pid, request_id=request.request_id, resolver_user_id=owner_id, approve=approve
+    )
+    assert result.outcome == expected
+    if expected == "rejected":
+        assert result.request.status == "rejected"
+        assert _events(db, pid)[-1]["event_type"] == "project.join_rejected"
+        assert repo.get_membership(pid, alice_id) is None
+    else:
+        assert [tuple(row) for row in _events(db, pid)] == before
+        if expected in {"applicant_unavailable", "already_member"}:
+            assert repo.get_join_request(pid, request.request_id).status == "pending"
+
+
+@pytest.mark.parametrize(
+    ("change", "code"),
+    [
+        ("demote", ErrorCode.FORBIDDEN),
+        ("remove", ErrorCode.NOT_FOUND),
+        ("disable", ErrorCode.NOT_FOUND),
+    ],
+)
+def test_atomic_join_service_advisory_is_not_authority(
+    service: ProjectService,
+    repo: ProjectRepo,
+    db: SqlitePool,
+    users: UserRepo,
+    owner_id: int,
+    admin_member_id: int,
+    alice_id: int,
+    monkeypatch,
+    change: str,
+    code: ErrorCode,
+) -> None:
+    pid = repo.create_with_owner(creator_user_id=owner_id, name="Advisory").project_id
+    repo.add_member(pid, admin_member_id, role="admin")
+    _make_invite(repo, pid, created_by=owner_id, token="advisory", requires_approval=True)
+    request = repo.redeem_invite(token_hash=hash_invite_token("advisory"), user_id=alice_id)
+    original = repo.resolve_join_request
+
+    def changed_before_transaction(**kwargs):
+        with db.connect() as conn:
+            if change == "demote":
+                conn.execute(
+                    "UPDATE project_members SET role='member' WHERE project_id=? AND user_id=?",
+                    (pid, admin_member_id),
+                )
+            elif change == "remove":
+                conn.execute(
+                    "DELETE FROM project_members WHERE project_id=? AND user_id=?",
+                    (pid, admin_member_id),
+                )
+            else:
+                users.set_disabled(admin_member_id, True)
+        return original(**kwargs)
+
+    monkeypatch.setattr(repo, "resolve_join_request", changed_before_transaction)
+    before = [tuple(row) for row in _events(db, pid)]
+    with pytest.raises(OctopError) as caught:
+        service.approve_join_request(pid, request.request_id, actor_user_id=admin_member_id)
+    assert caught.value.code == code
+    assert repo.get_join_request(pid, request.request_id).status == "pending"
+    assert repo.get_membership(pid, alice_id) is None
+    assert [tuple(row) for row in _events(db, pid)] == before
+
+
+class _JoinSqlRecordingPool:
+    """SQLite-backed SQL protocol seam; suffix assertions are not PG evidence."""
+
+    dialect = "postgresql"
+
+    def __init__(self, db, fault="", new_applicant=None):
+        self.db = db
+        self.fault = fault
+        self.new_applicant = new_applicant
+        self.statements = []
+
+    @contextmanager
+    def transaction(self):
+        with self.db.transaction() as conn:
+            owner = self
+
+            class Connection:
+                def execute(self, sql, params=()):
+                    owner.statements.append((sql, params))
+                    sql = sql.removesuffix(" FOR UPDATE").removesuffix(" FOR SHARE")
+                    if sql.startswith("SELECT * FROM project_join_requests"):
+                        if owner.new_applicant is not None:
+                            conn.execute(
+                                "UPDATE project_join_requests SET user_id=? WHERE project_id=? AND request_id=?",
+                                (owner.new_applicant, *params),
+                            )
+                        if owner.fault == "request_disappeared":
+                            conn.execute(
+                                "DELETE FROM project_join_requests WHERE project_id=? AND request_id=?",
+                                params,
+                            )
+                    cursor = conn.execute(sql, params)
+                    if (
+                        owner.fault == "insert" and sql.startswith("INSERT INTO project_members")
+                    ) or (
+                        owner.fault == "update" and sql.startswith("UPDATE project_join_requests")
+                    ):
+                        return SimpleNamespace(rowcount=0)
+                    return cursor
+
+            yield Connection()
+
+    def connect(self):
+        return self.db.connect()
+
+
+@pytest.mark.parametrize("disappeared", [False, True])
+def test_atomic_join_sql_lock_order_and_changed_locator(
+    repo: ProjectRepo,
+    db: SqlitePool,
+    owner_id: int,
+    alice_id: int,
+    bob_id: int,
+    disappeared: bool,
+) -> None:
+    pid = repo.create_with_owner(creator_user_id=owner_id, name="Lock order").project_id
+    _make_invite(repo, pid, created_by=owner_id, token="locks", requires_approval=True)
+    request = repo.redeem_invite(token_hash=hash_invite_token("locks"), user_id=alice_id)
+    pool = _JoinSqlRecordingPool(
+        db,
+        fault="request_disappeared" if disappeared else "",
+        new_applicant=None if disappeared else bob_id,
+    )
+    result = ProjectRepo(pool).resolve_join_request(
+        project_id=pid, request_id=request.request_id, resolver_user_id=owner_id, approve=True
+    )
+    assert result.outcome == "missing"
+    statements = pool.statements
+    assert len(statements) == 7
+    assert statements[0][0].startswith("SELECT user_id FROM project_join_requests")
+    assert "FOR " not in statements[0][0]
+    for index, uid in enumerate(sorted([owner_id, alice_id]), 1):
+        assert statements[index] == (
+            "SELECT role FROM project_members WHERE project_id = ? AND user_id = ? FOR UPDATE",
+            (pid, uid),
+        )
+    assert statements[3] == (
+        "SELECT archived FROM project_spaces WHERE project_id = ? FOR UPDATE",
+        (pid,),
+    )
+    for index, uid in enumerate(sorted([owner_id, alice_id]), 4):
+        assert statements[index] == (
+            "SELECT id, disabled FROM users WHERE id = ? FOR SHARE",
+            (uid,),
+        )
+    assert statements[6][0].endswith("FOR UPDATE")
+    assert statements[6][0].startswith("SELECT * FROM project_join_requests")
+    assert repo.get_membership(pid, alice_id) is None
+    assert repo.get_membership(pid, bob_id) is None
+    if disappeared:
+        assert repo.get_join_request(pid, request.request_id) is None
+    else:
+        assert repo.get_join_request(pid, request.request_id).status == "pending"
+
+
+@pytest.mark.parametrize(
+    ("fault", "approve"), [("insert", True), ("update", True), ("update", False)]
+)
+def test_atomic_join_guard_conflict_rolls_back(
+    repo: ProjectRepo,
+    db: SqlitePool,
+    owner_id: int,
+    alice_id: int,
+    fault: str,
+    approve: bool,
+) -> None:
+    pid = repo.create_with_owner(creator_user_id=owner_id, name="Guard").project_id
+    _make_invite(repo, pid, created_by=owner_id, token="guard", requires_approval=True)
+    request = repo.redeem_invite(token_hash=hash_invite_token("guard"), user_id=alice_id)
+    before = _join_resolution_state(db, pid)
+    service = ProjectService(_StubServices(ProjectRepo(_JoinSqlRecordingPool(db, fault=fault))))
+    with pytest.raises(OctopError) as caught:
+        (service.approve_join_request if approve else service.reject_join_request)(
+            pid, request.request_id, actor_user_id=owner_id
+        )
+    assert caught.value.code == ErrorCode.INVITE_INVALID
+    assert caught.value.status == 409
+    assert caught.value.details == {"reason": "request_changed"}
+    assert repo.get_join_request(pid, request.request_id).status == "pending"
+    assert repo.get_membership(pid, alice_id) is None
+    assert _join_resolution_state(db, pid) == before
+    assert not db._conn.in_transaction
+
+
+@pytest.mark.parametrize(
+    "event", ["project.member_joined", "project.join_approved", "project.join_rejected"]
+)
+def test_atomic_join_event_failure_rolls_back(
+    repo: ProjectRepo,
+    db: SqlitePool,
+    owner_id: int,
+    alice_id: int,
+    event: str,
+) -> None:
+    pid = repo.create_with_owner(creator_user_id=owner_id, name="Rollback").project_id
+    _make_invite(repo, pid, created_by=owner_id, token="rollback", requires_approval=True)
+    request = repo.redeem_invite(token_hash=hash_invite_token("rollback"), user_id=alice_id)
+    before = _join_resolution_state(db, pid)
+    with db.connect() as conn:
+        conn.execute(
+            "CREATE TEMP TRIGGER fail_join_event BEFORE INSERT ON project_events "
+            f"WHEN NEW.event_type='{event}' BEGIN SELECT RAISE(ABORT,'owned event failure'); END"
+        )
+    with pytest.raises(sqlite3.IntegrityError, match="owned event failure"):
+        repo.resolve_join_request(
+            project_id=pid,
+            request_id=request.request_id,
+            resolver_user_id=owner_id,
+            approve=event != "project.join_rejected",
+        )
+    assert repo.get_join_request(pid, request.request_id).status == "pending"
+    assert repo.get_membership(pid, alice_id) is None
+    assert _join_resolution_state(db, pid) == before
+    assert not db._conn.in_transaction
+
+
+@pytest.mark.parametrize("failure", [KeyboardInterrupt, SystemExit])
+def test_atomic_join_interruption_rolls_back(
+    repo: ProjectRepo,
+    db: SqlitePool,
+    owner_id: int,
+    alice_id: int,
+    monkeypatch,
+    failure,
+) -> None:
+    from octop.infra.db.repos import projects as projects_module
+
+    pid = repo.create_with_owner(creator_user_id=owner_id, name="Interrupted").project_id
+    _make_invite(repo, pid, created_by=owner_id, token="interrupt", requires_approval=True)
+    request = repo.redeem_invite(token_hash=hash_invite_token("interrupt"), user_id=alice_id)
+    before = _join_resolution_state(db, pid)
+    original = projects_module._append_event
+    primary = failure("owned join interruption")
+
+    def interrupted_after_event(*args):
+        original(*args)
+        assert db._conn.in_transaction
+        assert (
+            db._conn.execute(
+                "SELECT status FROM project_join_requests WHERE request_id=?", (request.request_id,)
+            ).fetchone()["status"]
+            == "approved"
+        )
+        assert (
+            db._conn.execute(
+                "SELECT 1 FROM project_members WHERE project_id=? AND user_id=?", (pid, alice_id)
+            ).fetchone()
+            is not None
+        )
+        raise primary
+
+    monkeypatch.setattr(projects_module, "_append_event", interrupted_after_event)
+    with pytest.raises(failure) as caught:
+        repo.resolve_join_request(
+            project_id=pid, request_id=request.request_id, resolver_user_id=owner_id, approve=True
+        )
+    assert caught.value is primary
+    assert not db._conn.in_transaction
+    assert _join_resolution_state(db, pid) == before
+
+
+def test_atomic_join_rollback_failure_closes_shared_connection(
+    repo: ProjectRepo,
+    db: SqlitePool,
+    owner_id: int,
+    alice_id: int,
+    monkeypatch,
+) -> None:
+    from octop.infra.db.repos import projects as projects_module
+
+    pid = repo.create_with_owner(creator_user_id=owner_id, name="Cleanup").project_id
+    _make_invite(repo, pid, created_by=owner_id, token="cleanup", requires_approval=True)
+    request = repo.redeem_invite(token_hash=hash_invite_token("cleanup"), user_id=alice_id)
+    before = _join_resolution_state(db, pid)
+    primary = KeyboardInterrupt("owned transaction interruption")
+    cleanup = RuntimeError("owned rollback failure")
+    attempts = {"rollback": 0, "close": 0}
+    original = projects_module._append_event
+
+    def interrupted(*args):
+        original(*args)
+        assert db._conn.in_transaction
+        raise primary
+
+    class FaultPool:
+        dialect = "sqlite"
+
+        @contextmanager
+        def transaction(self):
+            with db.transaction() as conn:
+
+                def rollback():
+                    attempts["rollback"] += 1
+                    raise cleanup
+
+                def close():
+                    attempts["close"] += 1
+                    conn.close()
+
+                yield SimpleNamespace(execute=conn.execute, rollback=rollback, close=close)
+
+    monkeypatch.setattr(projects_module, "_append_event", interrupted)
+    with pytest.raises(KeyboardInterrupt) as caught:
+        ProjectRepo(FaultPool()).resolve_join_request(
+            project_id=pid, request_id=request.request_id, resolver_user_id=owner_id, approve=True
+        )
+    assert caught.value is primary
+    assert caught.value.__cause__ is cleanup
+    assert attempts == {"rollback": 1, "close": 1}
+    with pytest.raises(sqlite3.ProgrammingError, match="closed"), db.connect() as conn:
+        conn.execute("COMMIT")
+    independent = SqlitePool(db.path)
+    try:
+        assert _join_resolution_state(independent, pid) == before
+    finally:
+        independent.close()
 
 
 # ---------------------------------------------------------------------------

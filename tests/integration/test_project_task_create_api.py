@@ -28,6 +28,7 @@ INSTRUCTIONS = "项目机密指令-028：先读 SOUL.md，再输出周报。"
 CHANGED_INSTRUCTIONS = "项目指令改版-028：先读 README。"
 
 _SUMMARY_KEYS = {
+    "archived_at",
     "project_id",
     "thread_id",
     "owner_user_id",
@@ -159,6 +160,7 @@ async def test_member_create_commits_thread_link_snapshot_in_one_transaction(
     assert r.status_code == 201, r.text
     payload = r.json()
     assert set(payload) == _SUMMARY_KEYS
+    assert payload["archived_at"] is None
     assert payload["project_id"] == ctx["pid"]
     assert payload["owner_user_id"] == ctx["uids"]["member"]
     assert payload["agent_id"] == ctx["agents"]["member"]
@@ -548,6 +550,7 @@ async def test_nonempty_expert_list_requires_matching_revision(
     assert r.status_code == 201, r.text
     payload = r.json()
     assert set(payload) == _SUMMARY_KEYS
+    assert payload["archived_at"] is None
     assert payload["agent_id"] == ctx["agents"]["member"]
     assert _context_revision(ctx["srv"], payload["thread_id"]) == 1
 

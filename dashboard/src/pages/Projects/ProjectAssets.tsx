@@ -104,6 +104,13 @@ interface FolderCrumb {
   name: string;
 }
 
+interface AssetEditTarget {
+  projectId: string;
+  node: ProjectAssetNode;
+  mode: "rename" | "move";
+  generation: number;
+}
+
 /** Project-scoped UI state; keyed so a project switch cannot leak it. */
 interface AssetsUiState {
   key: string;
@@ -303,6 +310,41 @@ export default function ProjectAssets({ projectId }: Props) {
   const [trashActionError, setTrashActionError] = useState<string | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
 
+  const [editTarget, setEditTarget] = useState<AssetEditTarget | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [movePath, setMovePath] = useState<FolderCrumb[]>([]);
+  const [moveDestination, setMoveDestination] = useState<FolderCrumb | null>(
+    null,
+  );
+  const [moveFolders, setMoveFolders] = useState<AssetsListState | null>(null);
+  const editSeq = useRef(0);
+  const editPending = useRef(false);
+  const moveFolderSeq = useRef(0);
+
+  useEffect(
+    () => () => {
+      editSeq.current += 1;
+      moveFolderSeq.current += 1;
+      editPending.current = false;
+    },
+    [],
+  );
+
+  const closeEditModal = useCallback(() => {
+    editSeq.current += 1;
+    moveFolderSeq.current += 1;
+    editPending.current = false;
+    setEditTarget(null);
+    setEditName("");
+    setEditError(null);
+    setEditSubmitting(false);
+    setMovePath([]);
+    setMoveDestination(null);
+    setMoveFolders(null);
+  }, []);
+
   /** Monotonic guards: late responses never overwrite fresher state. */
   const fetchSeq = useRef(0);
   const usageSeq = useRef(0);
@@ -321,6 +363,9 @@ export default function ProjectAssets({ projectId }: Props) {
    * delete response can never repopulate the new project or a cleared page.
    */
   const clearTrashAndDeleteState = useCallback(() => {
+    closeEditModal();
+    setPreviewNode(null);
+    setVersionNode(null);
     deleteSeq.current += 1;
     trashSeq.current += 1;
     restoreSeq.current += 1;
@@ -331,7 +376,7 @@ export default function ProjectAssets({ projectId }: Props) {
     setTrashState(null);
     setTrashActionError(null);
     setRestoringId(null);
-  }, []);
+  }, [closeEditModal]);
 
   // Reset everything that belongs to the previous project before any fetch.
   useEffect(() => {
@@ -466,6 +511,8 @@ export default function ProjectAssets({ projectId }: Props) {
 
   const applyNotFound = useCallback(
     (key: string, err: unknown) => {
+      mutationSeq.current += 1;
+      downloadSeq.current += 1;
       fetchSeq.current += 1;
       usageSeq.current += 1;
       uploadAbort.current?.abort();
@@ -705,7 +752,7 @@ export default function ProjectAssets({ projectId }: Props) {
     if (parsed?.code === "PROJECT_ASSET_NAME_CONFLICT") {
       return t(
         "projects.assets.trashRestoreNameConflict",
-        "原位置已有同名文件或文件夹；当前暂不支持改名或移动，请先处理同名项，此项保留在回收站。",
+        "原父目录已有同名文件或文件夹，请先处理同名项，此项保留在回收站。",
       );
     }
     if (parsed?.code === "PROJECT_ASSET_PARENT_IN_TRASH") {
@@ -810,7 +857,7 @@ export default function ProjectAssets({ projectId }: Props) {
       )
         return;
       void message.success(
-        t("projects.assets.trashRestored", "已恢复到原位置"),
+        t("projects.assets.trashRestored", "已恢复到原父目录"),
       );
       // Restore refreshes the trash list, the directory and both usages.
       setTrashTick((tick) => tick + 1);
@@ -1009,6 +1056,201 @@ export default function ProjectAssets({ projectId }: Props) {
 
   const filtersActive = ui.query.trim().length > 0 || ui.kind !== "all";
 
+  const renameValidation = (raw: string): string | null => {
+    const name = raw.normalize("NFC").trim();
+    if (!name) return t("projects.assets.nameRequired", "请输入资产名称");
+    if (
+      Array.from(name).length > MAX_FOLDER_NAME_LENGTH ||
+      name === "." ||
+      name === ".." ||
+      /[\\/:*?"<>|]/.test(raw) ||
+      Array.from(raw).some(
+        (char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127,
+      ) ||
+      /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i.test(name)
+    )
+      return t("projects.assets.nameInvalid", "名称包含不支持的字符或格式");
+    return null;
+  };
+
+  const loadMoveFolders = async (
+    target: AssetEditTarget,
+    path: FolderCrumb[],
+    offset = 0,
+    append = false,
+  ) => {
+    const seq = ++moveFolderSeq.current;
+    const key = `${target.projectId}\u0000${
+      path[path.length - 1]?.node_id ?? ""
+    }`;
+    setMoveFolders((previous) =>
+      append && previous?.key === key
+        ? { ...previous, loadingMore: true, appendError: null }
+        : freshListState(key),
+    );
+    const isCurrent = () =>
+      seq === moveFolderSeq.current &&
+      target.generation === editSeq.current &&
+      target.projectId === currentProjectId.current;
+    try {
+      const data = await projectAssetsApi.list(target.projectId, {
+        parentId: path[path.length - 1]?.node_id ?? null,
+        kind: "folder",
+        limit: PROJECT_ASSETS_PAGE_SIZE,
+        offset,
+      });
+      if (!isCurrent()) return;
+      const folders = data.items.filter(
+        (node) =>
+          node.kind === "folder" &&
+          (target.node.kind !== "folder" ||
+            node.node_id !== target.node.node_id),
+      );
+      setMoveFolders((previous) => ({
+        ...freshListState(key),
+        items:
+          append && previous?.key === key
+            ? mergeUniqueNodes(previous.items, folders)
+            : folders,
+        total: data.total,
+        hasMore: data.has_more,
+        nextOffset: offset + data.items.length,
+        loading: false,
+      }));
+    } catch (err: unknown) {
+      if (!isCurrent()) return;
+      if (isNotFoundApiError(err)) {
+        applyNotFound(stateKeyRef.current, err);
+        return;
+      }
+      setMoveFolders((previous) =>
+        append && previous?.key === key
+          ? { ...previous, loadingMore: false, appendError: err }
+          : { ...freshListState(key), loading: false, error: err },
+      );
+    }
+  };
+
+  const openEditModal = (
+    node: ProjectAssetNode,
+    mode: AssetEditTarget["mode"],
+  ) => {
+    closeEditModal();
+    const target = { projectId, node, mode, generation: editSeq.current };
+    setEditTarget(target);
+    setEditName(node.name);
+    if (mode === "move") void loadMoveFolders(target, []);
+  };
+
+  const navigateMoveFolders = (path: FolderCrumb[]) => {
+    if (editTarget == null || editPending.current) return;
+    setMovePath(path);
+    void loadMoveFolders(editTarget, path);
+  };
+
+  const submitEdit = async () => {
+    const target = editTarget;
+    if (
+      target == null ||
+      target.projectId !== currentProjectId.current ||
+      target.generation !== editSeq.current ||
+      editPending.current
+    )
+      return;
+    if (target.mode === "rename") {
+      const invalid = renameValidation(editName);
+      if (invalid) {
+        setEditError(invalid);
+        return;
+      }
+    }
+    const isCurrent = () =>
+      target.generation === editSeq.current &&
+      target.projectId === currentProjectId.current;
+    editPending.current = true;
+    setEditSubmitting(true);
+    setEditError(null);
+    try {
+      const updatedNode = await projectAssetsApi.update(
+        target.projectId,
+        target.node.node_id,
+        target.mode === "rename"
+          ? { name: editName.normalize("NFC").trim() }
+          : { parent_id: moveDestination?.node_id ?? null },
+      );
+      if (!isCurrent()) return;
+      closeEditModal();
+      setUiState((previous) =>
+        previous.key === target.projectId &&
+        previous.stack.some((crumb) => crumb.node_id === target.node.node_id)
+          ? { ...previous, stack: [] }
+          : previous,
+      );
+      setPreviewNode((previous) =>
+        previous?.projectId === target.projectId &&
+        previous.node.node_id === target.node.node_id
+          ? { ...previous, node: updatedNode }
+          : previous,
+      );
+      setVersionNode((previous) =>
+        previous?.projectId === target.projectId &&
+        previous.node.node_id === target.node.node_id
+          ? { ...previous, node: updatedNode }
+          : previous,
+      );
+      void message.success(
+        target.mode === "rename"
+          ? t("projects.assets.renamed", "已重命名")
+          : t("projects.assets.moved", "已移动"),
+      );
+      setTrashTick((tick) => tick + 1);
+      reload();
+    } catch (err: unknown) {
+      if (!isCurrent()) return;
+      if (isNotFoundApiError(err)) {
+        applyNotFound(stateKeyRef.current, err);
+        return;
+      }
+      const parsed = parseApiError(err);
+      setEditError(
+        parsed?.code === "PROJECT_ASSET_NAME_CONFLICT" ||
+          httpStatus(err) === 409
+          ? t(
+              "projects.assets.updateNameConflict",
+              "此文件夹已有同名文件或文件夹，请使用其他名称或位置。",
+            )
+          : parsed?.code === "FORBIDDEN" || httpStatus(err) === 403
+          ? t(
+              "projects.assets.trashForbidden",
+              "项目已归档，或你没有管理该资产的权限。",
+            )
+          : apiErrorMessage(
+              err,
+              t("projects.assets.updateFailed", "修改资产失败"),
+              t,
+            ),
+      );
+    } finally {
+      if (isCurrent()) {
+        editPending.current = false;
+        setEditSubmitting(false);
+      }
+    }
+  };
+
+  const editMenuItems = (node: ProjectAssetNode) => [
+    {
+      key: "rename",
+      label: t("projects.assets.rename", "重命名"),
+      onClick: () => openEditModal(node, "rename"),
+    },
+    {
+      key: "move",
+      label: t("projects.assets.moveTo", "移动到"),
+      onClick: () => openEditModal(node, "move"),
+    },
+  ];
+
   const renderNode = (node: ProjectAssetNode) => {
     const updated = formatServerDateTime(node.updated_at, timezone);
     if (node.kind === "folder") {
@@ -1057,6 +1299,7 @@ export default function ProjectAssets({ projectId }: Props) {
             placement="bottomRight"
             menu={{
               items: [
+                ...editMenuItems(node),
                 {
                   key: "trash",
                   icon: <Trash2 size={14} />,
@@ -1131,6 +1374,7 @@ export default function ProjectAssets({ projectId }: Props) {
           placement="bottomRight"
           menu={{
             items: [
+              ...editMenuItems(node),
               {
                 key: "download",
                 icon: <Download size={14} />,
@@ -1190,7 +1434,7 @@ export default function ProjectAssets({ projectId }: Props) {
           <div style={{ wordBreak: "break-word" }}>{item.name}</div>
           <div style={secondaryStyle}>
             {kindLabel} ·{" "}
-            {t("projects.assets.trashOriginalPath", "原位置：{{path}}", {
+            {t("projects.assets.trashOriginalPath", "删除时位置：{{path}}", {
               path: item.original_path || "—",
             })}{" "}
             ·{" "}
@@ -1719,6 +1963,204 @@ export default function ProjectAssets({ projectId }: Props) {
         </div>
       )}
 
+      {editTarget?.projectId === projectId && (
+        <Modal
+          open
+          title={
+            editTarget.mode === "rename"
+              ? t("projects.assets.rename", "重命名")
+              : t("projects.assets.moveTo", "移动到")
+          }
+          maskClosable={false}
+          destroyOnHidden
+          onCancel={closeEditModal}
+          footer={[
+            <Button key="cancel" onClick={closeEditModal}>
+              {t("common.cancel", "取消")}
+            </Button>,
+            <Button
+              key="submit"
+              type="primary"
+              loading={editSubmitting}
+              disabled={
+                editSubmitting ||
+                (editTarget.mode === "move" &&
+                  (moveFolders?.loading || moveFolders?.error != null))
+              }
+              onClick={() => void submitEdit()}
+            >
+              {editTarget.mode === "rename"
+                ? t("projects.assets.renameSave", "保存")
+                : t("projects.assets.moveConfirm", "移动")}
+            </Button>,
+          ]}
+        >
+          {editTarget.mode === "rename" ? (
+            <Input
+              autoFocus
+              value={editName}
+              disabled={editSubmitting}
+              aria-label={t("projects.assets.assetName", "资产名称")}
+              onChange={(event) => {
+                setEditName(event.target.value);
+                setEditError(renameValidation(event.target.value));
+              }}
+              onPressEnter={() => void submitEdit()}
+            />
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <Text style={{ overflowWrap: "anywhere" }}>
+                {t("projects.assets.moveSource", "移动：{{name}}", {
+                  name: editTarget.node.name,
+                })}
+              </Text>
+              <Breadcrumb
+                items={[
+                  {
+                    title: (
+                      <Button
+                        type="link"
+                        disabled={editSubmitting}
+                        onClick={() => navigateMoveFolders([])}
+                      >
+                        {t("projects.assets.root", "项目文件")}
+                      </Button>
+                    ),
+                  },
+                  ...movePath.map((crumb, index) => ({
+                    title: (
+                      <Button
+                        type="link"
+                        key={crumb.node_id}
+                        disabled={editSubmitting}
+                        onClick={() =>
+                          navigateMoveFolders(movePath.slice(0, index + 1))
+                        }
+                      >
+                        {crumb.name}
+                      </Button>
+                    ),
+                  })),
+                ]}
+              />
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <Button
+                  disabled={editSubmitting}
+                  onClick={() => setMoveDestination(null)}
+                >
+                  {t("projects.assets.chooseRoot", "选择项目根目录")}
+                </Button>
+                {movePath.length > 0 && (
+                  <Button
+                    disabled={editSubmitting}
+                    onClick={() =>
+                      setMoveDestination(movePath[movePath.length - 1])
+                    }
+                  >
+                    {t("projects.assets.chooseFolder", "选择此文件夹")}
+                  </Button>
+                )}
+              </div>
+              <Text style={{ overflowWrap: "anywhere" }}>
+                {t("projects.assets.moveDestination", "目标：{{name}}", {
+                  name:
+                    moveDestination?.name ??
+                    t("projects.assets.root", "项目文件"),
+                })}
+              </Text>
+              <div style={{ maxHeight: "min(340px, 40vh)", overflowY: "auto" }}>
+                {moveFolders?.loading ? (
+                  <Spin />
+                ) : (
+                  moveFolders?.items.map((folder) => (
+                    <Button
+                      key={folder.node_id}
+                      type="text"
+                      block
+                      disabled={editSubmitting}
+                      style={{
+                        textAlign: "left",
+                        height: "auto",
+                        whiteSpace: "normal",
+                        overflowWrap: "anywhere",
+                      }}
+                      icon={<Folder size={14} />}
+                      aria-label={t(
+                        "projects.assets.openFolder",
+                        "进入文件夹：{{name}}",
+                        { name: folder.name },
+                      )}
+                      onClick={() =>
+                        navigateMoveFolders([
+                          ...movePath,
+                          { node_id: folder.node_id, name: folder.name },
+                        ])
+                      }
+                    >
+                      {folder.name}
+                    </Button>
+                  ))
+                )}
+                {(moveFolders?.error != null ||
+                  moveFolders?.appendError != null) && (
+                  <Alert
+                    type="error"
+                    showIcon
+                    message={apiErrorMessage(
+                      moveFolders.error ?? moveFolders.appendError,
+                      t("projects.assets.loadFailed", "加载资产失败"),
+                      t,
+                    )}
+                    action={
+                      <Button
+                        disabled={editSubmitting}
+                        onClick={() =>
+                          void loadMoveFolders(
+                            editTarget,
+                            movePath,
+                            moveFolders.error != null
+                              ? 0
+                              : moveFolders.nextOffset,
+                            moveFolders.error == null,
+                          )
+                        }
+                      >
+                        {t("common.retry", "重试")}
+                      </Button>
+                    }
+                  />
+                )}
+                {moveFolders?.hasMore && (
+                  <Button
+                    block
+                    loading={moveFolders.loadingMore}
+                    disabled={editSubmitting || moveFolders.loadingMore}
+                    onClick={() =>
+                      void loadMoveFolders(
+                        editTarget,
+                        movePath,
+                        moveFolders.nextOffset,
+                        true,
+                      )
+                    }
+                  >
+                    {t("projects.assets.loadMore", "加载更多")}
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+          {editError != null && (
+            <Alert
+              type="error"
+              showIcon
+              style={{ marginTop: 12 }}
+              message={editError}
+            />
+          )}
+        </Modal>
+      )}
+
       <Modal
         open={folderOpen}
         title={t("projects.assets.folderTitle", "新建文件夹")}
@@ -1824,7 +2266,7 @@ export default function ProjectAssets({ projectId }: Props) {
             <Text type="secondary" style={secondaryStyle}>
               {t(
                 "projects.assets.trashHint",
-                "回收站中的项目不能下载或预览；恢复后回到原位置。",
+                "回收站中的项目不能下载或预览；恢复到原父目录的当前位置，删除时位置仅供参考。",
               )}
             </Text>
             {trashBody}

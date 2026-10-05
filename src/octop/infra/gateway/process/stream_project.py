@@ -10,6 +10,7 @@ from harness_gateway.media import MediaBackend
 from harness_gateway.models import MessageEvent
 
 from octop.i18n import channel_tool_hint_end, channel_tool_hint_start, tool_display_name
+from octop.infra.connectors.mcp_actor_scope import TrustedMCPActor, personal_mcp_denied
 from octop.infra.gateway.hitl.format import format_hitl_card
 from octop.infra.gateway.media.tool_media import media_events_from_tool_result
 from octop.infra.gateway.process.agent_resolve import harness_workspace_for_agent
@@ -20,6 +21,7 @@ from octop.infra.utils.locale import DEFAULT_LOCALE, Locale, normalize_locale
 if TYPE_CHECKING:
     from octop.infra.agents.manager import AgentManager
     from octop.infra.gateway.hitl.coordinator import HitlChannelCoordinator, HitlStreamContext
+    from octop.infra.gateway.hitl.store import HitlPendingRecord
 
 
 @dataclass
@@ -243,10 +245,16 @@ async def project_stream(
     projection_state: StreamProjectionState | None = None,
     hitl_coordinator: HitlChannelCoordinator | None = None,
     hitl_ctx: HitlStreamContext | None = None,
+    trusted_actor: TrustedMCPActor | None = None,
 ) -> AsyncIterator[MessageEvent]:
     del media_backend  # IM tool media uses agent.backend directly
+    chunks = (
+        agent_manager.stream(agent_id, request, trusted_actor=trusted_actor)
+        if trusted_actor is not None
+        else agent_manager.stream(agent_id, request)
+    )
     async for ev in _project_chunks(
-        agent_manager.stream(agent_id, request),
+        chunks,
         agent_manager=agent_manager,
         agent_id=agent_id,
         locale=locale,
@@ -271,9 +279,17 @@ async def project_resume_stream(
     projection_state: StreamProjectionState | None = None,
     hitl_coordinator: HitlChannelCoordinator | None = None,
     hitl_ctx: HitlStreamContext | None = None,
+    pending: HitlPendingRecord | None = None,
 ) -> AsyncIterator[MessageEvent]:
+    resume_kwargs: dict[str, Any] = {}
+    if pending is not None and pending.personal_mcp_receipt is not None:
+        if hitl_coordinator is None or hitl_ctx is None:
+            raise personal_mcp_denied("personal_mcp_pending_binding")
+        resume_kwargs = hitl_coordinator.personal_resume_kwargs(
+            pending, ctx=hitl_ctx, decisions=decisions
+        )
     async for ev in _project_chunks(
-        agent_manager.resume_hitl(agent_id, thread_id, decisions),
+        agent_manager.resume_hitl(agent_id, thread_id, decisions, **resume_kwargs),
         agent_manager=agent_manager,
         agent_id=agent_id,
         locale=locale,

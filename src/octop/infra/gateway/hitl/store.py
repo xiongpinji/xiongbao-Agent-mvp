@@ -7,6 +7,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from octop.infra.connectors.mcp_actor_scope import PersonalMCPReceipt, personal_mcp_denied
+
 HitlPendingStatus = Literal["pending", "approved", "rejected", "expired"]
 
 _DEFAULT_TTL_SECONDS = 30 * 60
@@ -26,6 +28,7 @@ class HitlPendingRecord:
     status: HitlPendingStatus = "pending"
     ask_question_index: int = 0
     ask_answers: list[str] = field(default_factory=list)
+    personal_mcp_receipt: PersonalMCPReceipt | None = field(default=None, repr=False)
 
 
 @dataclass
@@ -45,7 +48,18 @@ class HitlPendingStore:
         channel_type: str,
         action_requests: list[dict[str, Any]],
         review_configs: list[dict[str, Any]] | None,
+        personal_mcp_receipt: PersonalMCPReceipt | None = None,
     ) -> HitlPendingRecord:
+        if personal_mcp_receipt is not None:
+            actor = personal_mcp_receipt.actor
+            if (
+                actor.user_id != user_id
+                or actor.agent_id != agent_id
+                or actor.thread_id != thread_id
+                or actor.session_key != session_key
+                or actor.source != channel_type
+            ):
+                raise personal_mcp_denied("personal_mcp_pending_binding", locale=actor.locale)
         self._gc()
         for existing in list(self._records.values()):
             if existing.session_key == session_key and existing.status == "pending":
@@ -63,6 +77,7 @@ class HitlPendingStore:
             action_requests=list(action_requests),
             review_configs=list(review_configs) if review_configs else None,
             created_at=time.time(),
+            personal_mcp_receipt=personal_mcp_receipt,
         )
         self._records[pending_id] = record
         return record
@@ -188,6 +203,16 @@ class HitlPendingStore:
         record = self._records.get(pending_id)
         if record is not None:
             record.status = status
+
+    def claim_personal_resume(
+        self, record: HitlPendingRecord, status: Literal["approved", "rejected"]
+    ) -> bool:
+        """Consume an unexpired server record once, before awaiting graph execution."""
+        self._gc()
+        if self._records.get(record.pending_id) is not record or record.status != "pending":
+            return False
+        record.status = status
+        return True
 
     def append_ask_answer(self, pending_id: str, answer: str) -> HitlPendingRecord | None:
         """Record one IM answer and advance to the next question."""

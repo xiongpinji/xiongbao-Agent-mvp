@@ -1,13 +1,22 @@
-import { renderHook, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ReactNode } from "react";
-import { useChatNavigation } from "./useChatNavigation";
-import type { Session } from "./useSessions";
+import { StrictMode, useCallback, type ReactNode } from "react";
+import { useChatNavigation, useChatNavigationOwner } from "./useChatNavigation";
+import { useChatSessionActions } from "./useChatSessionActions";
+import {
+  useSessions,
+  resetSessionStoreForTests,
+  type Session,
+} from "./useSessions";
 import { octopAgentsApi } from "../../../api/modules/octopAgents";
 
 const navigateMock = vi.fn();
 const rebindMock = vi.fn().mockResolvedValue({});
+const listMock = vi.fn();
+const metadataMock = vi.fn();
+const archiveMock = vi.fn();
+const { routing } = vi.hoisted(() => ({ routing: { forward: false } }));
 
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual<typeof import("react-router-dom")>(
@@ -15,13 +24,25 @@ vi.mock("react-router-dom", async () => {
   );
   return {
     ...actual,
-    useNavigate: () => navigateMock,
+    useNavigate: () => {
+      const navigate = actual.useNavigate();
+      return useCallback(
+        (path: string, options?: Parameters<typeof navigate>[1]) => {
+          navigateMock(path, options);
+          if (routing.forward) navigate(path, options);
+        },
+        [navigate],
+      );
+    },
   };
 });
 
 vi.mock("../../../api/modules/octopThreads", () => ({
   octopThreadsApi: {
     rebind: (...args: unknown[]) => rebindMock(...args),
+    list: (...args: unknown[]) => listMock(...args),
+    metadata: (...args: unknown[]) => metadataMock(...args),
+    setArchived: (...args: unknown[]) => archiveMock(...args),
   },
 }));
 
@@ -64,6 +85,17 @@ function session(id: string): Session {
   };
 }
 
+function useTestNavigation(
+  params: Omit<Parameters<typeof useChatNavigation>[0], "navigationOwner">,
+) {
+  const owner = useChatNavigationOwner(
+    useLocation(),
+    params.routeAgentId,
+    params.threadId,
+  );
+  return useChatNavigation({ ...params, navigationOwner: owner });
+}
+
 describe("useChatNavigation stale thread", () => {
   beforeEach(() => {
     navigateMock.mockReset();
@@ -79,7 +111,7 @@ describe("useChatNavigation stale thread", () => {
     const refreshAgents = vi.fn().mockResolvedValue(undefined);
     renderHook(
       () =>
-        useChatNavigation({
+        useTestNavigation({
           routeAgentId: "runtime-private",
           threadId: "thread-existing",
           resolvedAgentId: "runtime-private",
@@ -109,7 +141,7 @@ describe("useChatNavigation stale thread", () => {
 
     renderHook(
       () =>
-        useChatNavigation({
+        useTestNavigation({
           routeAgentId: "agent-new",
           threadId: "thr_foreign",
           resolvedAgentId: "agent-new",
@@ -140,7 +172,7 @@ describe("useChatNavigation stale thread", () => {
 
     renderHook(
       () =>
-        useChatNavigation({
+        useTestNavigation({
           routeAgentId: "agent-new",
           threadId: "thr_maybe",
           resolvedAgentId: "agent-new",
@@ -172,7 +204,7 @@ describe("useChatNavigation stale thread", () => {
 
     renderHook(
       () =>
-        useChatNavigation({
+        useTestNavigation({
           routeAgentId: "agent-new",
           threadId: "thr_ok",
           resolvedAgentId: "agent-new",
@@ -202,7 +234,7 @@ describe("useChatNavigation stale thread", () => {
 
     renderHook(
       () =>
-        useChatNavigation({
+        useTestNavigation({
           routeAgentId: "agent-a",
           threadId: "thr_gone",
           resolvedAgentId: "agent-a",
@@ -225,6 +257,36 @@ describe("useChatNavigation stale thread", () => {
       });
     });
   });
+
+  it("uses the latest normal preferred row when a current missing probe settles after refresh", async () => {
+    let resolve!: (result: "missing") => void;
+    const probe = new Promise<"missing">((done) => {
+      resolve = done;
+    });
+    const ensureThreadInList = vi
+      .fn()
+      .mockReturnValueOnce(probe)
+      .mockResolvedValue("unknown");
+    routing.forward = true;
+    try {
+      const { result, rerender } = routeProbeHook(ensureThreadInList);
+      rerender({ rows: [session("new-preferred")] });
+      await act(async () => {
+        resolve("missing");
+      });
+      expect(result.current.path).toBe("/chat/agent-a/new-preferred");
+      expect(rebindMock).toHaveBeenCalledExactlyOnceWith(
+        "agent-a",
+        "new-preferred",
+      );
+      expect(navigateMock).toHaveBeenCalledExactlyOnceWith(
+        "/chat/agent-a/new-preferred",
+        { replace: true },
+      );
+    } finally {
+      routing.forward = false;
+    }
+  });
 });
 
 describe("useChatNavigation proactive session events", () => {
@@ -246,7 +308,7 @@ describe("useChatNavigation proactive session events", () => {
     const prefillInputRef = { current: "" };
     return renderHook(
       () =>
-        useChatNavigation({
+        useTestNavigation({
           routeAgentId: "agent-a",
           threadId: "thr_open",
           resolvedAgentId: "agent-a",
@@ -330,5 +392,341 @@ describe("useChatNavigation proactive session events", () => {
     expect(fetchSessions).not.toHaveBeenCalled();
     expect(invalidateHistoryMock).not.toHaveBeenCalled();
     expect(loadHistory).not.toHaveBeenCalled();
+  });
+});
+
+function deferredProbe() {
+  let resolve!: (value: "missing" | "unknown" | "found") => void;
+  const promise = new Promise<"missing" | "unknown" | "found">((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+function routeWrapper({ children }: { children: ReactNode }) {
+  return (
+    <MemoryRouter initialEntries={["/chat/agent-a/thread-a"]}>
+      {children}
+    </MemoryRouter>
+  );
+}
+function strictRouteWrapper({ children }: { children: ReactNode }) {
+  return (
+    <StrictMode>
+      <MemoryRouter initialEntries={["/chat/agent-a/thread-a"]}>
+        {children}
+      </MemoryRouter>
+    </StrictMode>
+  );
+}
+function routeProbeHook(
+  ensureThreadInList: ReturnType<typeof vi.fn>,
+  strict = false,
+) {
+  const common = {
+    sessions: [session("preferred")],
+    sessionsLoading: false,
+    prefillInputRef: { current: "" },
+    loadHistory: vi.fn().mockResolvedValue(undefined),
+    clearMessages: vi.fn(),
+    ensureThreadInList,
+    fetchSessions: vi.fn().mockResolvedValue([]),
+    refreshAgents: vi.fn().mockResolvedValue(undefined),
+  };
+  return renderHook(
+    ({ rows }) => {
+      const location = useLocation();
+      const go = useNavigate();
+      const [, , agent, thread] = location.pathname.split("/");
+      const owner = useChatNavigationOwner(location, agent, thread);
+      const navigation = useChatNavigation({
+        ...common,
+        sessions: rows,
+        navigationOwner: owner,
+        routeAgentId: agent,
+        threadId: thread,
+        resolvedAgentId: agent,
+        activeThreadId: thread ?? null,
+      });
+      const actions = useChatSessionActions({
+        navigationOwner: owner,
+        resolvedAgentId: agent,
+        activeThreadId: thread ?? null,
+        sessions: rows,
+        isMobile: false,
+        setActiveAgent: vi.fn(),
+        setSidebarOpen: vi.fn(),
+        setSelectedModel: vi.fn(),
+        setHasBrowserTool: vi.fn(),
+        deleteSession: vi.fn().mockResolvedValue(true),
+        clearMessages: common.clearMessages,
+        ...navigation,
+      });
+      return { go, owner, actions, path: location.pathname, key: location.key };
+    },
+    {
+      wrapper: strict ? strictRouteWrapper : routeWrapper,
+      initialProps: { rows: common.sessions },
+    },
+  );
+}
+
+describe("missing probe with actual route and lifetime ownership", () => {
+  beforeEach(() => {
+    routing.forward = true;
+    navigateMock.mockClear();
+    rebindMock.mockClear();
+  });
+  afterEach(() => {
+    routing.forward = false;
+  });
+
+  it.each([
+    ["missing", "missing"],
+    ["unknown", "missing"],
+    ["missing", "unknown"],
+    ["unknown", "unknown"],
+  ] as const)(
+    "restarts the probe on an active-row click without changing route (%s -> %s)",
+    async (oldResult, currentResult) => {
+      const old = deferredProbe();
+      const current = deferredProbe();
+      const probe = vi
+        .fn()
+        .mockReturnValueOnce(old.promise)
+        .mockReturnValueOnce(current.promise)
+        .mockResolvedValue("unknown");
+      const { result, rerender } = routeProbeHook(probe);
+      const routeKey = result.current.key;
+      expect(probe).toHaveBeenCalledTimes(1);
+      act(() => result.current.actions.handleSelectSession("thread-a"));
+      expect(result.current.path).toBe("/chat/agent-a/thread-a");
+      expect(result.current.key).toBe(routeKey);
+      expect(navigateMock).not.toHaveBeenCalled();
+      expect(rebindMock).not.toHaveBeenCalled();
+      expect(probe).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        old.resolve(oldResult);
+      });
+      expect(result.current.path).toBe("/chat/agent-a/thread-a");
+      expect(navigateMock).not.toHaveBeenCalled();
+      expect(rebindMock).not.toHaveBeenCalled();
+
+      rerender({ rows: [session("latest-preferred")] });
+      expect(probe).toHaveBeenCalledTimes(2);
+      await act(async () => {
+        current.resolve(currentResult);
+      });
+      if (currentResult === "missing") {
+        expect(result.current.path).toBe("/chat/agent-a/latest-preferred");
+        expect(rebindMock).toHaveBeenCalledExactlyOnceWith(
+          "agent-a",
+          "latest-preferred",
+        );
+        expect(navigateMock).toHaveBeenCalledExactlyOnceWith(
+          "/chat/agent-a/latest-preferred",
+          { replace: true },
+        );
+      } else {
+        expect(result.current.path).toBe("/chat/agent-a/thread-a");
+        expect(result.current.key).toBe(routeKey);
+        expect(navigateMock).not.toHaveBeenCalled();
+        expect(rebindMock).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it.each(["same-agent", "expert-ABA"])(
+    "rejects old missing after %s route ABA and permits the current fallback",
+    async (caseName) => {
+      const first = deferredProbe();
+      const second = deferredProbe();
+      const third = deferredProbe();
+      const probe = vi
+        .fn()
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise)
+        .mockReturnValueOnce(third.promise)
+        .mockResolvedValue("unknown");
+      const { result } = routeProbeHook(probe);
+      act(() =>
+        result.current.go(
+          caseName === "same-agent"
+            ? "/chat/agent-a/thread-b"
+            : "/chat/agent-b/thread-b",
+        ),
+      );
+      act(() => result.current.go("/chat/agent-a/thread-a"));
+      expect(probe).toHaveBeenCalledTimes(3);
+      navigateMock.mockClear();
+      await act(async () => {
+        first.resolve("missing");
+        second.resolve("missing");
+      });
+      expect(result.current.path).toBe("/chat/agent-a/thread-a");
+      expect(rebindMock).not.toHaveBeenCalled();
+      expect(navigateMock).not.toHaveBeenCalled();
+      await act(async () => {
+        third.resolve("missing");
+      });
+      expect(result.current.path).toBe("/chat/agent-a/preferred");
+      expect(rebindMock).toHaveBeenCalledExactlyOnceWith(
+        "agent-a",
+        "preferred",
+      );
+    },
+  );
+
+  it("treats a new same-URL location key as a new route read", async () => {
+    const old = deferredProbe();
+    const current = deferredProbe();
+    const probe = vi
+      .fn()
+      .mockReturnValueOnce(old.promise)
+      .mockReturnValueOnce(current.promise);
+    const { result } = routeProbeHook(probe);
+    act(() => result.current.go("/chat/agent-a/thread-a"));
+    expect(probe).toHaveBeenCalledTimes(2);
+    navigateMock.mockClear();
+    await act(async () => {
+      old.resolve("missing");
+      current.resolve("unknown");
+    });
+    expect(rebindMock).not.toHaveBeenCalled();
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(result.current.path).toBe("/chat/agent-a/thread-a");
+  });
+
+  it("fences the first StrictMode lifetime while the replacement remains usable", async () => {
+    const old = deferredProbe();
+    const current = deferredProbe();
+    const probe = vi
+      .fn()
+      .mockReturnValueOnce(old.promise)
+      .mockReturnValueOnce(current.promise)
+      .mockResolvedValue("unknown");
+    const { result } = routeProbeHook(probe, true);
+    expect(probe).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      old.resolve("missing");
+    });
+    expect(rebindMock).not.toHaveBeenCalled();
+    await act(async () => {
+      current.resolve("missing");
+    });
+    expect(result.current.path).toBe("/chat/agent-a/preferred");
+    expect(rebindMock).toHaveBeenCalledExactlyOnceWith("agent-a", "preferred");
+  });
+
+  it("does not rebind or navigate after final unmount", async () => {
+    const old = deferredProbe();
+    const hook = routeProbeHook(vi.fn().mockReturnValue(old.promise));
+    hook.unmount();
+    await act(async () => {
+      old.resolve("missing");
+    });
+    expect(rebindMock).not.toHaveBeenCalled();
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("archived navigation with the actual session store", () => {
+  beforeEach(() => {
+    resetSessionStoreForTests();
+    navigateMock.mockReset();
+    rebindMock.mockReset();
+    listMock.mockReset().mockResolvedValue([]);
+    metadataMock.mockReset().mockResolvedValue({
+      thread_id: "archived",
+      title: "Kept",
+      created_at: 1,
+      last_active: 2,
+      channel_type: "dashboard",
+      has_messages: true,
+      archived_at: 100,
+      conversation_mode: "plan",
+      artifacts: ["plan.md"],
+    });
+    archiveMock.mockReset().mockResolvedValue({
+      thread_id: "archived",
+      agent_id: "a",
+      archived_at: null,
+    });
+  });
+  afterEach(() => resetSessionStoreForTests());
+  it("preserves an archived explicit route, history and composer metadata through normal refresh and restore", async () => {
+    const loadHistory = vi.fn().mockResolvedValue(undefined);
+    const clearMessages = vi.fn();
+    const refreshAgents = vi.fn().mockResolvedValue(undefined);
+    const prefillInputRef = { current: "kept draft" };
+    function routeWrapper({ children }: { children: ReactNode }) {
+      return (
+        <MemoryRouter initialEntries={["/chat/a/archived"]}>
+          {children}
+        </MemoryRouter>
+      );
+    }
+    const { result } = renderHook(
+      () => {
+        const sessions = useSessions("a", {
+          actorId: 1,
+          selectedThreadId: "archived",
+        });
+        useTestNavigation({
+          routeAgentId: "a",
+          threadId: "archived",
+          resolvedAgentId: "a",
+          activeThreadId: "archived",
+          sessions: sessions.sessions,
+          sessionsLoading: sessions.loading,
+          prefillInputRef,
+          loadHistory,
+          clearMessages,
+          ensureThreadInList: sessions.ensureThreadInList,
+          fetchSessions: sessions.fetchSessions,
+          refreshAgents,
+        });
+        return { ...sessions, path: useLocation().pathname };
+      },
+      { wrapper: routeWrapper },
+    );
+    await waitFor(() =>
+      expect(result.current.selectedSession?.archivedAt).toBe(100),
+    );
+    expect(result.current.sessions).toEqual([]);
+    expect(result.current.path).toBe("/chat/a/archived");
+    expect(loadHistory).toHaveBeenCalledWith("archived");
+    expect(navigateMock).not.toHaveBeenCalled();
+    await act(async () => {
+      await result.current.fetchSessions("archived");
+    });
+    expect(result.current.selectedSession).toMatchObject({
+      name: "Kept",
+      conversationMode: "plan",
+      artifacts: ["plan.md"],
+      archivedAt: 100,
+    });
+    metadataMock.mockResolvedValue({
+      thread_id: "archived",
+      title: "Kept",
+      created_at: 1,
+      last_active: 2,
+      channel_type: "dashboard",
+      has_messages: true,
+      archived_at: null,
+      conversation_mode: "plan",
+      artifacts: ["plan.md"],
+    });
+    await act(async () => {
+      expect(
+        (await result.current.archiveSession("archived", false)).status,
+      ).toBe("saved");
+    });
+    expect(result.current.selectedSession?.archivedAt).toBeNull();
+    expect(prefillInputRef.current).toBe("kept draft");
+    expect(result.current.path).toBe("/chat/a/archived");
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(rebindMock).not.toHaveBeenCalled();
+    expect(clearMessages).not.toHaveBeenCalled();
   });
 });

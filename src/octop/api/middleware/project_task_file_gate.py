@@ -7,6 +7,7 @@ runtime owned by exactly one user. Every HTTP route under
 including ``as_user`` impersonation — except the narrow owner-only allowlist:
 
 * ``GET  /api/agents/{id}/threads``                       (list bound threads)
+* ``GET  /api/agents/{id}/threads/{tid}``                  (metadata only)
 * ``GET  /api/agents/{id}/threads/{tid}/history``
 * ``POST /api/agents/{id}/threads/{tid}/read``
 * ``GET  /api/agents/{id}/workspace/tree``
@@ -97,6 +98,8 @@ def is_allowed_internal_route(method: str, tail: Sequence[str]) -> bool:
     """Owner-only allowlist for internal runtimes (default deny)."""
     parts = tuple(tail)
     if method == "GET" and parts == ("threads",):
+        return True
+    if method == "GET" and len(parts) == 2 and parts[0] == "threads":
         return True
     if len(parts) == 3 and parts[0] == "threads":
         if method == "GET" and parts[2] == "history":

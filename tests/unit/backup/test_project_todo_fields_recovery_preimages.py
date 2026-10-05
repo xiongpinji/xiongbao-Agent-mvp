@@ -148,7 +148,7 @@ def test_failed_compensation_retains_real_preimages_for_later_pair_recovery(
     assert saved["database"].parent == saved["stage"]
     assert saved["stage"] in _stages(restore_case)
     with closing(sqlite3.connect(saved["database"])) as conn:
-        assert tuple(conn.iterdump()) == restore_case["database_before"]
+        assert tuple(sorted(conn.iterdump())) == restore_case["database_before"]
     if "private_comment_images" in failed_resources:
         assert _tree(saved["stage"] / "previous") == restore_case["tree_before"]
     else:

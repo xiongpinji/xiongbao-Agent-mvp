@@ -134,7 +134,7 @@ async def iter_dashboard_hitl_resume_sse(
     disconnected = False
     # Clear the in-memory pause before the (possibly long) resume stream so
     # history reload cannot reinject the same card while the turn continues.
-    if pending is not None:
+    if pending is not None and pending.personal_mcp_receipt is None:
         hitl_coordinator.store.mark_resolved(
             pending.pending_id,
             "rejected" if rejected else "approved",
@@ -145,6 +145,7 @@ async def iter_dashboard_hitl_resume_sse(
             thread_id=thread_id,
             user_id=user_id,
             decisions=decisions,
+            pending=pending,
         ):
             if not disconnected:
                 disconnected = await is_disconnected()

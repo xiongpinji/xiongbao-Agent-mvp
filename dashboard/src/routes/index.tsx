@@ -18,6 +18,10 @@ const TokenUsagePage = lazy(() => import("../pages/Control/TokenUsage"));
 // Lazy-loaded pages — Control
 const RemoteDesktopPage = lazy(() => import("../pages/Control/RemoteDesktop"));
 
+const DataManagementPage = lazy(
+  () => import("../pages/Settings/DataManagement"),
+);
+
 // Lazy-loaded pages — Settings
 const ModelsPage = lazy(() => import("../pages/Settings/Models"));
 
@@ -49,6 +53,7 @@ export interface RouteConfig {
 
 export const pathToKey: Record<string, string> = {
   "/chat": "chat",
+  "/settings/data": "data-management",
   // Common
   "/projects": "projects",
   "/experts": "experts",
@@ -146,6 +151,7 @@ export function resolveSelectedKey(pathname: string): string {
 }
 
 export const routeConfigs: RouteConfig[] = [
+  { path: "/settings/data", element: <DataManagementPage /> },
   // Chat (handled via ChatWithKey wrapper in MainLayout)
   { path: "/chat", element: null, useWrapper: true },
   { path: "/chat/:agentId", element: null, useWrapper: true },

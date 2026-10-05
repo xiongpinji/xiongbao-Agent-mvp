@@ -9,11 +9,17 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
 from octop.infra.db.repos._base import now_ts
 from octop.infra.errors import ErrorCode, OctopError
+from octop.infra.projects.connectors import (
+    ProjectPublicConnectorService,
+    PublicConnectorCollection,
+    PublicConnectorFailure,
+)
 from octop.infra.utils.ulid import new_ulid
 
 MAX_PROJECT_NAME_LENGTH = 15
@@ -69,6 +75,7 @@ class ProjectView:
 @dataclass(frozen=True)
 class ProjectDetailView(ProjectView):
     instructions: str
+    archived: bool = False
 
 
 @dataclass(frozen=True)
@@ -147,9 +154,168 @@ class ProjectExpertsView:
     items: list[ProjectExpertView]
 
 
+_PUBLIC_CONNECTOR_FAILURES: dict[str, tuple[ErrorCode, int, str | None]] = {
+    "invalid_revision": (ErrorCode.PROJECT_PUBLIC_CONNECTOR_INVALID, 422, "invalid_payload"),
+    "invalid_display": (ErrorCode.PROJECT_PUBLIC_CONNECTOR_INVALID, 422, "invalid_payload"),
+    "invalid_credential": (ErrorCode.PROJECT_PUBLIC_CONNECTOR_INVALID, 422, "invalid_payload"),
+    "invalid_action": (ErrorCode.PROJECT_PUBLIC_CONNECTOR_INVALID, 422, "invalid_payload"),
+    "stale_revision": (ErrorCode.PROJECT_PUBLIC_CONNECTORS_CHANGED, 409, "stale_revision"),
+    "resource_revoked": (ErrorCode.PROJECT_PUBLIC_CONNECTOR_REVOKED, 409, "resource_revoked"),
+    "revision_exhausted": (
+        ErrorCode.PROJECT_PUBLIC_CONNECTOR_UNAVAILABLE,
+        409,
+        "revision_exhausted",
+    ),
+    "credential_unavailable": (
+        ErrorCode.PROJECT_PUBLIC_CONNECTOR_UNAVAILABLE,
+        503,
+        "configuration_unavailable",
+    ),
+    "key_state_invalid": (
+        ErrorCode.PROJECT_PUBLIC_CONNECTOR_UNAVAILABLE,
+        503,
+        "configuration_unavailable",
+    ),
+    "key_missing": (
+        ErrorCode.PROJECT_PUBLIC_CONNECTOR_UNAVAILABLE,
+        503,
+        "configuration_unavailable",
+    ),
+    "storage_failure": (
+        ErrorCode.PROJECT_PUBLIC_CONNECTOR_UNAVAILABLE,
+        503,
+        "configuration_unavailable",
+    ),
+    "not_found": (ErrorCode.NOT_FOUND, 404, None),
+    "forbidden": (ErrorCode.FORBIDDEN, 403, None),
+    "project_archived": (ErrorCode.FORBIDDEN, 403, "project_archived"),
+}
+
+
+def _public_connector_call(
+    action: Callable[[], PublicConnectorCollection],
+) -> PublicConnectorCollection:
+    try:
+        return action()
+    except PublicConnectorFailure as exc:
+        code, status, reason = _PUBLIC_CONNECTOR_FAILURES.get(
+            exc.reason,
+            (ErrorCode.PROJECT_PUBLIC_CONNECTOR_UNAVAILABLE, 503, "configuration_unavailable"),
+        )
+        raise OctopError.localized(
+            code, status=status, details={"reason": reason} if reason else {}
+        ) from None
+
+
 class ProjectService:
-    def __init__(self, services: Any) -> None:
+    def __init__(
+        self,
+        services: Any,
+        *,
+        public_connector_service: ProjectPublicConnectorService | None = None,
+    ) -> None:
         self._services = services
+        self._public_connectors = public_connector_service
+
+    def _public_connector_domain(self) -> ProjectPublicConnectorService:
+        if self._public_connectors is None:
+            raise OctopError.localized(
+                ErrorCode.PROJECT_PUBLIC_CONNECTOR_UNAVAILABLE,
+                details={"reason": "configuration_unavailable"},
+            )
+        return self._public_connectors
+
+    def list_public_connectors(self, project_id: str, actor_id: int) -> PublicConnectorCollection:
+        domain = self._public_connector_domain()
+        return _public_connector_call(lambda: domain.list_safe(project_id, actor_id))
+
+    def create_public_connector(
+        self,
+        project_id: str,
+        actor_id: int,
+        *,
+        expected_project_revision: int,
+        display_name: str,
+        description: str,
+        credential: Mapping[str, object],
+    ) -> PublicConnectorCollection:
+        domain = self._public_connector_domain()
+        return _public_connector_call(
+            lambda: domain.create(
+                project_id,
+                actor_id,
+                expected_project_revision=expected_project_revision,
+                display_name=display_name,
+                description=description,
+                credential=credential,
+            )
+        )
+
+    def rename_public_connector(
+        self,
+        project_id: str,
+        actor_id: int,
+        connector_id: str,
+        *,
+        expected_project_revision: int,
+        expected_grant_revision: int,
+        display_name: str,
+        description: str,
+    ) -> PublicConnectorCollection:
+        domain = self._public_connector_domain()
+        return _public_connector_call(
+            lambda: domain.rename(
+                project_id,
+                actor_id,
+                connector_id,
+                expected_project_revision=expected_project_revision,
+                expected_grant_revision=expected_grant_revision,
+                display_name=display_name,
+                description=description,
+            )
+        )
+
+    def replace_public_connector_credentials(
+        self,
+        project_id: str,
+        actor_id: int,
+        connector_id: str,
+        *,
+        expected_project_revision: int,
+        expected_grant_revision: int,
+        credential: Mapping[str, object],
+    ) -> PublicConnectorCollection:
+        domain = self._public_connector_domain()
+        return _public_connector_call(
+            lambda: domain.replace_credentials(
+                project_id,
+                actor_id,
+                connector_id,
+                expected_project_revision=expected_project_revision,
+                expected_grant_revision=expected_grant_revision,
+                credential=credential,
+            )
+        )
+
+    def revoke_public_connector(
+        self,
+        project_id: str,
+        actor_id: int,
+        connector_id: str,
+        *,
+        expected_project_revision: int,
+        expected_grant_revision: int,
+    ) -> PublicConnectorCollection:
+        domain = self._public_connector_domain()
+        return _public_connector_call(
+            lambda: domain.revoke(
+                project_id,
+                actor_id,
+                connector_id,
+                expected_project_revision=expected_project_revision,
+                expected_grant_revision=expected_grant_revision,
+            )
+        )
 
     @property
     def _repo(self) -> Any:
@@ -187,6 +353,7 @@ class ProjectService:
             created_at=int(row.created_at),
             updated_at=int(row.updated_at),
             instructions=str(row.instructions),
+            archived=bool(row.archived),
         )
 
     def list_projects(
@@ -557,16 +724,26 @@ class ProjectService:
     def _resolve_join_request(
         self, project_id: str, request_id: str, actor_user_id: int, *, approve: bool
     ) -> ProjectJoinRequestView:
-        self._require_membership(project_id, actor_user_id, edit=True)
         resolution = self._repo.resolve_join_request(
             project_id=project_id,
             request_id=request_id,
             resolver_user_id=actor_user_id,
             approve=approve,
         )
-        if resolution.outcome == "missing" or resolution.request is None:
-            raise OctopError(ErrorCode.NOT_FOUND, "join request not found")
-        if resolution.outcome == "resolved":
+        if resolution.outcome == "forbidden":
+            raise OctopError(ErrorCode.FORBIDDEN, "join request requires owner or admin role")
+        if resolution.outcome == "project_archived":
+            raise OctopError(
+                ErrorCode.FORBIDDEN, "project is archived", details={"reason": "project_archived"}
+            )
+        if resolution.outcome == "stale":
+            raise OctopError(
+                ErrorCode.INVITE_INVALID,
+                "join request changed",
+                status=409,
+                details={"reason": "request_changed"},
+            )
+        if resolution.outcome == "resolved" and resolution.request is not None:
             raise OctopError(
                 ErrorCode.INVITE_INVALID,
                 "join request is already resolved",
@@ -583,6 +760,15 @@ class ProjectService:
                 status=409,
                 details={"reason": "already_member"},
             )
+        if resolution.outcome == "applicant_unavailable":
+            raise OctopError(
+                ErrorCode.INVITE_INVALID,
+                "applicant is unavailable",
+                status=409,
+                details={"reason": "applicant_unavailable"},
+            )
+        if resolution.outcome == "missing" or resolution.request is None:
+            raise OctopError(ErrorCode.NOT_FOUND, "join request not found")
         return self._request_view(resolution.request)
 
     def _invite_view(self, row: Any) -> ProjectInviteView:
@@ -643,4 +829,5 @@ class ProjectService:
             created_at=int(project.created_at),
             updated_at=int(project.updated_at),
             instructions=str(project.instructions),
+            archived=bool(project.archived),
         )

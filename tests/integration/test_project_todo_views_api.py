@@ -29,6 +29,7 @@ VIEW_KEYS = {
 }
 DEFAULT_DEFINITIONS = {
     "table": {
+        "show_subtodos": False,
         "schema_version": 1,
         "fields": ["title", "status", "assignee", "priority", "tags", "start_date", "due_date"],
         "group_by": None,
@@ -599,3 +600,95 @@ async def test_created_event_contains_only_safe_view_identity_and_field_names(en
     )
     assert item["view_id"] == vid and item["version"] == 1 and item["collection_revision"] == 2
     assert item["action"] == "created" and set(item["fields"]) == {"name", "type", "definition"}
+
+
+async def test_table_patch_raw_flag_omission_explicit_changes_and_switch(env_with_provider):
+    ctx = await _context(env_with_provider)
+    target = ctx["views"]["items"][0]
+    path = ctx["plan"] + "/views/" + target["view_id"]
+    definition = dict(default_definition("table"), show_subtodos=True)
+    response = await ctx["client"].patch(
+        path,
+        headers=ctx["owner_auth"],
+        json={
+            "expected_version": 1,
+            "expected_catalog_revision": 1,
+            "definition": definition,
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["item"]["definition"]["show_subtodos"] is True
+    legacy = default_definition("table")
+    legacy.pop("show_subtodos")
+    legacy["sort"] = []
+    response = await ctx["client"].patch(
+        path,
+        headers=ctx["owner_auth"],
+        json={
+            "expected_version": 2,
+            "expected_catalog_revision": 1,
+            "definition": legacy,
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["item"]["definition"] == dict(legacy, show_subtodos=True)
+    before = _raw_state(ctx)
+    response = await ctx["client"].patch(
+        path,
+        headers=ctx["owner_auth"],
+        json={
+            "expected_version": 2,
+            "expected_catalog_revision": 1,
+            "definition": dict(legacy, show_subtodos=False),
+        },
+    )
+    assert response.status_code == 409, response.text
+    assert _raw_state(ctx) == before
+    response = await ctx["client"].patch(
+        path,
+        headers=ctx["owner_auth"],
+        json={
+            "expected_version": 3,
+            "expected_catalog_revision": 1,
+            "definition": dict(legacy, show_subtodos=False),
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["item"]["definition"]["show_subtodos"] is False
+    response = await ctx["client"].patch(
+        path,
+        headers=ctx["owner_auth"],
+        json={
+            "expected_version": 4,
+            "type": "list",
+            "expected_catalog_revision": 1,
+            "definition": default_definition("list"),
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert "show_subtodos" not in response.json()["item"]["definition"]
+    response = await ctx["client"].patch(
+        path,
+        headers=ctx["owner_auth"],
+        json={
+            "expected_version": 5,
+            "type": "table",
+            "expected_catalog_revision": 1,
+            "definition": legacy,
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["item"]["definition"]["show_subtodos"] is False
+
+
+@pytest.mark.parametrize("value", [None, 0, 1, "true"])
+async def test_table_create_rejects_non_bool_flag_without_writes(env_with_provider, value):
+    ctx = await _context(env_with_provider)
+    before = _raw_state(ctx)
+    body = _create_body()
+    body["definition"]["show_subtodos"] = value
+    response = await ctx["client"].post(
+        ctx["plan"] + "/views", headers=ctx["owner_auth"], json=body
+    )
+    assert response.status_code == 422, response.text
+    assert _raw_state(ctx) == before

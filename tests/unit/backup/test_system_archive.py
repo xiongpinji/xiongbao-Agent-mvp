@@ -184,6 +184,19 @@ def test_comment_image_backup_restores_metadata_and_private_bytes(
             "updated_at) VALUES (?, ?, 1, 'todo', 1, 1)",
             (todo_id, project_id),
         )
+        # This fixture writes current-schema rows directly, so create the
+        # same required D1 states as the current ordinary writer transaction.
+        for state in ("project_todo_display_state", "project_todo_attachment_state"):
+            conn.execute(
+                "INSERT INTO "
+                + state
+                + "(project_id,todo_id,revision,updated_at) VALUES (?,?,1,1)",
+                (project_id, todo_id),
+            )
+        conn.execute(
+            "INSERT INTO project_todo_attachment_usage(project_id,used_bytes,updated_at) VALUES (?,0,1)",
+            (project_id,),
+        )
         conn.execute(
             "INSERT INTO project_todo_comments(comment_id, todo_id, author_user_id, body_text, "
             "client_request_id, request_fingerprint, created_at) VALUES (?, ?, 1, '', ?, ?, 1)",

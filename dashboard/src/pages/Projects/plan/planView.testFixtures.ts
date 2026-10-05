@@ -1,8 +1,9 @@
-import type { ProjectTodo } from "../../../api/modules/projectTodos";
 import type { ProjectTodoCatalog } from "../../../api/modules/projectTodoCatalog";
 import type {
   AnyPlanDefinition,
+  PlanDefinition,
   PlanQueryResponse,
+  PlanQueryTodo,
   PlanView,
   PlanViewType,
 } from "../../../api/modules/projectPlanViews";
@@ -10,8 +11,9 @@ import { catalogFixture } from "../todoCatalog.testFixtures";
 import type { PlanRendererProps } from "./ProjectPlanViews";
 
 export const makePlanTodo = (
-  overrides: Partial<ProjectTodo> = {},
-): ProjectTodo => ({
+  overrides: Partial<PlanQueryTodo> = {},
+): PlanQueryTodo => ({
+  parent_title: null,
   todo_id: "todo1",
   project_id: "p1",
   title: "Synthetic todo",
@@ -23,9 +25,14 @@ export const makePlanTodo = (
   priority_id: null,
   tag_ids: [],
   catalog_revision: 1,
+  display_revision: overrides.version ?? 1,
   creator_user_id: 1,
   assignee_user_id: null,
   version: 1,
+  parent_todo_id: null,
+  children_count: 0,
+  done_children_count: 0,
+  children_revision: 1,
   created_at: 1,
   updated_at: 1,
   ...overrides,
@@ -48,7 +55,7 @@ export function makePlanDefinition(
       group_by: null,
       calendar: { date_basis: "due_date", mode: "month" },
     };
-  return {
+  const result: PlanDefinition = {
     ...definition,
     fields:
       type === "board"
@@ -63,6 +70,7 @@ export function makePlanDefinition(
             "due_date",
           ],
   };
+  return type === "table" ? { ...result, show_subtodos: false } : result;
 }
 export function makePlanView(overrides: Partial<PlanView> = {}): PlanView {
   const type = overrides.type ?? "table";
@@ -152,6 +160,7 @@ export function makePlanRendererProps(
     canEdit: () => true,
     canDelete: () => true,
     onOpenTodo: () => {},
+    onOpenParentTodo: () => {},
     onEditTodo: () => {},
     onDeleteTodo: () => {},
     onProposeTodoPatch: async () => ({

@@ -78,6 +78,14 @@ def page_case(tmp_path: Path) -> Iterator[dict[str, Any]]:
                 "INSERT INTO project_todo_tag_links(project_id,todo_id,tag_id) VALUES (?,?,?)",
                 (foreign, foreign_todo, foreign_tag),
             )
+            conn.execute(
+                "INSERT INTO project_todo_display_state(project_id,todo_id,revision,updated_at) "
+                "SELECT project_id,todo_id,1,updated_at FROM project_todos"
+            )
+            conn.execute(
+                "INSERT INTO project_todo_attachment_state(project_id,todo_id,revision,updated_at) "
+                "SELECT project_id,todo_id,1,updated_at FROM project_todos"
+            )
         yield {
             "pool": pool,
             "repo": ProjectTodoRepo(pool),
@@ -159,6 +167,19 @@ def test_empty_page_skips_tag_query(page_case: dict[str, Any]) -> None:
     rows, calls = _trace_page(page_case, limit=100, offset=999)
     assert rows == [] and _links(calls) == []
     assert sum(sql.lstrip().upper().startswith("SELECT") for sql, _ in calls) <= 4
+
+
+def test_page_rejects_missing_display_state_without_hiding_the_todo(
+    page_case: dict[str, Any],
+) -> None:
+    selected = page_case["todo_ids"][-1]
+    with page_case["pool"].transaction() as conn:
+        conn.execute(
+            "DELETE FROM project_todo_display_state WHERE project_id=? AND todo_id=?",
+            (page_case["pid"], selected),
+        )
+    with pytest.raises(RuntimeError):
+        _trace_page(page_case, limit=20)
 
 
 def test_page_refs_are_project_scoped_and_outsider_cannot_read(page_case: dict[str, Any]) -> None:

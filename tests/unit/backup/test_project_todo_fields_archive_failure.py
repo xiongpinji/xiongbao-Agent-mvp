@@ -36,7 +36,9 @@ def _private_tree(layout: PathLayout) -> dict[str, str]:
 
 def _database_dump(pool: SqlitePool) -> tuple[str, ...]:
     with pool.connect() as conn:
-        return tuple(conn.iterdump())
+        # Restoring can reorder schema objects; retain every complete statement,
+        # including duplicate row values, without comparing creation order.
+        return tuple(sorted(conn.iterdump()))
 
 
 def _seed_plan_fields(
